@@ -9,6 +9,7 @@ import '../models/exercise.dart';
 import '../models/exercise_muscle_info.dart';
 import '../models/history_entry.dart';
 import '../models/rating_relevance.dart';
+import '../models/set_feedback.dart';
 import '../models/workout_day_def.dart';
 import '../models/year_sheet_data.dart';
 import '../services/analysis/alternative_exercise_map.dart';
@@ -95,6 +96,16 @@ List<HistoryPoint> buildExerciseHistory({
           exactDateKnown: meta != null,
           totalSets: loggedRange?.setCount,
           avgReps: loggedRange?.avgReps,
+          thumbsUpCount:
+              loggedRange?.setFeedback
+                  .where((f) => f == SetFeedback.up)
+                  .length ??
+              0,
+          thumbsDownCount:
+              loggedRange?.setFeedback
+                  .where((f) => f == SetFeedback.down)
+                  .length ??
+              0,
         ),
       );
     }
@@ -261,6 +272,22 @@ List<HistoryEntry> buildHistoryEntries(
     }
 
     if (year.format == MatrixTabFormat.currentGrouped) {
+      // Once a week has a real, explicitly-tagged visit (workoutDayId set —
+      // i.e. logged through the app after this field was added), that
+      // visit is authoritative for the whole week: don't synthesize ANY
+      // other day for it, even one that merely shares a muscle group with
+      // it (e.g. abdominals trained under both Push and Legs) — otherwise a
+      // shared exercise's matrix cell, written by the real visit, gets
+      // mistaken for a second, un-logged day's own session. Weeks with no
+      // explicitly-tagged visit (rows predating this field, or hand-typed
+      // sheet data) fall back to the older muscle-set-match suppression
+      // below, which still allows legitimate per-day reconstruction from
+      // hand-typed data with no MetaRows at all.
+      final weeksWithExplicitRealVisit = <int>{
+        for (final visit in year.metaRows)
+          if (visit.workoutDayId != null) visit.isoWeek,
+      };
+
       // A (week, day) pair already has a real visit — don't also
       // synthesize it. A visit belongs to every current day whose declared
       // muscle set is a superset of what it actually trained (mirrors
@@ -275,27 +302,76 @@ List<HistoryEntry> buildHistoryEntries(
               '${visit.isoWeek}::${day.id}',
       };
 
+      // Stable order: smallest declared muscle-group set first, ties broken
+      // by original list position (List.sort isn't guaranteed stable).
+      // Reused both to decide which day "claims" an exercise first when two
+      // days' sets overlap, and to give each day a fixed, deterministic
+      // weekday offset so multiple same-week synthetic entries don't all
+      // collapse onto Monday.
+      final orderedIndices = List<int>.generate(workoutDays.length, (i) => i)
+        ..sort((a, b) {
+          final byCount = workoutDays[a].muscleGroups.length.compareTo(
+            workoutDays[b].muscleGroups.length,
+          );
+          return byCount != 0 ? byCount : a.compareTo(b);
+        });
+
       for (final week in year.weekColumns.keys) {
         final col = year.weekColumns[week]!;
-        for (final day in workoutDays) {
+        if (weeksWithExplicitRealVisit.contains(week)) continue;
+
+        // Per-week claim tracking: which muscle-group set + sheetRows each
+        // already-emitted day this week used, so a broader day (e.g. the
+        // seeded "Full Body", a superset of every other day) doesn't
+        // re-include exercises a more specific day already accounted for.
+        // Only excludes when one day's set fully contains another's — two
+        // merely-overlapping peer sets (e.g. Push and Legs both including
+        // Abdominals) are not subset-related, so nothing is excluded
+        // between them and both keep showing the shared exercise, exactly
+        // as before.
+        final claimedGroups = <Set<MuscleGroup>>[];
+        final claimedRows = <Set<int>>[];
+
+        for (var rank = 0; rank < orderedIndices.length; rank++) {
+          final day = workoutDays[orderedIndices[rank]];
           if (loggedCurrentDayWeeks.contains('$week::${day.id}')) continue;
 
-          final exercisesThisDay = [
+          final rawExercisesThisDay = [
             for (final g in day.muscleGroups)
               for (final e in year.muscleGroupSections[g] ?? const <Exercise>[])
                 if (e.sheetRow != null &&
                     year.cellValues[CellKey(e.sheetRow!, col)] != null)
                   e,
           ];
+          if (rawExercisesThisDay.isEmpty) continue;
+
+          final dayGroups = day.muscleGroups.toSet();
+          final excludedRows = <int>{
+            for (var i = 0; i < claimedGroups.length; i++)
+              if (dayGroups.containsAll(claimedGroups[i])) ...claimedRows[i],
+          };
+          final exercisesThisDay = [
+            for (final e in rawExercisesThisDay)
+              if (!excludedRows.contains(e.sheetRow)) e,
+          ];
+          // Fully covered by a more specific day already processed this week.
           if (exercisesThisDay.isEmpty) continue;
 
+          claimedGroups.add(dayGroups);
+          claimedRows.add({for (final e in exercisesThisDay) e.sheetRow!});
+
+          // No fixed weekday convention for an arbitrary custom day (unlike
+          // legacy's hardcoded Push=Sunday/Pull=Tuesday/Legs=Thursday) — a
+          // fixed rank-based offset from Monday keeps different days that
+          // share a week from colliding on the same displayed date, while
+          // staying deterministic and consistent with exactDateKnown: false.
+          final offsetDays = rank > 6 ? 6 : rank;
           entries.add(
             HistoryEntry(
-              // No fixed weekday convention for an arbitrary custom day
-              // (unlike legacy's hardcoded Push=Sunday/Pull=Tuesday/
-              // Legs=Thursday) — Monday-of-week is an honest fallback,
-              // consistent with exactDateKnown: false.
-              date: approximateDateForIsoWeek(year.year, week),
+              date: approximateDateForIsoWeek(
+                year.year,
+                week,
+              ).add(Duration(days: offsetDays)),
               isoWeek: week,
               isoYear: year.year,
               exerciseNames: [for (final e in exercisesThisDay) e.name],
@@ -401,6 +477,12 @@ WorkoutDay? workoutDayForGroupLabels(List<String> labels) {
 /// "biceps"/"triceps") — that incidental collision used to be the only
 /// thing making some current-format visits "count" for these days.
 bool historyEntryBelongsToDay(HistoryEntry entry, WorkoutDayDef day) {
+  // An explicit tag (real visits logged after workoutDayId was added) is
+  // authoritative — skip muscle-based inference entirely so a shared
+  // muscle group can never misattribute a real visit to the wrong day.
+  final explicitId = entry.metaRow?.workoutDayId;
+  if (explicitId != null) return explicitId == day.id;
+
   final resolved = <MuscleGroup>{
     for (final label in entry.muscleGroups)
       if (currentMuscleFromSheetHeader(label) case final g?) g,
@@ -411,6 +493,22 @@ bool historyEntryBelongsToDay(HistoryEntry entry, WorkoutDayDef day) {
   if (day.legacyDay == null) return currentMatch;
   return workoutDayForGroupLabels(entry.muscleGroups) == day.legacyDay ||
       currentMatch;
+}
+
+/// The most recent real (app-logged, [HistoryEntry.metaRow]-backed) visit
+/// belonging to [day] — skips synthetic/reconstructed entries (hand-typed
+/// sheet data), which carry no per-set reps/weights/rating/note detail to
+/// preview. Null if [day] has no real visit yet.
+HistoryEntry? mostRecentRealVisitForDay(
+  List<HistoryEntry> historyEntries,
+  WorkoutDayDef day,
+) {
+  for (final entry in historyEntries) {
+    if (entry.metaRow != null && historyEntryBelongsToDay(entry, day)) {
+      return entry;
+    }
+  }
+  return null;
 }
 
 /// Findings for every exercise trained in the last [AnalysisEngine

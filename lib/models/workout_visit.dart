@@ -1,12 +1,14 @@
 import '../core/constants/muscle_groups.dart';
 import 'exercise.dart';
 import 'rating_relevance.dart';
+import 'set_feedback.dart';
 
 class SetEntry {
   const SetEntry({
     required this.weight,
     required this.reps,
     this.approxReps = false,
+    this.feedback = SetFeedback.none,
   });
 
   final double weight;
@@ -16,16 +18,24 @@ class SetEntry {
   /// (e.g. "~8" — not precisely counted) rather than an exact number.
   final bool approxReps;
 
+  /// Optional "this set felt extra good/bad" marker — see [SetFeedback].
+  final SetFeedback feedback;
+
   Map<String, dynamic> toJson() => {
     'weight': weight,
     'reps': reps,
     'approxReps': approxReps,
+    'feedback': feedback.name,
   };
 
   factory SetEntry.fromJson(Map<String, dynamic> json) => SetEntry(
     weight: (json['weight'] as num).toDouble(),
     reps: json['reps'] as int,
     approxReps: json['approxReps'] as bool? ?? false,
+    feedback: SetFeedback.values.firstWhere(
+      (f) => f.name == json['feedback'],
+      orElse: () => SetFeedback.none,
+    ),
   );
 }
 
@@ -84,6 +94,7 @@ class WorkoutVisit {
     this.ratingRelevance = RatingRelevance.normal,
     this.sourceTab,
     this.note,
+    this.workoutDayId,
   });
 
   final String visitId;
@@ -104,11 +115,20 @@ class WorkoutVisit {
   /// Free-text note for this visit (meta-tab column J).
   final String? note;
 
+  /// Id of the [WorkoutDayDef] the user picked when logging this visit
+  /// (meta-tab column K) — null for visits logged before this was tracked,
+  /// or hand-typed sheet rows. This is the authoritative "which day was
+  /// this" signal; day membership is only inferred from muscle groups as a
+  /// fallback when it's absent. See `historyEntryBelongsToDay` and
+  /// `buildHistoryEntries` in `analysis_providers.dart`.
+  final String? workoutDayId;
+
   WorkoutVisit copyWith({
     double? rating,
     RatingRelevance? ratingRelevance,
     String? sourceTab,
     String? note,
+    String? workoutDayId,
   }) => WorkoutVisit(
     visitId: visitId,
     date: date,
@@ -119,6 +139,7 @@ class WorkoutVisit {
     ratingRelevance: ratingRelevance ?? this.ratingRelevance,
     sourceTab: sourceTab ?? this.sourceTab,
     note: note ?? this.note,
+    workoutDayId: workoutDayId ?? this.workoutDayId,
   );
 
   Map<String, dynamic> toJson() => {
@@ -131,6 +152,7 @@ class WorkoutVisit {
     'ratingRelevance': ratingRelevance.name,
     'sourceTab': sourceTab,
     'note': note,
+    'workoutDayId': workoutDayId,
   };
 
   factory WorkoutVisit.fromJson(Map<String, dynamic> json) => WorkoutVisit(
@@ -148,5 +170,6 @@ class WorkoutVisit {
     ),
     sourceTab: json['sourceTab'] as String?,
     note: json['note'] as String?,
+    workoutDayId: json['workoutDayId'] as String?,
   );
 }

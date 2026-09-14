@@ -8,6 +8,8 @@ HistoryPoint _point({
   int repLow = 6,
   int repHigh = 8,
   double? rating,
+  int thumbsUp = 0,
+  int thumbsDown = 0,
 }) {
   return HistoryPoint(
     isoYear: 2026,
@@ -17,6 +19,8 @@ HistoryPoint _point({
     repRangeLow: repLow,
     repRangeHigh: repHigh,
     rating: rating,
+    thumbsUpCount: thumbsUp,
+    thumbsDownCount: thumbsDown,
   );
 }
 
@@ -167,6 +171,54 @@ void main() {
       );
       expect(finding, isNotNull);
       expect(finding!.isPlateaued, isTrue);
+    },
+  );
+
+  test(
+    'a net-positive recent thumbs signal downgrades a raw weight plateau',
+    () {
+      final history = [
+        _point(week: 1, weight: 60),
+        _point(week: 2, weight: 65),
+        _point(week: 3, weight: 70), // peak
+        _point(week: 4, weight: 68, thumbsUp: 1),
+        _point(week: 5, weight: 69, thumbsUp: 1),
+        _point(week: 6, weight: 70),
+        _point(week: 7, weight: 69),
+      ];
+      final finding = engine.analyze(
+        subjectName: 'Overhead press',
+        history: history,
+        alternativeExerciseNames: const [],
+        recentlySuggestedAlternatives: const {},
+      );
+      expect(finding, isNotNull);
+      expect(finding!.isPlateaued, isFalse);
+      expect(finding.message, contains('felt strong'));
+    },
+  );
+
+  test(
+    'a cluster of recent thumbs-down sets (no ratings at all) still suggests a deload',
+    () {
+      final history = [
+        _point(week: 1, weight: 60),
+        _point(week: 2, weight: 65),
+        _point(week: 3, weight: 70), // peak
+        _point(week: 4, weight: 68),
+        _point(week: 5, weight: 69, thumbsDown: 1),
+        _point(week: 6, weight: 70, thumbsDown: 1),
+        _point(week: 7, weight: 69, thumbsDown: 1),
+      ];
+      final finding = engine.analyze(
+        subjectName: 'Deadlift',
+        history: history,
+        alternativeExerciseNames: const [],
+        recentlySuggestedAlternatives: const {},
+      );
+      expect(finding, isNotNull);
+      expect(finding!.isPlateaued, isTrue);
+      expect(finding.suggestion, contains('deload'));
     },
   );
 

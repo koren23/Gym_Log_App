@@ -115,6 +115,9 @@ flutter build apk --release
 Output: `build/app/outputs/flutter-apk/app-release.apk`. Application ID:
 `com.korengym.gym_tracker`.
 
+A prebuilt release APK is also checked into [`releases/`](releases/) so it
+can be installed without a Flutter toolchain.
+
 ## Installing
 
 ```

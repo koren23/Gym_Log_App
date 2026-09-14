@@ -636,6 +636,7 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
                                 0),
                       reps: logged.actualReps[i],
                       approxReps: logged.isApprox(i),
+                      feedback: logged.feedbackFor(i),
                     ),
                 ]
               : [
@@ -665,6 +666,7 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
       ratingRelevance: metaRow.ratingRelevance,
       sourceTab: newContext.yearData.tabName,
       note: metaRow.note,
+      workoutDayId: metaRow.workoutDayId,
     );
 
     final plan = const SheetWriter().planVisitWrite(

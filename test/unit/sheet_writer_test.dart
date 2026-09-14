@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:gym_tracker/core/constants/muscle_groups.dart';
 import 'package:gym_tracker/core/constants/sheet_layout.dart';
 import 'package:gym_tracker/models/exercise.dart';
+import 'package:gym_tracker/models/set_feedback.dart';
 import 'package:gym_tracker/models/workout_day_def.dart';
 import 'package:gym_tracker/models/workout_visit.dart';
 import 'package:gym_tracker/models/year_sheet_data.dart';
@@ -151,6 +152,66 @@ void main() {
       );
       final exercisesCell = range.values!.single[5] as String;
       expect(exercisesCell, 'Bench press:6-8:8,~7,6:60.0,60.0,62.5');
+    },
+  );
+
+  test(
+    'buildMetaAppendRow appends a 5th segment for per-set thumbs feedback, '
+    'omitted entirely when no set has any',
+    () {
+      final exercise = Exercise(
+        name: 'Bench press',
+        muscleGroup: MuscleGroup.legacyPush,
+      );
+      final visitWithFeedback = WorkoutVisit(
+        visitId: 'v1',
+        date: DateTime(2026, 8, 14),
+        isoWeek: 33,
+        isoYear: 2026,
+        entries: [
+          ExerciseEntry(
+            exercise: exercise,
+            sets: const [
+              SetEntry(weight: 60, reps: 8),
+              SetEntry(weight: 60, reps: 7, feedback: SetFeedback.up),
+              SetEntry(weight: 62.5, reps: 6, feedback: SetFeedback.down),
+            ],
+            targetRepRangeLow: 6,
+            targetRepRangeHigh: 8,
+          ),
+        ],
+      );
+      final rangeWithFeedback = writer.buildMetaAppendRow(
+        metaTabName: '2026_meta',
+        visit: visitWithFeedback,
+      );
+      expect(
+        rangeWithFeedback.values!.single[5] as String,
+        'Bench press:6-8:8,7,6:60.0,60.0,62.5:,u,d',
+      );
+
+      final visitNoFeedback = WorkoutVisit(
+        visitId: 'v2',
+        date: DateTime(2026, 8, 14),
+        isoWeek: 33,
+        isoYear: 2026,
+        entries: [
+          ExerciseEntry(
+            exercise: exercise,
+            sets: const [SetEntry(weight: 60, reps: 8)],
+            targetRepRangeLow: 6,
+            targetRepRangeHigh: 8,
+          ),
+        ],
+      );
+      final rangeNoFeedback = writer.buildMetaAppendRow(
+        metaTabName: '2026_meta',
+        visit: visitNoFeedback,
+      );
+      expect(
+        rangeNoFeedback.values!.single[5] as String,
+        'Bench press:6-8:8:60.0',
+      );
     },
   );
 
@@ -412,6 +473,33 @@ void main() {
       expect(
         range.values!.single.single,
         'Bench press:6-8:8,~7,6:60.0,60.0,62.5',
+      );
+    },
+  );
+
+  test(
+    'buildExercisesOrderUpdateRange round-trips setFeedback, preserving '
+    'empty-token positions',
+    () {
+      final range = writer.buildExercisesOrderUpdateRange(
+        metaTabName: '2026_meta',
+        metaRowIndex: 3,
+        exercises: const [
+          LoggedExerciseRepRange(
+            exerciseName: 'Bench press',
+            repRangeLow: 6,
+            repRangeHigh: 8,
+            actualReps: [8, 7, 6],
+            approxReps: [false, true, false],
+            actualWeights: [60.0, 60.0, 62.5],
+            setFeedback: [SetFeedback.none, SetFeedback.up, SetFeedback.none],
+          ),
+        ],
+      );
+      expect(range.range, "'2026_meta'!F4");
+      expect(
+        range.values!.single.single,
+        'Bench press:6-8:8,~7,6:60.0,60.0,62.5:,u,',
       );
     },
   );

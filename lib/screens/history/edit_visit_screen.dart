@@ -5,6 +5,7 @@ import '../../core/constants/muscle_groups.dart';
 import '../../core/utils/iso_week.dart';
 import '../../models/exercise.dart';
 import '../../models/rating_relevance.dart';
+import '../../models/set_feedback.dart';
 import '../../models/workout_visit.dart';
 import '../../models/year_sheet_data.dart';
 import '../../providers/sheet_data_providers.dart';
@@ -86,6 +87,9 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
           approxReps: logged.approxReps.length == setCount
               ? logged.approxReps
               : List<bool>.filled(setCount, false),
+          setFeedback: logged.setFeedback.length == setCount
+              ? logged.setFeedback
+              : List<SetFeedback>.filled(setCount, SetFeedback.none),
         );
       } else {
         // Legacy visit with no per-set data on record — start from a
@@ -123,6 +127,7 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
         actualReps: entry.sets.map((s) => s.reps).toList(),
         approxReps: entry.sets.map((s) => s.approxReps).toList(),
         actualWeights: entry.sets.map((s) => s.weight).toList(),
+        setFeedback: entry.sets.map((s) => s.feedback).toList(),
       );
 
   Future<void> _save() async {

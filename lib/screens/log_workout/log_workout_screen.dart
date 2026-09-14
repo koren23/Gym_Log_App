@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../core/analysis/tile_trend.dart';
 import '../../core/constants/muscle_groups.dart';
 import '../../core/constants/sheet_layout.dart';
 import '../../core/utils/iso_week.dart';
@@ -11,6 +13,7 @@ import '../../core/utils/text.dart';
 import '../../models/exercise.dart';
 import '../../models/exercise_muscle_info.dart';
 import '../../models/history_entry.dart';
+import '../../models/set_feedback.dart';
 import '../../models/workout_day_def.dart';
 import '../../models/workout_visit.dart';
 import '../../models/year_sheet_data.dart';
@@ -18,6 +21,7 @@ import '../../providers/analysis_providers.dart';
 import '../../providers/settings_providers.dart';
 import '../../providers/sheet_data_providers.dart';
 import '../../widgets/exercise_tile.dart';
+import '../history/edit_visit_screen.dart';
 import 'add_new_exercise_dialog.dart';
 import 'last_workout_insight_screen.dart';
 import 'rating_screen.dart';
@@ -49,10 +53,48 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
   /// the user before they've had a chance to fill it in.
   String? _pinnedSuggestionName;
 
+  /// Which checked exercises currently count as "complete" for *display*
+  /// purposes (the "Workout so far" summary and "Suggested next" pinning).
+  /// Deliberately refreshed only on field blur/toggle, not on every
+  /// keystroke — see [_handleFieldBlur]. Publish-time validation in
+  /// [_continue] always reads [ExerciseDraft.isComplete] live via
+  /// `draft.toEntry()`, never this snapshot, so this is purely
+  /// presentational and can't mask an incomplete exercise at publish time.
+  final Set<String> _completedSnapshot = {};
+
+  Timer? _saveDraftDebounce;
+
   @override
   void initState() {
     super.initState();
     _restoreDraft();
+    _refreshCompletionSnapshot();
+  }
+
+  void _refreshCompletionSnapshot() {
+    _completedSnapshot
+      ..clear()
+      ..addAll(ExerciseDraft.completedNamesFrom(_checked, _drafts));
+  }
+
+  /// The one point where completing the last field of an exercise is
+  /// allowed to restructure the screen — deferring that off the completing
+  /// keystroke itself is what removes the keyboard flicker/scroll jump.
+  void _handleFieldBlur() {
+    _saveDraftDebounce?.cancel();
+    _saveDraftDebounce = null;
+    setState(_refreshCompletionSnapshot);
+    _saveDraft();
+  }
+
+  /// Coalesces the draft autosave across a burst of keystrokes instead of a
+  /// full JSON-encode + SharedPreferences write on every character.
+  void _scheduleSaveDraft() {
+    _saveDraftDebounce?.cancel();
+    _saveDraftDebounce = Timer(const Duration(milliseconds: 400), () {
+      _saveDraftDebounce = null;
+      _saveDraft();
+    });
   }
 
   void _restoreDraft() {
@@ -122,6 +164,9 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
                 growable: true,
               ),
           approxReps: (data['setApproxReps'] as List?)?.cast<bool>(),
+          setFeedback: (data['setFeedback'] as List?)
+              ?.map((f) => setFeedbackFromJson(f as String?))
+              .toList(),
         );
         _drafts[entry.key] = draft;
       }
@@ -146,6 +191,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
           'setWeights': entry.value.setWeights,
           'setReps': entry.value.setReps,
           'setApproxReps': entry.value.setApproxReps,
+          'setFeedback': [for (final f in entry.value.setFeedback) f.name],
         },
     },
   };
@@ -193,6 +239,8 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
     );
     if (confirmed != true) return;
 
+    _saveDraftDebounce?.cancel();
+    _saveDraftDebounce = null;
     setState(() {
       _selectedDay = null;
       _selectedDate = DateTime.now();
@@ -203,6 +251,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
       _checked.clear();
       _addedExercises.clear();
       _pinnedSuggestionName = null;
+      _completedSnapshot.clear();
       _noteController.clear();
       _searchController.clear();
       _searchQuery = '';
@@ -288,7 +337,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
     if (recentVisits.isEmpty) return null;
 
     final completedNames = _checked
-        .where((n) => _drafts[n]?.isComplete == true)
+        .where(_completedSnapshot.contains)
         .toList();
 
     if (completedNames.isEmpty) {
@@ -363,7 +412,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
     final pinned = _pinnedSuggestionName;
     if (pinned != null &&
         _checked.contains(pinned) &&
-        _drafts[pinned]?.isComplete != true) {
+        !_completedSnapshot.contains(pinned)) {
       return pinned;
     }
     final fresh =
@@ -377,9 +426,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
   /// far" summary) relative to each other, leaving not-yet-completed
   /// checked exercises pinned at their existing spots in [_checked].
   void _reorderCompleted(int oldIndex, int newIndex) {
-    final completedSet = _checked
-        .where((n) => _drafts[n]?.isComplete == true)
-        .toSet();
+    final completedSet = Set<String>.of(_completedSnapshot);
     final completedNames = _checked.where(completedSet.contains).toList();
     if (newIndex > oldIndex) newIndex -= 1;
     final moved = completedNames.removeAt(oldIndex);
@@ -431,6 +478,10 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
 
   @override
   void dispose() {
+    if (_saveDraftDebounce != null) {
+      _saveDraftDebounce!.cancel();
+      _saveDraft();
+    }
     for (final draft in _drafts.values) {
       draft.dispose();
     }
@@ -463,8 +514,20 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
         ? null
         : _findByName(availableExercises, suggestedNextName);
     final completedNames = _checked
-        .where((n) => _drafts[n]?.isComplete == true)
+        .where(_completedSnapshot.contains)
         .toList();
+
+    // Computed once per build (not per tile) — the trend stripe on each
+    // ExerciseTile. Reuses analyzeExercises, the same batch analysis entry
+    // point the post-save/last-workout insight screens already use.
+    final trendByName = <String, TileTrend>{
+      for (final f in analyzeExercises(
+        yearsAscending: yearsAscending ?? const <YearSheetData>[],
+        exerciseNames: [for (final e in availableExercises) e.name],
+        bodyWeightEntries: ref.watch(bodyWeightEntriesProvider),
+      ))
+        f.subjectName: classifyTrend(f),
+    };
 
     return Scaffold(
       appBar: AppBar(title: const Text('Log workout')),
@@ -474,6 +537,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
             child: CustomScrollView(
               slivers: [
                 SliverToBoxAdapter(
+                  key: const ValueKey('sliver_day_chips'),
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
                     child: SingleChildScrollView(
@@ -498,18 +562,21 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
                 ),
                 if (day != null && completedNames.isNotEmpty)
                   SliverToBoxAdapter(
+                    key: const ValueKey('sliver_completed_summary'),
                     child: _CompletedSummary(
                       names: completedNames,
                       drafts: _drafts,
                       onReorder: _reorderCompleted,
                       onChanged: () {
                         setState(() {});
-                        _saveDraft();
+                        _scheduleSaveDraft();
                       },
+                      onFocusLost: _handleFieldBlur,
                     ),
                   ),
                 if (day != null)
                   SliverToBoxAdapter(
+                    key: const ValueKey('sliver_day_controls'),
                     child: Column(
                       children: [
                         Padding(
@@ -569,17 +636,16 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
                                 },
                               ),
                               const Spacer(),
-                              if (day.legacyDay != null)
-                                TextButton.icon(
-                                  icon: const Icon(Icons.insights_outlined),
-                                  label: Text('Last ${day.label} day'),
-                                  onPressed: () => Navigator.of(context).push(
-                                    MaterialPageRoute(
-                                      builder: (_) =>
-                                          LastWorkoutInsightScreen(day: day),
-                                    ),
+                              TextButton.icon(
+                                icon: const Icon(Icons.insights_outlined),
+                                label: Text('Last ${day.label} day'),
+                                onPressed: () => Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) =>
+                                        LastWorkoutInsightScreen(day: day),
                                   ),
                                 ),
+                              ),
                             ],
                           ),
                         ),
@@ -625,12 +691,14 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
                   ),
                 if (day == null)
                   const SliverFillRemaining(
+                    key: ValueKey('sliver_empty_state'),
                     child: Center(
                       child: Text('Pick a day to start.'),
                     ),
                   )
                 else
                   SliverPadding(
+                    key: const ValueKey('sliver_exercise_list'),
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     sliver: SliverList(
                       delegate: SliverChildListDelegate([
@@ -640,6 +708,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
                             'Suggested next',
                             [suggestedExercise],
                             yearsAscending ?? const <YearSheetData>[],
+                            trendByName,
                             sectionKey: const ValueKey('section_suggested'),
                           ),
                         ..._buildMuscleSections(
@@ -647,6 +716,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
                           availableExercises,
                           muscleByName,
                           yearsAscending ?? const <YearSheetData>[],
+                          trendByName,
                           // Already shown above under "Suggested next" — don't
                           // also render it here, so the list's shape doesn't
                           // change out from under the user the moment a
@@ -731,7 +801,8 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
     BuildContext context,
     List<Exercise> exercises,
     Map<String, ExerciseMuscleInfo> muscleByName,
-    List<YearSheetData> yearsAscending, {
+    List<YearSheetData> yearsAscending,
+    Map<String, TileTrend> trendByName, {
     String? excludeName,
   }) {
     final filtered = exercises.where(
@@ -757,6 +828,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
           muscle,
           byMuscle[muscle]!,
           yearsAscending,
+          trendByName,
           sectionKey: ValueKey('section_$muscle'),
         ),
     ];
@@ -766,7 +838,8 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
     BuildContext context,
     String muscle,
     List<Exercise> exercises,
-    List<YearSheetData> yearsAscending, {
+    List<YearSheetData> yearsAscending,
+    Map<String, TileTrend> trendByName, {
     Key? sectionKey,
   }) {
     return Column(
@@ -794,6 +867,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
             key: GlobalObjectKey(exercise.name),
             draft: _draftFor(exercise, yearsAscending),
             previousWeight: _previousWeightFor(exercise.name, yearsAscending),
+            trend: trendByName[exercise.name] ?? TileTrend.unknown,
             selected: _checked.contains(exercise.name),
             onToggle: (v) {
               setState(() {
@@ -803,19 +877,77 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
                 } else {
                   _checked.remove(exercise.name);
                 }
+                _refreshCompletionSnapshot();
               });
               _saveDraft();
             },
             onChanged: () {
               setState(() {});
-              _saveDraft();
+              _scheduleSaveDraft();
             },
+            onFocusLost: _handleFieldBlur,
           ),
       ],
     );
   }
 
+  /// The already-logged visit on [_selectedDate], if any — used to enforce
+  /// one workout per calendar day rather than letting a second visit the
+  /// same day quietly coexist (which is exactly what produced the
+  /// cross-day contamination this app used to have).
+  MetaRow? _existingVisitOnSelectedDate() {
+    final snapshot = ref.read(snapshotProvider).value?.snapshot;
+    final year = snapshot?.yearData[isoWeekYear(_selectedDate)];
+    for (final m in year?.metaRows ?? const <MetaRow>[]) {
+      if (DateUtils.isSameDay(m.date, _selectedDate)) return m;
+    }
+    return null;
+  }
+
+  Future<void> _showAlreadyLoggedDialog(MetaRow existing) async {
+    final formattedDate =
+        '${existing.date.year}-${existing.date.month.toString().padLeft(2, '0')}-'
+        '${existing.date.day.toString().padLeft(2, '0')}';
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Already logged that day'),
+        content: Text(
+          "You've already logged a workout on $formattedDate. Log only "
+          'one workout per day — edit that visit instead, or pick a '
+          'different date.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.of(dialogContext).pop();
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => EditVisitScreen(
+                    metaRow: existing,
+                    initialNote: existing.note,
+                  ),
+                ),
+              );
+            },
+            child: const Text('Edit that visit'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _continue() {
+    final existingVisit = _existingVisitOnSelectedDate();
+    if (existingVisit != null) {
+      _showAlreadyLoggedDialog(existingVisit);
+      return;
+    }
+
     final entries = <ExerciseEntry>[];
     for (final name in _checked) {
       final draft = _drafts[name];
@@ -839,6 +971,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
       isoYear: isoWeekYear(date),
       entries: entries,
       note: note.isEmpty ? null : note,
+      workoutDayId: _selectedDay?.id,
     );
 
     Navigator.of(
@@ -856,12 +989,14 @@ class _CompletedSummary extends StatelessWidget {
     required this.drafts,
     required this.onReorder,
     required this.onChanged,
+    this.onFocusLost,
   });
 
   final List<String> names;
   final Map<String, ExerciseDraft> drafts;
   final void Function(int oldIndex, int newIndex) onReorder;
   final VoidCallback onChanged;
+  final VoidCallback? onFocusLost;
 
   @override
   Widget build(BuildContext context) {
@@ -897,6 +1032,7 @@ class _CompletedSummary extends StatelessWidget {
                   name: names[i],
                   draft: drafts[names[i]]!,
                   onChanged: onChanged,
+                  onFocusLost: onFocusLost,
                 ),
             ],
           ),
@@ -913,12 +1049,14 @@ class _CompletedRow extends StatefulWidget {
     required this.name,
     required this.draft,
     required this.onChanged,
+    this.onFocusLost,
   });
 
   final int index;
   final String name;
   final ExerciseDraft draft;
   final VoidCallback onChanged;
+  final VoidCallback? onFocusLost;
 
   @override
   State<_CompletedRow> createState() => _CompletedRowState();
@@ -988,7 +1126,11 @@ class _CompletedRowState extends State<_CompletedRow> {
           if (_expanded)
             Padding(
               padding: const EdgeInsets.only(left: 26, bottom: 8),
-              child: SetsEditor(draft: draft, onChanged: widget.onChanged),
+              child: SetsEditor(
+                draft: draft,
+                onChanged: widget.onChanged,
+                onFocusLost: widget.onFocusLost,
+              ),
             ),
         ],
       ),

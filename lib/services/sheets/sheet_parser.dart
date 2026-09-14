@@ -4,6 +4,7 @@ import '../../models/body_weight_entry.dart';
 import '../../models/exercise.dart';
 import '../../models/exercise_muscle_info.dart';
 import '../../models/rating_relevance.dart';
+import '../../models/set_feedback.dart';
 import '../../models/workout_day_def.dart';
 import '../../models/year_sheet_data.dart';
 
@@ -315,6 +316,7 @@ class SheetParser {
           rating: double.tryParse(cell(7)),
           ratingRelevance: ratingRelevanceFromSheetValue(cell(8)),
           note: cell(9).isEmpty ? null : cell(9),
+          workoutDayId: cell(10).isEmpty ? null : cell(10),
         ),
       );
     }
@@ -416,9 +418,13 @@ class SheetParser {
   /// Parses the `exercises` cell, formatted as
   /// `Exercise Name:low-high` (legacy, no per-set data),
   /// `Exercise Name:low-high:r1,r2,r3` (reps-only, last session's format),
-  /// or `Exercise Name:low-high:r1,r2,r3:w1,w2,w3` (current format — reps
-  /// then per-set weight). A rep token may be prefixed `~` (e.g. `~8`) to
-  /// mark that set's reps as approximate.
+  /// `Exercise Name:low-high:r1,r2,r3:w1,w2,w3` (reps + per-set weight), or
+  /// `Exercise Name:low-high:r1,r2,r3:w1,w2,w3:t1,t2,t3` (current format —
+  /// adds a 5th segment for optional per-set thumbs-up/down feedback, `u`,
+  /// `d`, or empty per set). A rep token may be prefixed `~` (e.g. `~8`) to
+  /// mark that set's reps as approximate. The feedback segment is only ever
+  /// present when at least one set in the exercise has feedback set, so
+  /// most cells stay 2-4 segments exactly as before.
   List<LoggedExerciseRepRange> _parseExercisesCell(String value) {
     final result = <LoggedExerciseRepRange>[];
     for (final part in value.split('|')) {
@@ -436,9 +442,10 @@ class SheetParser {
         continue;
       }
 
+      final hasFeedback = segments.length >= 5;
       final hasWeights = segments.length >= 4;
       final hasReps = segments.length >= 3;
-      final trailingCount = hasWeights ? 3 : (hasReps ? 2 : 1);
+      final trailingCount = hasFeedback ? 4 : (hasWeights ? 3 : (hasReps ? 2 : 1));
       final name = segments
           .sublist(0, segments.length - trailingCount)
           .join(':')
@@ -477,12 +484,21 @@ class SheetParser {
       }
 
       final actualWeights = hasWeights
-          ? segments.last
+          ? segments[segments.length - trailingCount + 2]
                 .split(',')
                 .map((s) => double.tryParse(s.trim()))
                 .whereType<double>()
                 .toList()
           : const <double>[];
+
+      // Positions must stay aligned with actualReps/actualWeights, so empty
+      // tokens are kept (unlike the reps segment above, which drops them).
+      final setFeedback = hasFeedback
+          ? segments.last
+                .split(',')
+                .map((t) => setFeedbackFromSheetToken(t.trim()))
+                .toList()
+          : const <SetFeedback>[];
 
       result.add(
         LoggedExerciseRepRange(
@@ -492,6 +508,7 @@ class SheetParser {
           actualReps: actualReps,
           approxReps: approxReps,
           actualWeights: actualWeights,
+          setFeedback: setFeedback,
         ),
       );
     }

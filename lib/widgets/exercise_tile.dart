@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../core/analysis/tile_trend.dart';
+import '../core/constants/semantic_colors.dart';
 import '../core/constants/sheet_layout.dart';
 import '../models/exercise.dart';
+import '../models/set_feedback.dart';
 import '../models/workout_visit.dart';
 
 /// Mutable per-exercise editing state used while building up a workout
@@ -20,6 +23,11 @@ class ExerciseDraft {
        setWeights = List<double?>.filled(setCount, null, growable: true),
        setReps = List<int?>.filled(setCount, null, growable: true),
        setApproxReps = List<bool>.filled(setCount, false, growable: true),
+       setFeedback = List<SetFeedback>.filled(
+         setCount,
+         SetFeedback.none,
+         growable: true,
+       ),
        weightControllers = List.generate(
          setCount,
          (_) => TextEditingController(),
@@ -36,6 +44,7 @@ class ExerciseDraft {
   List<double?> setWeights;
   List<int?> setReps;
   List<bool> setApproxReps;
+  List<SetFeedback> setFeedback;
   final List<TextEditingController> weightControllers;
   final List<TextEditingController> repsControllers;
 
@@ -43,10 +52,18 @@ class ExerciseDraft {
 
   int repsFor(int index) => setReps[index] ?? _repsMid;
 
+  /// Names from [checked], in order, whose draft in [drafts] is complete —
+  /// the pure rule behind the "Workout so far" / suggestion-pinning filter.
+  static List<String> completedNamesFrom(
+    List<String> checked,
+    Map<String, ExerciseDraft> drafts,
+  ) => checked.where((n) => drafts[n]?.isComplete == true).toList();
+
   void addSet() {
     setWeights.add(null);
     setReps.add(null);
     setApproxReps.add(false);
+    setFeedback.add(SetFeedback.none);
     weightControllers.add(TextEditingController());
     repsControllers.add(TextEditingController());
   }
@@ -56,6 +73,7 @@ class ExerciseDraft {
     setWeights.removeLast();
     setReps.removeLast();
     setApproxReps.removeLast();
+    setFeedback.removeLast();
     weightControllers.removeLast().dispose();
     repsControllers.removeLast().dispose();
   }
@@ -66,6 +84,7 @@ class ExerciseDraft {
     required List<double?> weights,
     required List<int?> reps,
     List<bool>? approxReps,
+    List<SetFeedback>? setFeedback,
   }) {
     for (final c in weightControllers) {
       c.dispose();
@@ -77,6 +96,9 @@ class ExerciseDraft {
     setReps = reps;
     setApproxReps =
         approxReps ?? List<bool>.filled(weights.length, false, growable: true);
+    this.setFeedback =
+        setFeedback ??
+        List<SetFeedback>.filled(weights.length, SetFeedback.none, growable: true);
     weightControllers
       ..clear()
       ..addAll([
@@ -107,6 +129,7 @@ class ExerciseDraft {
           weight: setWeights[i]!,
           reps: repsFor(i),
           approxReps: setApproxReps[i],
+          feedback: setFeedback[i],
         ),
     ];
     final repsUsed = sets.map((s) => s.reps).toList();
@@ -128,7 +151,9 @@ class ExerciseTile extends StatelessWidget {
     required this.selected,
     required this.onToggle,
     required this.onChanged,
+    this.onFocusLost,
     this.previousWeight,
+    this.trend = TileTrend.unknown,
   });
 
   final ExerciseDraft draft;
@@ -136,31 +161,62 @@ class ExerciseTile extends StatelessWidget {
   final ValueChanged<bool> onToggle;
   final VoidCallback onChanged;
 
+  /// Fired when a set field in this tile loses focus (not on every
+  /// keystroke) — used to defer UI reflow (e.g. "Workout so far" updating)
+  /// until the user is done typing, instead of on the completing keystroke.
+  final VoidCallback? onFocusLost;
+
   /// Most recently logged average weight for this exercise, if any —
   /// shown as a subtitle so the user can tell what they lifted last time
   /// before entering today's weights.
   final double? previousWeight;
 
+  /// Recent improving/stuck/steady classification for this exercise, shown
+  /// as a colored left-border stripe. [TileTrend.unknown] (new exercise, or
+  /// not enough history yet) renders with no stripe at all.
+  final TileTrend trend;
+
   @override
   Widget build(BuildContext context) {
-    return Card(
+    final colors = semanticTrendColors(
+      Theme.of(context).scaffoldBackgroundColor,
+    );
+    final stripeColor = switch (trend) {
+      TileTrend.improving => colors.improving,
+      TileTrend.stuck => colors.stuck,
+      TileTrend.steady => colors.steady,
+      TileTrend.unknown => Colors.transparent,
+    };
+    return Container(
       margin: const EdgeInsets.symmetric(vertical: 4),
-      child: Column(
-        children: [
-          CheckboxListTile(
-            title: Text(draft.exercise.name),
-            subtitle: previousWeight == null
-                ? null
-                : Text('Last time: ${previousWeight!.toStringAsFixed(1)} kg'),
-            value: selected,
-            onChanged: (v) => onToggle(v ?? false),
-          ),
-          if (selected)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-              child: SetsEditor(draft: draft, onChanged: onChanged),
+      decoration: BoxDecoration(
+        border: Border(left: BorderSide(color: stripeColor, width: 4)),
+      ),
+      child: Card(
+        margin: EdgeInsets.zero,
+        child: Column(
+          children: [
+            CheckboxListTile(
+              title: Text(draft.exercise.name),
+              subtitle: previousWeight == null
+                  ? null
+                  : Text(
+                      'Last time: ${previousWeight!.toStringAsFixed(1)} kg',
+                    ),
+              value: selected,
+              onChanged: (v) => onToggle(v ?? false),
             ),
-        ],
+            if (selected)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                child: SetsEditor(
+                  draft: draft,
+                  onChanged: onChanged,
+                  onFocusLost: onFocusLost,
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -170,10 +226,16 @@ class ExerciseTile extends StatelessWidget {
 /// grid for [draft] — shared by the log-workout exercise editor, the
 /// "Workout so far" inline editor, and the edit-visit screen.
 class SetsEditor extends StatelessWidget {
-  const SetsEditor({super.key, required this.draft, required this.onChanged});
+  const SetsEditor({
+    super.key,
+    required this.draft,
+    required this.onChanged,
+    this.onFocusLost,
+  });
 
   final ExerciseDraft draft;
   final VoidCallback onChanged;
+  final VoidCallback? onFocusLost;
 
   @override
   Widget build(BuildContext context) {
@@ -217,6 +279,7 @@ class SetsEditor extends StatelessWidget {
                 setIndex: i,
                 draft: draft,
                 onChanged: onChanged,
+                onFocusLost: onFocusLost,
               ),
           ],
         ),
@@ -239,11 +302,13 @@ class _SetEditorRow extends StatefulWidget {
     required this.setIndex,
     required this.draft,
     required this.onChanged,
+    this.onFocusLost,
   });
 
   final int setIndex;
   final ExerciseDraft draft;
   final VoidCallback onChanged;
+  final VoidCallback? onFocusLost;
 
   @override
   State<_SetEditorRow> createState() => _SetEditorRowState();
@@ -258,6 +323,8 @@ class _SetEditorRowState extends State<_SetEditorRow> {
     super.initState();
     _weightFocus.addListener(_scrollIntoViewOnFocus);
     _repsFocus.addListener(_scrollIntoViewOnFocus);
+    _weightFocus.addListener(_handleFocusLost);
+    _repsFocus.addListener(_handleFocusLost);
   }
 
   void _scrollIntoViewOnFocus() {
@@ -269,6 +336,18 @@ class _SetEditorRowState extends State<_SetEditorRow> {
         alignment: 0.3,
         duration: const Duration(milliseconds: 200),
       );
+    });
+  }
+
+  /// Fires [ExerciseTile.onFocusLost] once neither of this row's fields is
+  /// focused, rechecked a frame later so tabbing weight->reps within the
+  /// same row doesn't falsely count as leaving the row.
+  void _handleFocusLost() {
+    if (_weightFocus.hasFocus || _repsFocus.hasFocus) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_weightFocus.hasFocus || _repsFocus.hasFocus) return;
+      widget.onFocusLost?.call();
     });
   }
 
@@ -287,9 +366,10 @@ class _SetEditorRowState extends State<_SetEditorRow> {
     // element is still around for one frame; guard against a stale index.
     if (i >= draft.setWeights.length) return const SizedBox.shrink();
     final approx = draft.setApproxReps[i];
+    final feedback = draft.setFeedback[i];
     final theme = Theme.of(context);
     return SizedBox(
-      width: 230,
+      width: 268,
       child: Row(
         children: [
           Expanded(
@@ -348,6 +428,44 @@ class _SetEditorRowState extends State<_SetEditorRow> {
                         ? theme.colorScheme.onPrimaryContainer
                         : theme.colorScheme.outline,
                   ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 4),
+          Tooltip(
+            message: switch (feedback) {
+              SetFeedback.none => 'Mark this set good/bad',
+              SetFeedback.up => 'Marked extra good — tap for bad',
+              SetFeedback.down => 'Marked extra bad — tap to clear',
+            },
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: () {
+                draft.setFeedback[i] = switch (feedback) {
+                  SetFeedback.none => SetFeedback.up,
+                  SetFeedback.up => SetFeedback.down,
+                  SetFeedback.down => SetFeedback.none,
+                };
+                widget.onChanged();
+              },
+              child: CircleAvatar(
+                radius: 14,
+                backgroundColor: feedback == SetFeedback.none
+                    ? theme.colorScheme.surfaceContainerHighest
+                    : theme.colorScheme.primaryContainer,
+                child: Icon(
+                  switch (feedback) {
+                    SetFeedback.none => Icons.thumbs_up_down_outlined,
+                    SetFeedback.up => Icons.thumb_up,
+                    SetFeedback.down => Icons.thumb_down,
+                  },
+                  size: 14,
+                  color: switch (feedback) {
+                    SetFeedback.none => theme.colorScheme.outline,
+                    SetFeedback.up => Colors.green,
+                    SetFeedback.down => Colors.red,
+                  },
                 ),
               ),
             ),

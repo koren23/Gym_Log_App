@@ -2,6 +2,7 @@ import '../core/constants/muscle_groups.dart';
 import '../core/constants/sheet_layout.dart';
 import 'exercise.dart';
 import 'rating_relevance.dart';
+import 'set_feedback.dart';
 
 /// A single (exercise row, week column) data point.
 class CellKey {
@@ -28,6 +29,7 @@ class LoggedExerciseRepRange {
     this.actualReps = const [],
     this.approxReps = const [],
     this.actualWeights = const [],
+    this.setFeedback = const [],
   });
 
   final String exerciseName;
@@ -49,6 +51,11 @@ class LoggedExerciseRepRange {
   /// averaged matrix-tab weight is the only figure available for those).
   final List<double> actualWeights;
 
+  /// Parallel to [actualReps]: optional per-set thumbs-up/down feedback.
+  /// Empty for visits logged before this was tracked, or where no set in
+  /// this exercise had any feedback marked.
+  final List<SetFeedback> setFeedback;
+
   int? get setCount => actualReps.isEmpty ? null : actualReps.length;
 
   double? get avgReps => actualReps.isEmpty
@@ -57,6 +64,9 @@ class LoggedExerciseRepRange {
 
   bool isApprox(int setIndex) =>
       setIndex < approxReps.length && approxReps[setIndex];
+
+  SetFeedback feedbackFor(int setIndex) =>
+      setIndex < setFeedback.length ? setFeedback[setIndex] : SetFeedback.none;
 }
 
 /// One gym-visit record from a year's `<year>_meta` tab.
@@ -73,6 +83,7 @@ class MetaRow {
     this.rating,
     this.ratingRelevance = RatingRelevance.normal,
     this.note,
+    this.workoutDayId,
   });
 
   final int rowIndex;
@@ -95,6 +106,11 @@ class MetaRow {
   /// header-row-cell note convention used on [MatrixTabFormat.legacyGrouped]
   /// tabs.
   final String? note;
+
+  /// Id of the `WorkoutDayDef` the user picked when logging this visit
+  /// (column K of the meta tab) — null for visits logged before this was
+  /// tracked, or hand-typed sheet rows.
+  final String? workoutDayId;
 
   List<String> get exerciseNames =>
       exercises.map((e) => e.exerciseName).toList();

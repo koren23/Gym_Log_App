@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gym_tracker/models/set_feedback.dart';
 import 'package:gym_tracker/services/sheets/sheet_parser.dart';
 
 void main() {
@@ -69,6 +70,37 @@ void main() {
   );
 
   test(
+    'parses a 5-segment cell (name:low-high:reps:weights:feedback), keeping '
+    'empty feedback tokens position-aligned with reps/weights',
+    () {
+      final rows = rowsWithExercisesCell(
+        'Bench press:6-8:8,~7,6:60,60,62.5:,u,d',
+      );
+      final exercise = parser.parseMetaTab(rows).single.exercises.single;
+      expect(exercise.actualReps, [8, 7, 6]);
+      expect(exercise.actualWeights, [60.0, 60.0, 62.5]);
+      expect(exercise.setFeedback, [
+        SetFeedback.none,
+        SetFeedback.up,
+        SetFeedback.down,
+      ]);
+      expect(exercise.feedbackFor(0), SetFeedback.none);
+      expect(exercise.feedbackFor(1), SetFeedback.up);
+      expect(exercise.feedbackFor(2), SetFeedback.down);
+    },
+  );
+
+  test(
+    'a 4-segment cell (no feedback segment) parses with an empty setFeedback list',
+    () {
+      final rows = rowsWithExercisesCell('Bench press:6-8:8,7,6:60,60,62.5');
+      final exercise = parser.parseMetaTab(rows).single.exercises.single;
+      expect(exercise.setFeedback, isEmpty);
+      expect(exercise.feedbackFor(0), SetFeedback.none);
+    },
+  );
+
+  test(
     'multiple pipe-separated exercises with different formats parse independently',
     () {
       final rows = rowsWithExercisesCell(
@@ -80,6 +112,26 @@ void main() {
       expect(exercises[0].actualWeights, [60.0, 60.0, 62.5]);
       expect(exercises[1].exerciseName, 'Squat');
       expect(exercises[1].actualReps, isEmpty);
+    },
+  );
+
+  test(
+    'column K (index 10) parses as workoutDayId, missing/blank defaults to null',
+    () {
+      final rowsWithDayId = [
+        ['visitId', 'date', 'isoWeek', 'isoYear', 'muscleGroups', 'exercises',
+            'sourceTab', 'rating', 'ratingRelevance', 'note', 'workoutDayId'],
+        [
+          'v1', '2026-08-14', '33', '2026', 'Push', 'Bench press:6-8',
+          '2026', '4', 'normal', '', 'push',
+        ],
+      ];
+      final meta = parser.parseMetaTab(rowsWithDayId).single;
+      expect(meta.workoutDayId, 'push');
+
+      final rowsNoDayId = rowsWithExercisesCell('Bench press:6-8');
+      final metaNoDayId = parser.parseMetaTab(rowsNoDayId).single;
+      expect(metaNoDayId.workoutDayId, isNull);
     },
   );
 }

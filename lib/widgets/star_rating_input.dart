@@ -68,3 +68,32 @@ class _StarRatingInputState extends State<StarRatingInput> {
     );
   }
 }
+
+/// Non-interactive rendering of a 0.0-5.0 half-star rating — same icon
+/// logic as [StarRatingInput] minus the gesture handling, for read-only
+/// previews where accidental edits must be impossible.
+class ReadOnlyStarRating extends StatelessWidget {
+  const ReadOnlyStarRating({super.key, required this.value, this.size = 20});
+
+  final double value;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: List.generate(5, (i) {
+        final starValue = i + 1;
+        IconData icon;
+        if (value >= starValue) {
+          icon = Icons.star;
+        } else if (value >= starValue - 0.5) {
+          icon = Icons.star_half;
+        } else {
+          icon = Icons.star_border;
+        }
+        return Icon(icon, size: size, color: Colors.amber);
+      }),
+    );
+  }
+}

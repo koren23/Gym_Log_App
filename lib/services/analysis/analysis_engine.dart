@@ -16,6 +16,8 @@ class HistoryPoint {
     this.exactDateKnown = true,
     this.totalSets,
     this.avgReps,
+    this.thumbsUpCount = 0,
+    this.thumbsDownCount = 0,
   });
 
   final int isoYear;
@@ -40,6 +42,13 @@ class HistoryPoint {
   /// both null for visits logged before per-set reps were tracked.
   final int? totalSets;
   final double? avgReps;
+
+  /// Count of sets marked thumbs-up/down (see [SetFeedback]) in this visit
+  /// — 0 for visits logged before this was tracked, or with no feedback
+  /// set. A light, optional signal — see [AnalysisEngine
+  /// ._thumbsSuggestOverridePlateau].
+  final int thumbsUpCount;
+  final int thumbsDownCount;
 }
 
 /// On-device, rule-based analysis of an exercise's (or muscle group's)
@@ -58,6 +67,17 @@ class AnalysisEngine {
   static const int proactiveScanWindowWeeks = 8;
   static const double bodyWeightTrendThresholdPct =
       0.015; // 1.5% over the window
+
+  /// Net (thumbs-up minus thumbs-down) sets over [plateauWindow] needed to
+  /// downgrade a raw weight plateau — a light, capped nudge (never a
+  /// replacement for the objective weight/rep numbers): recent sets that
+  /// genuinely felt strong are worth noting even if the number on the bar
+  /// hasn't moved yet.
+  static const int thumbsPlateauOverrideThreshold = 2;
+
+  /// Recent thumbs-down sets (with no offsetting thumbs-up) needed to count
+  /// alongside [ratingVeryLowThreshold] toward suggesting a deload.
+  static const int thumbsDeloadSuggestThreshold = 3;
 
   /// [history] must be sorted chronologically ascending (oldest first).
   /// [bodyWeightTrend] is the user's overall body-weight trend over a
@@ -92,6 +112,28 @@ class AnalysisEngine {
         message:
             '$subjectName — weight has held steady, but you\'re doing more '
             'reps or sets than before. That still counts as progress.',
+        priority: 0,
+      );
+    }
+
+    // A raw weight plateau with flat/declining volume can still be worth a
+    // second look if recent sets have been marked (optionally, via the
+    // per-set thumbs feedback) as feeling strong — a lighter signal than
+    // the volume-trend override above, so it only applies once that one
+    // doesn't.
+    if (rawWeightPlateaued &&
+        volumeTrend != TrendDirection.up &&
+        _thumbsSuggestOverridePlateau(history)) {
+      return AnalysisFinding(
+        subjectName: subjectName,
+        weightTrend: TrendDirection.flat,
+        ratingTrend: ratingTrend,
+        isPlateaued: false,
+        repRangeChanged: repRangeChanged,
+        message:
+            '$subjectName — weight has held steady, but recent sets have '
+            "felt strong — that's still worth noting before calling it a "
+            'plateau.',
         priority: 0,
       );
     }
@@ -178,11 +220,14 @@ class AnalysisEngine {
 
     String suggestion;
     int priority;
-    if (avgRecentRating != null && avgRecentRating < ratingVeryLowThreshold) {
+    final lowRatings =
+        avgRecentRating != null && avgRecentRating < ratingVeryLowThreshold;
+    final thumbsDownCluster = _recentThumbsDownCluster(history);
+    if (lowRatings || thumbsDownCluster) {
       suggestion =
-          'Ratings have been low regardless of weight trend — consider a '
-          'deload (reduce working weight ~10%) or double-check form before '
-          'pushing further.';
+          '${lowRatings ? 'Ratings have been low' : 'Recent sets have felt bad'} '
+          'regardless of weight trend — consider a deload (reduce working '
+          'weight ~10%) or double-check form before pushing further.';
       priority = 3;
     } else if (!repRangeChanged) {
       final low = history.last.repRangeLow;
@@ -323,6 +368,37 @@ class AnalysisEngine {
     }
     if (avg >= 4.0) return TrendDirection.up;
     return TrendDirection.flat;
+  }
+
+  /// Whether recent per-set thumbs feedback (see [SetFeedback]) leans
+  /// clearly positive over the last [plateauWindow] visits — a small,
+  /// optional signal that a raw weight plateau shouldn't necessarily be
+  /// read as a real stall, on top of (not instead of) the objective
+  /// weight/volume numbers.
+  bool _thumbsSuggestOverridePlateau(List<HistoryPoint> history) {
+    final recent = history.length > plateauWindow
+        ? history.sublist(history.length - plateauWindow)
+        : history;
+    final net = recent.fold<int>(
+      0,
+      (sum, h) => sum + h.thumbsUpCount - h.thumbsDownCount,
+    );
+    return net >= thumbsPlateauOverrideThreshold;
+  }
+
+  /// Whether recent per-set thumbs feedback leans clearly negative over the
+  /// last [ratingDeclineWindow] visits — mirrors
+  /// [_thumbsSuggestOverridePlateau] but toward a deload suggestion instead
+  /// of overriding a plateau.
+  bool _recentThumbsDownCluster(List<HistoryPoint> history) {
+    final recent = history.length > ratingDeclineWindow
+        ? history.sublist(history.length - ratingDeclineWindow)
+        : history;
+    final net = recent.fold<int>(
+      0,
+      (sum, h) => sum + h.thumbsDownCount - h.thumbsUpCount,
+    );
+    return net >= thumbsDeloadSuggestThreshold;
   }
 
   /// Weighted mean of [points]' ratings, discounting anything flagged

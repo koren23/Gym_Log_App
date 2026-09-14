@@ -62,9 +62,10 @@ const String kWorkoutDaysTabName = 'WorkoutDays';
 /// Column order for the WorkoutDays tab.
 const List<String> kWorkoutDaysTabColumns = ['id', 'label', 'muscleGroups'];
 
-/// Column order for a year's metadata tab. Columns I (ratingRelevance) and
-/// J (note) were added after columns A-H already existed in the wild —
-/// older rows simply lack them and parse as their defaults.
+/// Column order for a year's metadata tab. Columns I (ratingRelevance), J
+/// (note), and K (workoutDayId) were added after columns A-H already
+/// existed in the wild — older rows simply lack them and parse as their
+/// defaults.
 const List<String> kMetaTabColumns = [
   'visitId',
   'date',
@@ -76,6 +77,7 @@ const List<String> kMetaTabColumns = [
   'rating',
   'ratingRelevance',
   'note',
+  'workoutDayId',
 ];
 
 /// Column order for the BodyWeight tab.

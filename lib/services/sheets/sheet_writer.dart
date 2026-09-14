@@ -4,6 +4,7 @@ import '../../core/constants/muscle_groups.dart';
 import '../../core/constants/sheet_layout.dart';
 import '../../models/exercise.dart';
 import '../../models/rating_relevance.dart';
+import '../../models/set_feedback.dart';
 import '../../models/workout_day_def.dart';
 import '../../models/workout_visit.dart';
 import '../../models/year_sheet_data.dart';
@@ -346,12 +347,16 @@ class SheetWriter {
         .toSet()
         .join(',');
     final exercises = visit.entries
-        .map(
-          (e) =>
-              '${e.exercise.name}:${e.targetRepRangeLow}-${e.targetRepRangeHigh}:'
+        .map((e) {
+          final hasFeedback = e.sets.any((s) => s.feedback != SetFeedback.none);
+          final feedbackSegment = hasFeedback
+              ? ':${e.sets.map((s) => s.feedback.sheetToken).join(',')}'
+              : '';
+          return '${e.exercise.name}:${e.targetRepRangeLow}-${e.targetRepRangeHigh}:'
               '${e.sets.map((s) => s.approxReps ? '~${s.reps}' : '${s.reps}').join(',')}:'
-              '${e.sets.map((s) => s.weight).join(',')}',
-        )
+              '${e.sets.map((s) => s.weight).join(',')}'
+              '$feedbackSegment';
+        })
         .join('|');
     final dateOnly = formatDateOnly(visit.date);
 
@@ -369,6 +374,7 @@ class SheetWriter {
           visit.rating ?? '',
           visit.ratingRelevance.sheetValue,
           visit.note ?? '',
+          visit.workoutDayId ?? '',
         ],
       ],
     );
@@ -441,7 +447,8 @@ class SheetWriter {
           (e) =>
               '${e.exerciseName}:${e.repRangeLow}-${e.repRangeHigh}:'
               '${_repsSegment(e)}:'
-              '${e.actualWeights.join(',')}',
+              '${e.actualWeights.join(',')}'
+              '${_feedbackSegment(e)}',
         )
         .join('|');
     return ValueRange(
@@ -458,6 +465,16 @@ class SheetWriter {
     for (var i = 0; i < e.actualReps.length; i++)
       e.isApprox(i) ? '~${e.actualReps[i]}' : '${e.actualReps[i]}',
   ].join(',');
+
+  /// Optional 5th colon-segment carrying per-set thumbs-up/down feedback —
+  /// omitted entirely when no set in [e] has any feedback marked, so the
+  /// common case stays the existing 4-segment format.
+  String _feedbackSegment(LoggedExerciseRepRange e) {
+    if (e.setFeedback.every((f) => f == SetFeedback.none)) return '';
+    return ':${[
+      for (var i = 0; i < e.actualReps.length; i++) e.feedbackFor(i).sheetToken,
+    ].join(',')}';
+  }
 
   /// Targeted update for the rating cell (column H, [kMetaTabColumns]
   /// index 7) of a specific metadata row.

@@ -3,34 +3,23 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../models/analysis_result.dart';
-import '../../models/history_entry.dart';
 import '../../models/workout_day_def.dart';
-import '../../models/year_sheet_data.dart';
 import '../../providers/analysis_providers.dart';
 import '../../providers/sheet_data_providers.dart';
 import '../../providers/settings_providers.dart';
 import '../../widgets/insight_summary.dart';
+import '../../widgets/read_only_exercise_sets.dart';
+import '../../widgets/star_rating_input.dart';
 
-/// Read-only lookup of the analysis findings from the most recent [day]
-/// workout — lets the user check "how did I do last time" before logging
-/// today's session, instead of only seeing this after publishing.
+/// Read-only preview of the most recent real [day] workout — exercise
+/// order, per-set reps/weights, whole-visit rating, personal notes, and the
+/// app's analysis findings — so the user can check "how did I do last time"
+/// before logging today's session, instead of only seeing this after
+/// publishing.
 class LastWorkoutInsightScreen extends ConsumerWidget {
   const LastWorkoutInsightScreen({super.key, required this.day});
 
   final WorkoutDayDef day;
-
-  HistoryEntry? _lastEntryFor(
-    List<YearSheetData> yearsAscending,
-    List<WorkoutDayDef> dayDefs,
-  ) {
-    for (final entry in buildHistoryEntries(
-      yearsAscending,
-      workoutDays: dayDefs,
-    )) {
-      if (historyEntryBelongsToDay(entry, day)) return entry;
-    }
-    return null;
-  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -42,7 +31,10 @@ class LastWorkoutInsightScreen extends ConsumerWidget {
 
     final entry = yearsAscending == null
         ? null
-        : _lastEntryFor(yearsAscending, dayDefs);
+        : mostRecentRealVisitForDay(
+            buildHistoryEntries(yearsAscending, workoutDays: dayDefs),
+            day,
+          );
     final findings = (entry == null || yearsAscending == null)
         ? const <AnalysisFinding>[]
         : analyzeExercises(
@@ -67,14 +59,39 @@ class LastWorkoutInsightScreen extends ConsumerWidget {
                       DateFormat('EEEE, MMM d, yyyy').format(entry.date),
                       style: theme.textTheme.titleMedium,
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 12),
+                    for (final ex in entry.metaRow!.exercises)
+                      ReadOnlyExerciseSets(exercise: ex),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Text('Rating: ', style: theme.textTheme.bodyMedium),
+                        if (entry.metaRow!.rating != null)
+                          ReadOnlyStarRating(value: entry.metaRow!.rating!)
+                        else
+                          Text('Not rated', style: theme.textTheme.bodySmall),
+                      ],
+                    ),
+                    if (entry.metaRow!.note != null &&
+                        entry.metaRow!.note!.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          '📝 ${entry.metaRow!.note}',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            fontStyle: FontStyle.italic,
+                            color: theme.colorScheme.outline,
+                          ),
+                        ),
+                      ),
+                    const SizedBox(height: 16),
                     Text(
-                      entry.exerciseNames.join(', '),
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.outline,
+                      "App's take",
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 4),
                     InsightSummaryList(findings: findings),
                   ],
                 ),
