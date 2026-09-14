@@ -23,6 +23,9 @@ class AppSettingsService {
   static const _kSpreadsheetId = 'spreadsheet_id';
   static const _kSpreadsheetUrl = 'spreadsheet_url';
   static const _kLastSignedInEmail = 'last_signed_in_email';
+  static const _kWebRefreshToken = 'web_refresh_token';
+  static const _kWebPendingPkceVerifier = 'web_pending_pkce_verifier';
+  static const _kWebPendingPkceState = 'web_pending_pkce_state';
   static const _kDismissedFindingSignatures = 'dismissed_finding_signatures';
   static const _kAppDisplayName = 'app_display_name';
   static const _kAppBarColor = 'color_app_bar';
@@ -59,6 +62,40 @@ class AppSettingsService {
     } else {
       await _prefs.setString(_kLastSignedInEmail, email);
     }
+  }
+
+  /// Web only: the OAuth refresh token from the hand-rolled PKCE flow (see
+  /// `GoogleWebOAuthClient`), persisted in the PWA's own local storage so a
+  /// fresh access token can be silently minted on every launch without
+  /// depending on Safari's (often-blocked) cross-site cookie check.
+  String? get webRefreshToken => _prefs.getString(_kWebRefreshToken);
+
+  Future<void> setWebRefreshToken(String? token) async {
+    if (token == null) {
+      await _prefs.remove(_kWebRefreshToken);
+    } else {
+      await _prefs.setString(_kWebRefreshToken, token);
+    }
+  }
+
+  /// Web only: the PKCE code verifier and CSRF state stashed just before
+  /// navigating away to Google's consent screen, so they survive the
+  /// full-page round trip and can be checked/consumed on return.
+  String? get webPendingPkceVerifier =>
+      _prefs.getString(_kWebPendingPkceVerifier);
+  String? get webPendingPkceState => _prefs.getString(_kWebPendingPkceState);
+
+  Future<void> setWebPendingPkce({
+    required String verifier,
+    required String state,
+  }) async {
+    await _prefs.setString(_kWebPendingPkceVerifier, verifier);
+    await _prefs.setString(_kWebPendingPkceState, state);
+  }
+
+  Future<void> clearWebPendingPkce() async {
+    await _prefs.remove(_kWebPendingPkceVerifier);
+    await _prefs.remove(_kWebPendingPkceState);
   }
 
   String get appDisplayName =>

@@ -4,10 +4,33 @@ import 'package:http/http.dart' as http;
 import 'package:googleapis/sheets/v4.dart';
 
 import '../../core/constants/oauth_config.dart';
+import '../settings/app_settings_service.dart';
+import 'google_web_oauth_client.dart';
 
-/// Wraps `google_sign_in` (v7 API) to authenticate the user and produce an
+/// Platform-neutral signed-in identity. Wraps the native plugin's account on
+/// mobile/desktop; on web there's no `GoogleSignInAccount` instance once the
+/// web path bypasses `google_sign_in_web` (see [GoogleWebOAuthClient]), so
+/// this is just the email decoded from the OAuth id_token there.
+class SignedInAccount {
+  const SignedInAccount({required this.email});
+
+  final String email;
+}
+
+/// Wraps Google sign-in to authenticate the user and produce an
 /// authenticated [http.Client] for the Sheets API, scoped to
-/// [SheetsApi.spreadsheetsScope] only.
+/// [SheetsApi.spreadsheetsScope] (plus `openid email` on web) only.
+///
+/// Native platforms (Android/iOS/desktop) use the `google_sign_in` plugin
+/// (v7 API), backed by the OS's own credential store — this stays signed in
+/// indefinitely with no code here needed to make that happen.
+///
+/// The web build instead uses [GoogleWebOAuthClient], a hand-rolled OAuth
+/// authorization-code+PKCE flow — `google_sign_in_web`'s browser token
+/// client never issues a refresh token to JS, and its silent-restore check
+/// depends on a cross-site cookie Safari blocks by default, making it
+/// unusable as a "stay signed in" mechanism on iOS. See
+/// [GoogleWebOAuthClient]'s doc comment for the full reasoning.
 class GoogleAuthService {
   GoogleAuthService._();
 
@@ -16,29 +39,49 @@ class GoogleAuthService {
   static const List<String> _scopes = [SheetsApi.spreadsheetsScope];
 
   bool _initialized = false;
-  GoogleSignInAccount? _currentAccount;
+  GoogleSignInAccount? _nativeAccount;
+  GoogleWebOAuthClient? _webClient;
 
-  GoogleSignInAccount? get currentAccount => _currentAccount;
-  bool get isSignedIn => _currentAccount != null;
+  SignedInAccount? get currentAccount {
+    if (kIsWeb) {
+      final email = _webClient?.email;
+      return email == null ? null : SignedInAccount(email: email);
+    }
+    final account = _nativeAccount;
+    return account == null ? null : SignedInAccount(email: account.email);
+  }
+
+  bool get isSignedIn => currentAccount != null;
 
   Future<void> ensureInitialized() async {
     if (_initialized) return;
-    // The web implementation rejects `serverClientId` (it's Android/iOS
-    // only there) and expects the same "Web application" client ID as
-    // `clientId` instead.
-    await GoogleSignIn.instance.initialize(
-      clientId: kIsWeb ? kGoogleServerClientId : null,
-      serverClientId: kIsWeb ? null : kGoogleServerClientId,
-    );
     _initialized = true;
+    if (kIsWeb) {
+      final client = GoogleWebOAuthClient(await AppSettingsService.create());
+      _webClient = client;
+      await client.completePendingRedirectIfAny();
+      return;
+    }
+    await GoogleSignIn.instance.initialize(serverClientId: kGoogleServerClientId);
   }
 
   /// Attempts a silent sign-in (no UI). Returns true if it succeeded.
   Future<bool> signInSilently() async {
     await ensureInitialized();
+    if (kIsWeb) {
+      final client = _webClient!;
+      if (!client.hasStoredRefreshToken) return false;
+      try {
+        await client.getValidAccessToken();
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
+
     final account = await GoogleSignIn.instance
         .attemptLightweightAuthentication();
-    _currentAccount = account;
+    _nativeAccount = account;
     if (account == null) return false;
 
     final authz = await account.authorizationClient.authorizationForScopes(
@@ -48,70 +91,54 @@ class GoogleAuthService {
   }
 
   /// Runs the interactive sign-in flow and requests the Sheets scope.
-  /// Throws [GoogleSignInException] on failure/cancellation.
   ///
-  /// Only usable on platforms where [GoogleSignIn.supportsAuthenticate] is
-  /// true (not the web — see [onWebSignIn] instead).
-  Future<GoogleSignInAccount> signInInteractively() async {
+  /// On web this navigates the page away to Google's consent screen and
+  /// never returns meaningfully — the app resumes via
+  /// [GoogleWebOAuthClient.completePendingRedirectIfAny] on the next load.
+  /// Throws [GoogleSignInException] on native failure/cancellation.
+  Future<void> signInInteractively() async {
     await ensureInitialized();
-    final account = await GoogleSignIn.instance.authenticate();
-    _currentAccount = account;
-    await account.authorizationClient.authorizeScopes(_scopes);
-    return account;
-  }
-
-  /// Fires whenever the platform's own rendered sign-in button (the only
-  /// option on the web, since [signInInteractively] throws there) completes
-  /// a sign-in. Identity only — deliberately does NOT also request the
-  /// Sheets scope here: browsers only allow the authorization popup when
-  /// it's opened directly inside a user-gesture handler (a button's
-  /// onPressed), not from an async stream callback like this one, so that
-  /// has to happen via a separate, explicit [requestSheetsAccess] call
-  /// wired to its own button. See [GoogleAuthNotifier]/`SignInScreen`.
-  Stream<GoogleSignInAccount> get onIdentitySignIn => GoogleSignIn.instance
-      .authenticationEvents
-      .where((e) => e is GoogleSignInAuthenticationEventSignIn)
-      .cast<GoogleSignInAuthenticationEventSignIn>()
-      .map((e) {
-        _currentAccount = e.user;
-        return e.user;
-      });
-
-  /// Requests the Sheets scope for the already-identified [currentAccount]
-  /// — the web counterpart to the scope request bundled inside
-  /// [signInInteractively] on other platforms. Must be called directly
-  /// from a user-interaction handler (e.g. a button's `onPressed`) on the
-  /// web, or the browser will block the consent popup. Throws
-  /// [StateError] if no account is signed in yet.
-  Future<void> requestSheetsAccess() async {
-    final account = _currentAccount;
-    if (account == null) {
-      throw StateError('No signed-in Google account.');
+    if (kIsWeb) {
+      await _webClient!.startInteractiveSignIn();
+      return;
     }
+    final account = await GoogleSignIn.instance.authenticate();
+    _nativeAccount = account;
     await account.authorizationClient.authorizeScopes(_scopes);
   }
 
   Future<void> signOut() async {
+    if (kIsWeb) {
+      await _webClient?.signOut();
+      return;
+    }
     await GoogleSignIn.instance.signOut();
-    _currentAccount = null;
+    _nativeAccount = null;
   }
 
   /// Builds a [SheetsApi] client authenticated as the current account.
   /// Throws [StateError] if no account is signed in.
   Future<SheetsApi> buildSheetsApi() async {
-    final account = _currentAccount;
+    if (kIsWeb) {
+      final client = _webClient;
+      if (client == null || !client.hasStoredRefreshToken) {
+        throw StateError('No signed-in Google account.');
+      }
+      return SheetsApi(_WebAuthorizedHttpClient(client));
+    }
+    final account = _nativeAccount;
     if (account == null) {
       throw StateError('No signed-in Google account.');
     }
-    final client = _AuthorizedHttpClient(account, _scopes);
-    return SheetsApi(client);
+    final httpClient = _AuthorizedHttpClient(account, _scopes);
+    return SheetsApi(httpClient);
   }
 }
 
 /// An [http.Client] that attaches a fresh Sheets-scope bearer token to every
-/// request. Tokens are fetched lazily per-request rather than cached here,
-/// since `google_sign_in`'s authorization client already caches/refreshes
-/// internally.
+/// request, on native platforms. Tokens are fetched lazily per-request
+/// rather than cached here, since `google_sign_in`'s authorization client
+/// already caches/refreshes internally.
 class _AuthorizedHttpClient extends http.BaseClient {
   _AuthorizedHttpClient(this._account, this._scopes);
 
@@ -128,6 +155,28 @@ class _AuthorizedHttpClient extends http.BaseClient {
     if (headers != null) {
       request.headers.addAll(headers);
     }
+    return _inner.send(request);
+  }
+
+  @override
+  void close() {
+    _inner.close();
+    super.close();
+  }
+}
+
+/// The web counterpart to [_AuthorizedHttpClient]: attaches a bearer token
+/// minted (or refreshed) via [GoogleWebOAuthClient] to every request.
+class _WebAuthorizedHttpClient extends http.BaseClient {
+  _WebAuthorizedHttpClient(this._client);
+
+  final GoogleWebOAuthClient _client;
+  final http.Client _inner = http.Client();
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    final token = await _client.getValidAccessToken();
+    request.headers['Authorization'] = 'Bearer $token';
     return _inner.send(request);
   }
 

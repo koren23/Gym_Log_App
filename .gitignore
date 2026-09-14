@@ -33,6 +33,9 @@ migrate_working_dir/
 /build/
 /coverage/
 
+# Local secrets (never commit these)
+lib/core/constants/oauth_secret_local.dart
+
 # Symbolication related
 app.*.symbols
 
