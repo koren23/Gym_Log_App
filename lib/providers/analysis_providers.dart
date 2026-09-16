@@ -272,34 +272,18 @@ List<HistoryEntry> buildHistoryEntries(
     }
 
     if (year.format == MatrixTabFormat.currentGrouped) {
-      // Once a week has a real, explicitly-tagged visit (workoutDayId set —
-      // i.e. logged through the app after this field was added), that
-      // visit is authoritative for the whole week: don't synthesize ANY
-      // other day for it, even one that merely shares a muscle group with
-      // it (e.g. abdominals trained under both Push and Legs) — otherwise a
-      // shared exercise's matrix cell, written by the real visit, gets
-      // mistaken for a second, un-logged day's own session. Weeks with no
-      // explicitly-tagged visit (rows predating this field, or hand-typed
-      // sheet data) fall back to the older muscle-set-match suppression
-      // below, which still allows legitimate per-day reconstruction from
-      // hand-typed data with no MetaRows at all.
-      final weeksWithExplicitRealVisit = <int>{
-        for (final visit in year.metaRows)
-          if (visit.workoutDayId != null) visit.isoWeek,
-      };
-
-      // A (week, day) pair already has a real visit — don't also
-      // synthesize it. A visit belongs to every current day whose declared
-      // muscle set is a superset of what it actually trained (mirrors
-      // ThisWeekSummary's own belongs-to-day matching).
-      final loggedCurrentDayWeeks = <String>{
-        for (final visit in year.metaRows)
-          for (final day in workoutDays)
-            if (_currentMuscleGroupsForVisit(visit).isNotEmpty &&
-                _currentMuscleGroupsForVisit(
-                  visit,
-                ).every(day.muscleGroups.contains))
-              '${visit.isoWeek}::${day.id}',
+      // Once a week has ANY real, exact-dated visit — whether or not it
+      // carries workoutDayId (older visits, logged before that field
+      // existed, don't) — that visit is authoritative for the whole week:
+      // don't synthesize ANY other day for it, even one that merely shares
+      // a muscle group with it (e.g. abdominals trained under both Push and
+      // Legs) — otherwise a shared exercise's matrix cell, written by the
+      // real visit, gets mistaken for a second, un-logged day's own
+      // session. Only weeks with zero real visits at all (numbers typed
+      // directly into the sheet, no metadata row) fall through to the
+      // per-day reconstruction below.
+      final weeksWithRealVisit = <int>{
+        for (final visit in year.metaRows) visit.isoWeek,
       };
 
       // Stable order: smallest declared muscle-group set first, ties broken
@@ -318,7 +302,7 @@ List<HistoryEntry> buildHistoryEntries(
 
       for (final week in year.weekColumns.keys) {
         final col = year.weekColumns[week]!;
-        if (weeksWithExplicitRealVisit.contains(week)) continue;
+        if (weeksWithRealVisit.contains(week)) continue;
 
         // Per-week claim tracking: which muscle-group set + sheetRows each
         // already-emitted day this week used, so a broader day (e.g. the
@@ -334,7 +318,6 @@ List<HistoryEntry> buildHistoryEntries(
 
         for (var rank = 0; rank < orderedIndices.length; rank++) {
           final day = workoutDays[orderedIndices[rank]];
-          if (loggedCurrentDayWeeks.contains('$week::${day.id}')) continue;
 
           final rawExercisesThisDay = [
             for (final g in day.muscleGroups)
@@ -443,11 +426,6 @@ List<Exercise> _exercisesForDayInColumn(
 
 WorkoutDay? _workoutDayForVisit(MetaRow visit) =>
     workoutDayForGroupLabels(visit.muscleGroups);
-
-Set<MuscleGroup> _currentMuscleGroupsForVisit(MetaRow visit) => {
-  for (final label in visit.muscleGroups)
-    if (currentMuscleFromSheetHeader(label) case final g?) g,
-};
 
 /// Resolves a [HistoryEntry.muscleGroups] / [MetaRow.muscleGroups] list
 /// (sheet-header strings) back to the [WorkoutDay] it belongs to.

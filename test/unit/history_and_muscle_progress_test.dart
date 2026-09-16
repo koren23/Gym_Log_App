@@ -373,6 +373,105 @@ void main() {
     );
 
     test(
+      'a real visit predating workoutDayId (null) still suppresses a phantom '
+      'entry for a peer day sharing a muscle group (bug regression: a '
+      'pre-workoutDayId visit training e.g. Push, sharing abdominals with a '
+      'peer Legs day, used to leak a phantom Legs-labeled entry containing '
+      "only the shared 'abdominals' exercise)",
+      () {
+        final bench = Exercise(
+          name: 'Barbell bench press',
+          muscleGroup: MuscleGroup.upperChest,
+          sheetRow: 5,
+        );
+        final squats = Exercise(
+          name: 'Barbell squats',
+          muscleGroup: MuscleGroup.quads,
+          sheetRow: 10,
+        );
+        final crunches = Exercise(
+          name: 'Cable crunches',
+          muscleGroup: MuscleGroup.abdominals,
+          sheetRow: 15,
+        );
+
+        final year = YearSheetData(
+          year: 2026,
+          tabName: '2026',
+          format: MatrixTabFormat.currentGrouped,
+          muscleGroupSections: {
+            MuscleGroup.upperChest: [bench],
+            MuscleGroup.quads: [squats],
+            MuscleGroup.abdominals: [crunches],
+          },
+          weekColumns: {30: 1},
+          cellValues: {
+            // Only Push's exercises got a cell value this week (bench +
+            // the shared crunches, both written by the real Push visit).
+            // Squats (Legs-only) never got a value, since Legs wasn't
+            // actually trained.
+            const CellKey(5, 1): 80,
+            const CellKey(15, 1): 30,
+          },
+          metaRows: [
+            MetaRow(
+              rowIndex: 1,
+              visitId: 'v1',
+              date: DateTime(2026, 7, 20),
+              isoWeek: 30,
+              isoYear: 2026,
+              muscleGroups: const ['upper chest', 'abdominals'],
+              exercises: const [
+                LoggedExerciseRepRange(
+                  exerciseName: 'Barbell bench press',
+                  repRangeLow: 6,
+                  repRangeHigh: 8,
+                ),
+                LoggedExerciseRepRange(
+                  exerciseName: 'Cable crunches',
+                  repRangeLow: 12,
+                  repRangeHigh: 15,
+                ),
+              ],
+              sourceTab: '2026',
+              // No workoutDayId: simulates a real visit logged before that
+              // field existed.
+            ),
+          ],
+        );
+
+        final push = WorkoutDayDef(
+          id: 'push',
+          label: 'Push',
+          muscleGroups: const [MuscleGroup.upperChest, MuscleGroup.abdominals],
+        );
+        final legs = WorkoutDayDef(
+          id: 'legs',
+          label: 'Legs',
+          muscleGroups: const [MuscleGroup.quads, MuscleGroup.abdominals],
+        );
+
+        final entries = buildHistoryEntries(
+          [year],
+          workoutDays: [push, legs],
+        );
+
+        // Exactly the one real Push visit — no phantom Legs entry synthesized
+        // from the shared abdominals cell, even without workoutDayId.
+        expect(entries, hasLength(1));
+        expect(entries.single.isSynthetic, isFalse);
+        expect(
+          entries.single.exerciseNames,
+          containsAll(['Barbell bench press', 'Cable crunches']),
+        );
+        expect(
+          entries.any((e) => e.exerciseNames.contains('Barbell squats')),
+          isFalse,
+        );
+      },
+    );
+
+    test(
       'a superset day (e.g. Full Body) produces no duplicate entry when a '
       "more specific day already covers all of that week's data",
       () {
