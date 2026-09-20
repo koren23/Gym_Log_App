@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gym_tracker/core/constants/muscle_groups.dart';
+import 'package:gym_tracker/models/exercise_unit.dart';
 import 'package:gym_tracker/services/sheets/sheet_parser.dart';
 
 void main() {
@@ -101,5 +102,58 @@ void main() {
     final result = parser.parseExercisesTab(rows);
     expect(result, hasLength(1));
     expect(result.first.exerciseName, 'Barbell squats');
+  });
+
+  group('parseExerciseUnitsTab', () {
+    test('returns an empty table for an empty sheet', () {
+      final table = parser.parseExerciseUnitsTab([]);
+      expect(table.assignments, isEmpty);
+      expect(table.exerciseColumnIndex, isNull);
+      expect(table.unitColumnIndex, isNull);
+    });
+
+    test(
+      'returns an empty table (with headerRowLength) when the header pair is missing',
+      () {
+        final rows = [
+          ['upper chest', 'quads'],
+          ['Incline bench press', 'Barbell squats'],
+        ];
+        final table = parser.parseExerciseUnitsTab(rows);
+        expect(table.assignments, isEmpty);
+        expect(table.exerciseColumnIndex, isNull);
+        expect(table.unitColumnIndex, isNull);
+        expect(table.headerRowLength, 2);
+      },
+    );
+
+    test('finds the header pair by case-insensitive text, not position', () {
+      final rows = [
+        ['upper chest', 'Exercise', 'Unit'],
+        ['Incline bench press', 'Pull-ups', 'bw'],
+        ['', 'Plank', 'time'],
+        ['', 'Stairmaster', 'custom:floors'],
+      ];
+      final table = parser.parseExerciseUnitsTab(rows);
+      expect(table.exerciseColumnIndex, 1);
+      expect(table.unitColumnIndex, 2);
+      expect(table.assignments['pull-ups']!.unit, ExerciseUnit.bodyweight);
+      expect(table.assignments['pull-ups']!.customLabel, isNull);
+      expect(table.assignments['pull-ups']!.rowIndex, 1);
+      expect(table.assignments['plank']!.unit, ExerciseUnit.time);
+      expect(table.assignments['stairmaster']!.unit, ExerciseUnit.custom);
+      expect(table.assignments['stairmaster']!.customLabel, 'floors');
+    });
+
+    test('a blank/unrecognized unit cell defaults to kg', () {
+      final rows = [
+        ['Exercise', 'Unit'],
+        ['Barbell squats', ''],
+        ['Deadlift', 'nonsense'],
+      ];
+      final table = parser.parseExerciseUnitsTab(rows);
+      expect(table.assignments['barbell squats']!.unit, ExerciseUnit.kg);
+      expect(table.assignments['deadlift']!.unit, ExerciseUnit.kg);
+    });
   });
 }

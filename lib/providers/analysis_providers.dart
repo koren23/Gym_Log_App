@@ -9,11 +9,14 @@ import '../models/exercise.dart';
 import '../models/exercise_muscle_info.dart';
 import '../models/history_entry.dart';
 import '../models/rating_relevance.dart';
+import '../models/recent_suggestion_record.dart';
 import '../models/set_feedback.dart';
 import '../models/workout_day_def.dart';
 import '../models/year_sheet_data.dart';
 import '../services/analysis/alternative_exercise_map.dart';
 import '../services/analysis/analysis_engine.dart';
+import '../services/analysis/workout_day_analyzer.dart';
+import '../services/settings/app_settings_service.dart';
 import '../widgets/simple_line_chart.dart' show ChartPoint;
 import 'sheet_data_providers.dart';
 import 'settings_providers.dart';
@@ -106,12 +109,62 @@ List<HistoryPoint> buildExerciseHistory({
                   .where((f) => f == SetFeedback.down)
                   .length ??
               0,
+          actualRepsPerSet: loggedRange?.actualReps ?? const [],
+          actualWeightsPerSet: loggedRange?.actualWeights ?? const [],
+          perSetFeedback: loggedRange?.setFeedback ?? const [],
         ),
       );
     }
   }
 
   return points;
+}
+
+/// Most recent logged date per exercise name (exact case, as stored on the
+/// meta-tab row) across every loaded year — feeds
+/// [AlternativeExerciseMap.alternativesFor]'s `lastLoggedDate` so exercise
+/// swaps prefer a sibling that hasn't been trained in a while, instead of
+/// always the same first candidate.
+Map<String, DateTime> _lastLoggedDatesByExerciseName(
+  List<YearSheetData> yearsAscending,
+) {
+  final result = <String, DateTime>{};
+  for (final year in yearsAscending) {
+    for (final visit in year.metaRows) {
+      for (final ex in visit.exercises) {
+        final existing = result[ex.exerciseName];
+        if (existing == null || visit.date.isAfter(existing)) {
+          result[ex.exerciseName] = visit.date;
+        }
+      }
+    }
+  }
+  return result;
+}
+
+/// Suggestion kinds/alternative-exercise names already shown recently for
+/// [subjectName] — feeds [AnalysisEngine.analyze]'s `recentlySuggestedKinds`/
+/// `recentlySuggestedAlternatives` so the same nudge doesn't repeat every
+/// session. See `AppSettingsService.recentSuggestions`/
+/// `recordSuggestionShown`.
+({Set<String> alternatives, Set<SuggestionKind> kinds}) _recentSuggestionsFor(
+  String subjectName,
+  List<RecentSuggestionRecord> recentSuggestions,
+) {
+  final cutoff = DateTime.now().subtract(
+    Duration(days: AppSettingsService.recentSuggestionCooldownDays),
+  );
+  final relevant = recentSuggestions.where(
+    (r) => r.subjectName == subjectName && r.shownAt.isAfter(cutoff),
+  );
+  return (
+    alternatives: {
+      for (final r in relevant)
+        if (r.kind == SuggestionKind.changeExercise && r.detail != null)
+          r.detail!,
+    },
+    kinds: {for (final r in relevant) r.kind},
+  );
 }
 
 /// Historical average number of sets actually performed for [exerciseName]
@@ -194,8 +247,20 @@ List<ChartPoint> buildMuscleProgressPoints({
       exerciseName: name,
     );
     if (history.isEmpty) continue;
-    final baseline = history.first.avgWeight;
-    if (baseline == 0) continue;
+    // Indexing to 100 at the *first* value works even for a mixed-unit
+    // muscle group (e.g. a kg exercise alongside a bodyweight one) since
+    // every point becomes a relative %-of-its-own-baseline number, unitless
+    // by construction — verified when per-exercise units were introduced.
+    // A bodyweight exercise's added weight can legitimately start at 0
+    // (unlike kg, where 0 always means "unfilled" and never reaches here),
+    // so the baseline is the first non-zero point instead of always the
+    // first point — otherwise a division by zero would silently drop the
+    // exercise's entire history from this chart.
+    final baseline = history.firstWhere(
+      (h) => h.avgWeight != 0,
+      orElse: () => history.first,
+    ).avgWeight;
+    if (baseline == 0) continue; // every point is 0 — nothing to index.
 
     for (final h in history) {
       final key = '${h.isoYear}-${h.isoWeek}';
@@ -519,10 +584,14 @@ final proactiveFindingsProvider = Provider<List<AnalysisFinding>>((ref) {
   };
 
   final altMap = AlternativeExerciseMap(latestYear);
-  final dismissed = ref
-      .watch(appSettingsServiceProvider)
-      .dismissedFindingSignatures;
+  final lastLoggedDates = _lastLoggedDatesByExerciseName(yearsAscending);
+  final settings = ref.watch(appSettingsServiceProvider);
+  final dismissed = settings.dismissedSuggestionSignatures;
+  final recentSuggestions = settings.recentSuggestions;
   final bwTrend = bodyWeightTrend(ref.watch(bodyWeightEntriesProvider));
+
+  bool notDismissed(AnalysisFinding f) =>
+      !dismissed.contains('${f.kind.name}::${f.subjectName}');
 
   final findings = <AnalysisFinding>[];
   for (final name in recentExerciseNames) {
@@ -532,17 +601,49 @@ final proactiveFindingsProvider = Provider<List<AnalysisFinding>>((ref) {
       yearsAscending: yearsAscending,
       exerciseName: name,
     );
+    final recent = _recentSuggestionsFor(name, recentSuggestions);
     final finding = _engine.analyze(
       subjectName: name,
       history: history,
-      alternativeExerciseNames: altMap.alternativesFor(exercise),
-      recentlySuggestedAlternatives: const {},
+      alternativeExercises: altMap.alternativesFor(
+        exercise,
+        lastLoggedDate: lastLoggedDates,
+      ),
+      recentlySuggestedAlternatives: recent.alternatives,
+      recentlySuggestedKinds: recent.kinds,
       bodyWeightTrend: bwTrend,
+      unit: exercise.unit,
+      customUnitLabel: exercise.customUnitLabel,
     );
-    if (finding == null) continue;
-    final signature = '$name::${finding.isPlateaued}';
-    if (dismissed.contains(signature)) continue;
+    if (finding == null || !notDismissed(finding)) continue;
     findings.add(finding);
+  }
+
+  // Day-level escalation: group each exercise's finding by the workout
+  // day(s) it belongs to (muscle-group membership), and let
+  // WorkoutDayAnalyzer decide if the day itself deserves a nudge on top of
+  // the individual-exercise ones.
+  const dayAnalyzer = WorkoutDayAnalyzer();
+  final findingsByDay = <String, List<AnalysisFinding>>{};
+  for (final finding in findings) {
+    final exercise = latestYear.findExercise(finding.subjectName);
+    if (exercise == null) continue;
+    for (final day in workoutDays) {
+      if (day.muscleGroups.contains(exercise.muscleGroup)) {
+        (findingsByDay[day.id] ??= []).add(finding);
+      }
+    }
+  }
+  for (final day in workoutDays) {
+    final dayFindings = findingsByDay[day.id];
+    if (dayFindings == null) continue;
+    final dayFinding = dayAnalyzer.analyze(
+      day: day,
+      exerciseFindings: dayFindings,
+    );
+    if (dayFinding != null && notDismissed(dayFinding)) {
+      findings.add(dayFinding);
+    }
   }
 
   findings.sort((a, b) => b.priority.compareTo(a.priority));
@@ -550,16 +651,22 @@ final proactiveFindingsProvider = Provider<List<AnalysisFinding>>((ref) {
 });
 
 /// Analysis scoped to exactly the exercises in [exerciseNames] (used right
-/// after logging a workout).
+/// after logging a workout). [day] additionally runs the day-level
+/// escalation ([WorkoutDayAnalyzer]) scoped to just these exercises' findings
+/// — pass the [WorkoutDayDef] the visit was logged under, if known.
 List<AnalysisFinding> analyzeExercises({
   required List<YearSheetData> yearsAscending,
   required List<String> exerciseNames,
   List<BodyWeightEntry> bodyWeightEntries = const [],
+  AppSettingsService? settings,
+  WorkoutDayDef? day,
 }) {
   if (yearsAscending.isEmpty) return const [];
   final latestYear = yearsAscending.last;
   final altMap = AlternativeExerciseMap(latestYear);
+  final lastLoggedDates = _lastLoggedDatesByExerciseName(yearsAscending);
   final bwTrend = bodyWeightTrend(bodyWeightEntries);
+  final recentSuggestions = settings?.recentSuggestions ?? const [];
 
   final findings = <AnalysisFinding>[];
   for (final name in exerciseNames) {
@@ -569,14 +676,28 @@ List<AnalysisFinding> analyzeExercises({
       yearsAscending: yearsAscending,
       exerciseName: name,
     );
+    final recent = _recentSuggestionsFor(name, recentSuggestions);
     final finding = _engine.analyze(
       subjectName: name,
       history: history,
-      alternativeExerciseNames: altMap.alternativesFor(exercise),
-      recentlySuggestedAlternatives: const {},
+      alternativeExercises: altMap.alternativesFor(
+        exercise,
+        lastLoggedDate: lastLoggedDates,
+      ),
+      recentlySuggestedAlternatives: recent.alternatives,
+      recentlySuggestedKinds: recent.kinds,
       bodyWeightTrend: bwTrend,
+      unit: exercise.unit,
+      customUnitLabel: exercise.customUnitLabel,
     );
     if (finding != null) findings.add(finding);
   }
+
+  if (day != null) {
+    const dayAnalyzer = WorkoutDayAnalyzer();
+    final dayFinding = dayAnalyzer.analyze(day: day, exerciseFindings: findings);
+    if (dayFinding != null) findings.add(dayFinding);
+  }
+
   return findings;
 }

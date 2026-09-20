@@ -348,14 +348,46 @@ class SheetWriter {
         .join(',');
     final exercises = visit.entries
         .map((e) {
+          final hasTargetWeightOverride = e.targetWeightPerSet.any(
+            (w) => w != null,
+          );
+          final hasTargetRangeOverride =
+              e.targetRepRangeLowPerSet.any((l) => l != null) &&
+              e.targetRepRangeHighPerSet.any((h) => h != null);
+          final needsTargetSegments =
+              hasTargetRangeOverride || hasTargetWeightOverride;
           final hasFeedback = e.sets.any((s) => s.feedback != SetFeedback.none);
-          final feedbackSegment = hasFeedback
+          // Segments 6/7 can only follow if 5 (feedback) is present too —
+          // see the format doc comment on `_parseExercisesCell`.
+          final feedbackSegment = (hasFeedback || needsTargetSegments)
               ? ':${e.sets.map((s) => s.feedback.sheetToken).join(',')}'
+              : '';
+          final targetRangeSegment = needsTargetSegments
+              ? ':${[
+                  for (var i = 0; i < e.sets.length; i++)
+                    _targetRangeToken(
+                      i < e.targetRepRangeLowPerSet.length
+                          ? e.targetRepRangeLowPerSet[i]
+                          : null,
+                      i < e.targetRepRangeHighPerSet.length
+                          ? e.targetRepRangeHighPerSet[i]
+                          : null,
+                    ),
+                ].join(',')}'
+              : '';
+          final targetWeightSegment = hasTargetWeightOverride
+              ? ':${[
+                  for (var i = 0; i < e.sets.length; i++)
+                    i < e.targetWeightPerSet.length &&
+                            e.targetWeightPerSet[i] != null
+                        ? '${e.targetWeightPerSet[i]}'
+                        : '',
+                ].join(',')}'
               : '';
           return '${e.exercise.name}:${e.targetRepRangeLow}-${e.targetRepRangeHigh}:'
               '${e.sets.map((s) => s.approxReps ? '~${s.reps}' : '${s.reps}').join(',')}:'
               '${e.sets.map((s) => s.weight).join(',')}'
-              '$feedbackSegment';
+              '$feedbackSegment$targetRangeSegment$targetWeightSegment';
         })
         .join('|');
     final dateOnly = formatDateOnly(visit.date);
@@ -443,13 +475,29 @@ class SheetWriter {
     required List<LoggedExerciseRepRange> exercises,
   }) {
     final value = exercises
-        .map(
-          (e) =>
-              '${e.exerciseName}:${e.repRangeLow}-${e.repRangeHigh}:'
+        .map((e) {
+          final needsTargetSegments =
+              _hasTargetRangeOverride(e) || _hasTargetWeightOverride(e);
+          final hasFeedback = !e.setFeedback.every(
+            (f) => f == SetFeedback.none,
+          );
+          final feedbackSegment = (hasFeedback || needsTargetSegments)
+              ? ':${[
+                  for (var i = 0; i < e.actualReps.length; i++)
+                    e.feedbackFor(i).sheetToken,
+                ].join(',')}'
+              : '';
+          final targetRangeSegment = needsTargetSegments
+              ? ':${_targetRangeSegment(e)}'
+              : '';
+          final targetWeightSegment = _hasTargetWeightOverride(e)
+              ? ':${_targetWeightSegment(e)}'
+              : '';
+          return '${e.exerciseName}:${e.repRangeLow}-${e.repRangeHigh}:'
               '${_repsSegment(e)}:'
               '${e.actualWeights.join(',')}'
-              '${_feedbackSegment(e)}',
-        )
+              '$feedbackSegment$targetRangeSegment$targetWeightSegment';
+        })
         .join('|');
     return ValueRange(
       range: "'$metaTabName'!F${metaRowIndex + 1}",
@@ -466,15 +514,33 @@ class SheetWriter {
       e.isApprox(i) ? '~${e.actualReps[i]}' : '${e.actualReps[i]}',
   ].join(',');
 
-  /// Optional 5th colon-segment carrying per-set thumbs-up/down feedback —
-  /// omitted entirely when no set in [e] has any feedback marked, so the
-  /// common case stays the existing 4-segment format.
-  String _feedbackSegment(LoggedExerciseRepRange e) {
-    if (e.setFeedback.every((f) => f == SetFeedback.none)) return '';
-    return ':${[
-      for (var i = 0; i < e.actualReps.length; i++) e.feedbackFor(i).sheetToken,
-    ].join(',')}';
-  }
+  bool _hasTargetRangeOverride(LoggedExerciseRepRange e) =>
+      e.targetLowPerSet.any((v) => v != null) &&
+      e.targetHighPerSet.any((v) => v != null);
+
+  bool _hasTargetWeightOverride(LoggedExerciseRepRange e) =>
+      e.targetWeightPerSet.any((v) => v != null);
+
+  /// Comma-joined per-set target rep-range override (6th colon-segment) —
+  /// `low-high` where set, empty where not.
+  String _targetRangeSegment(LoggedExerciseRepRange e) => [
+    for (var i = 0; i < e.actualReps.length; i++)
+      _targetRangeToken(
+        i < e.targetLowPerSet.length ? e.targetLowPerSet[i] : null,
+        i < e.targetHighPerSet.length ? e.targetHighPerSet[i] : null,
+      ),
+  ].join(',');
+
+  /// Comma-joined per-set target weight override (7th colon-segment).
+  String _targetWeightSegment(LoggedExerciseRepRange e) => [
+    for (var i = 0; i < e.actualReps.length; i++)
+      i < e.targetWeightPerSet.length && e.targetWeightPerSet[i] != null
+          ? '${e.targetWeightPerSet[i]}'
+          : '',
+  ].join(',');
+
+  String _targetRangeToken(int? low, int? high) =>
+      (low != null && high != null) ? '$low-$high' : '';
 
   /// Targeted update for the rating cell (column H, [kMetaTabColumns]
   /// index 7) of a specific metadata row.

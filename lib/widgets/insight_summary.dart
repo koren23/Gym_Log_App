@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 
 import '../models/analysis_result.dart';
+import 'suggestion_card.dart';
 
 /// Short, skimmable rendering of a set of [AnalysisFinding]s: what's
-/// trending up and what's stuck, one line each (not full paragraphs) —
-/// shared between the "just logged" summary and the "last time" lookup.
+/// trending up and what's stuck. A finding with an actionable
+/// [AnalysisFinding.kind] renders as a [SuggestionCard] (with Do this/Not
+/// now buttons); a plain informational finding stays a single line — shared
+/// between the "just logged" summary and the "last time" lookup.
 class InsightSummaryList extends StatelessWidget {
   const InsightSummaryList({
     super.key,
@@ -34,25 +37,49 @@ class InsightSummaryList extends StatelessWidget {
         if (improving.isNotEmpty) ...[
           const _SummaryHeader(emoji: '📈', label: 'Trending up'),
           for (final f in improving)
-            _SummaryRow(
+            _FindingLine(
+              finding: f,
               icon: Icons.trending_up,
               iconColor: Colors.green,
-              text: f.subjectName,
             ),
           if (stuck.isNotEmpty) const SizedBox(height: 12),
         ],
         if (stuck.isNotEmpty) ...[
           const _SummaryHeader(emoji: '🎯', label: 'Stuck'),
           for (final f in stuck)
-            _SummaryRow(
+            _FindingLine(
+              finding: f,
               icon: Icons.trending_flat,
               iconColor: Colors.orange,
-              text: f.suggestion == null
-                  ? f.subjectName
-                  : '${f.subjectName} — ${f.suggestion}',
             ),
         ],
       ],
+    );
+  }
+}
+
+class _FindingLine extends StatelessWidget {
+  const _FindingLine({
+    required this.finding,
+    required this.icon,
+    required this.iconColor,
+  });
+
+  final AnalysisFinding finding;
+  final IconData icon;
+  final Color iconColor;
+
+  @override
+  Widget build(BuildContext context) {
+    if (finding.kind != SuggestionKind.none) {
+      return SuggestionCard(finding: finding);
+    }
+    return _SummaryRow(
+      icon: icon,
+      iconColor: iconColor,
+      text: finding.suggestion == null
+          ? finding.subjectName
+          : '${finding.subjectName} — ${finding.suggestion}',
     );
   }
 }

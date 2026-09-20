@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/constants/muscle_groups.dart';
 import '../../models/app_colors.dart';
+import '../../models/exercise_unit.dart';
 import '../../providers/auth_providers.dart';
 import '../../providers/settings_providers.dart';
 import '../../providers/sheet_data_providers.dart';
+import '../log_workout/add_new_exercise_dialog.dart';
 import 'add_workout_day_dialog.dart';
 import 'algorithms_info_screen.dart';
 
@@ -19,6 +22,7 @@ class SettingsScreen extends ConsumerWidget {
     final pendingItems = ref.watch(pendingSyncQueueProvider).getAll();
     final currentColors = ref.watch(appColorsProvider);
     final dayDefs = ref.watch(workoutDayDefsProvider);
+    final knownExercises = ref.watch(allKnownExercisesProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
@@ -146,6 +150,52 @@ class SettingsScreen extends ConsumerWidget {
               },
             ),
           ),
+          const Divider(),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 8, 16, 4),
+            child: Text(
+              'Exercises',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 0, 16, 4),
+            child: Text(
+              'Most exercises log in kg. Switch one to bodyweight, time, or '
+              'a custom unit (e.g. floors) here.',
+              style: TextStyle(fontSize: 12),
+            ),
+          ),
+          for (final e in knownExercises)
+            ListTile(
+              dense: true,
+              title: Text(e.name),
+              subtitle: Text(switch (e.unit) {
+                ExerciseUnit.kg => 'kg',
+                ExerciseUnit.bodyweight => 'Bodyweight (+kg)',
+                ExerciseUnit.time => 'Time (sec)',
+                ExerciseUnit.custom => 'Custom (${e.customUnitLabel ?? '?'})',
+              }),
+              trailing: IconButton(
+                icon: const Icon(Icons.edit_outlined),
+                onPressed: () async {
+                  final result = await showAddNewExerciseDialog(
+                    context,
+                    muscleGroupOptions: kCurrentMuscleGroups,
+                    allMuscleInfo: const [],
+                    existing: e,
+                  );
+                  if (result == null) return;
+                  await ref
+                      .read(snapshotProvider.notifier)
+                      .addExerciseUnit(
+                        exerciseName: result.exercise.name,
+                        unit: result.exercise.unit,
+                        customLabel: result.exercise.customUnitLabel,
+                      );
+                },
+              ),
+            ),
           const Divider(),
           ListTile(
             title: const Text('How suggestions work'),

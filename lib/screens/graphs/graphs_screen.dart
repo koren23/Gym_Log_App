@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/utils/text.dart';
 import '../../models/exercise.dart';
+import '../../models/exercise_unit.dart';
 import '../../providers/analysis_providers.dart';
 import '../../providers/sheet_data_providers.dart';
 import '../../widgets/simple_line_chart.dart';
@@ -21,6 +22,16 @@ const kMuscleColor = Colors.brown;
 String _optionLabel(String option) => option.startsWith(_kMusclePrefix)
     ? titleCase(option.substring(_kMusclePrefix.length))
     : option;
+
+/// Y-axis legend label for a single exercise's own line (the [showingMuscle]
+/// case has its own unit-agnostic "% of starting weight" label instead —
+/// see the call site).
+String _weightAxisLabel(Exercise? exercise) => switch (exercise?.unit) {
+  null || ExerciseUnit.kg => 'Weight lifted',
+  ExerciseUnit.bodyweight => 'Added weight (kg)',
+  ExerciseUnit.time => 'Time held (sec)',
+  ExerciseUnit.custom => exercise?.customUnitLabel ?? 'Value',
+};
 
 /// One combined graph with a searchable picker: any exercise (weight lifted
 /// on the left axis, body weight overlaid in blue on an independent right
@@ -216,7 +227,7 @@ class _GraphsScreenState extends ConsumerState<GraphsScreen> {
                   color: primaryColor,
                   label: showingMuscle
                       ? '% of starting weight'
-                      : 'Weight lifted',
+                      : _weightAxisLabel(allExercisesByName[_selectedOption!]),
                 ),
                 const SizedBox(width: 20),
                 _LegendDot(color: bodyWeightColor, label: 'Body weight'),

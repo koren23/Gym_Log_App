@@ -101,6 +101,45 @@ void main() {
   );
 
   test(
+    'a 6-segment cell adds a per-set target rep-range override',
+    () {
+      final rows = rowsWithExercisesCell(
+        'Bench press:6-8:8,~7,6:60,60,62.5:,,:8-10,,',
+      );
+      final exercise = parser.parseMetaTab(rows).single.exercises.single;
+      expect(exercise.targetLowPerSet, [8, null, null]);
+      expect(exercise.targetHighPerSet, [10, null, null]);
+      expect(exercise.effectiveTargetLow(0), 8);
+      expect(exercise.effectiveTargetHigh(0), 10);
+      // Falls back to the exercise-wide range where no override is set.
+      expect(exercise.effectiveTargetLow(1), 6);
+      expect(exercise.effectiveTargetHigh(1), 8);
+    },
+  );
+
+  test('a 7-segment cell adds a per-set target weight override', () {
+    final rows = rowsWithExercisesCell(
+      'Bench press:6-8:8,~7,6:60,60,62.5:,,:8-10,,:,,65',
+    );
+    final exercise = parser.parseMetaTab(rows).single.exercises.single;
+    expect(exercise.targetWeightPerSet, [null, null, 65.0]);
+    expect(exercise.effectiveTargetWeight(2), 65.0);
+    expect(exercise.effectiveTargetWeight(0), isNull);
+  });
+
+  test(
+    'a legacy 2-segment cell still parses unaffected by the new segments',
+    () {
+      final rows = rowsWithExercisesCell('Bench press:6-8');
+      final exercise = parser.parseMetaTab(rows).single.exercises.single;
+      expect(exercise.targetLowPerSet, isEmpty);
+      expect(exercise.targetWeightPerSet, isEmpty);
+      expect(exercise.effectiveTargetLow(0), 6);
+      expect(exercise.effectiveTargetWeight(0), isNull);
+    },
+  );
+
+  test(
     'multiple pipe-separated exercises with different formats parse independently',
     () {
       final rows = rowsWithExercisesCell(

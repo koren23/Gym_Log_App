@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 /// Green/red/amber accents for the log-workout exercise-tile trend stripe
 /// (see `TileTrend`). This is the app's first semantic-status color — every
 /// other trend color today (`WeeklyInsightBox`'s green/orange/blueGrey,
-/// `InsightBanner`'s gradients) is a hardcoded literal that doesn't adapt
-/// to the user's chosen theme preset.
+/// `SuggestionCard`'s container tints) is a hardcoded literal that doesn't
+/// adapt to the user's chosen theme preset.
 class SemanticTrendColors {
   const SemanticTrendColors({
     required this.improving,

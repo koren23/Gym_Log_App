@@ -1,5 +1,6 @@
 import '../core/constants/muscle_groups.dart';
 import 'exercise.dart';
+import 'exercise_unit.dart';
 import 'rating_relevance.dart';
 import 'set_feedback.dart';
 
@@ -45,12 +46,27 @@ class ExerciseEntry {
     required this.sets,
     required this.targetRepRangeLow,
     required this.targetRepRangeHigh,
+    this.targetRepRangeLowPerSet = const [],
+    this.targetRepRangeHighPerSet = const [],
+    this.targetWeightPerSet = const [],
   });
 
   final Exercise exercise;
   final List<SetEntry> sets;
   final int targetRepRangeLow;
   final int targetRepRangeHigh;
+
+  /// Per-set target rep-range override, parallel to [sets] — a null entry
+  /// (or the list being shorter than [sets]) means "no override, use
+  /// [targetRepRangeLow]/[targetRepRangeHigh] for that set instead". Empty
+  /// for every exercise that predates per-set suggestions (see
+  /// `SuggestionKind.changeRepRangeForSet`).
+  final List<int?> targetRepRangeLowPerSet;
+  final List<int?> targetRepRangeHighPerSet;
+
+  /// Per-set target weight override, parallel to [sets] — null/missing
+  /// means no override (see `SuggestionKind.changeWeightForSet`).
+  final List<double?> targetWeightPerSet;
 
   double get averageWeight {
     if (sets.isEmpty) return 0;
@@ -61,9 +77,14 @@ class ExerciseEntry {
   Map<String, dynamic> toJson() => {
     'exerciseName': exercise.name,
     'muscleGroup': exercise.muscleGroup.name,
+    'unit': exercise.unit.name,
+    'customUnitLabel': exercise.customUnitLabel,
     'sets': sets.map((s) => s.toJson()).toList(),
     'targetRepRangeLow': targetRepRangeLow,
     'targetRepRangeHigh': targetRepRangeHigh,
+    'targetRepRangeLowPerSet': targetRepRangeLowPerSet,
+    'targetRepRangeHighPerSet': targetRepRangeHighPerSet,
+    'targetWeightPerSet': targetWeightPerSet,
   };
 
   factory ExerciseEntry.fromJson(Map<String, dynamic> json) => ExerciseEntry(
@@ -72,12 +93,32 @@ class ExerciseEntry {
       muscleGroup: MuscleGroup.values.firstWhere(
         (g) => g.name == json['muscleGroup'],
       ),
+      unit: ExerciseUnit.values.firstWhere(
+        (u) => u.name == json['unit'],
+        orElse: () => ExerciseUnit.kg,
+      ),
+      customUnitLabel: json['customUnitLabel'] as String?,
     ),
     sets: (json['sets'] as List)
         .map((s) => SetEntry.fromJson(s as Map<String, dynamic>))
         .toList(),
     targetRepRangeLow: json['targetRepRangeLow'] as int,
     targetRepRangeHigh: json['targetRepRangeHigh'] as int,
+    targetRepRangeLowPerSet:
+        (json['targetRepRangeLowPerSet'] as List?)
+            ?.map((e) => e as int?)
+            .toList() ??
+        const [],
+    targetRepRangeHighPerSet:
+        (json['targetRepRangeHighPerSet'] as List?)
+            ?.map((e) => e as int?)
+            .toList() ??
+        const [],
+    targetWeightPerSet:
+        (json['targetWeightPerSet'] as List?)
+            ?.map((e) => (e as num?)?.toDouble())
+            .toList() ??
+        const [],
   );
 }
 

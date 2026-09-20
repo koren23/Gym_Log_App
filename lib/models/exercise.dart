@@ -1,4 +1,5 @@
 import '../core/constants/muscle_groups.dart';
+import 'exercise_unit.dart';
 
 class Exercise {
   const Exercise({
@@ -6,6 +7,8 @@ class Exercise {
     required this.muscleGroup,
     this.sheetRow,
     this.muscleGroupKnown = true,
+    this.unit = ExerciseUnit.kg,
+    this.customUnitLabel,
   });
 
   final String name;
@@ -22,11 +25,26 @@ class Exercise {
   /// a way to set the real muscle rather than trusting [muscleGroup].
   final bool muscleGroupKnown;
 
-  Exercise copyWith({int? sheetRow}) => Exercise(
+  /// What a logged value for this exercise means — see [ExerciseUnit].
+  /// Defaults to plain [ExerciseUnit.kg], including for every exercise that
+  /// predates this feature (no sheet migration needed).
+  final ExerciseUnit unit;
+
+  /// User-chosen label when [unit] is [ExerciseUnit.custom] (e.g. "floors").
+  /// Null for every other unit.
+  final String? customUnitLabel;
+
+  Exercise copyWith({
+    int? sheetRow,
+    ExerciseUnit? unit,
+    String? customUnitLabel,
+  }) => Exercise(
     name: name,
     muscleGroup: muscleGroup,
     sheetRow: sheetRow ?? this.sheetRow,
     muscleGroupKnown: muscleGroupKnown,
+    unit: unit ?? this.unit,
+    customUnitLabel: customUnitLabel ?? this.customUnitLabel,
   );
 
   @override

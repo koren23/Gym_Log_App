@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gym_tracker/core/constants/muscle_groups.dart';
 import 'package:gym_tracker/core/constants/sheet_layout.dart';
+import 'package:gym_tracker/models/exercise_unit.dart';
+import 'package:gym_tracker/models/year_sheet_data.dart';
 import 'package:gym_tracker/services/sheets/sheet_parser.dart';
 
 void main() {
@@ -194,6 +196,56 @@ void main() {
         expect(data.muscleGroupSections[MuscleGroup.legacyBiceps], isEmpty);
       },
     );
+  });
+
+  group('parseMatrixTab zero-value convention', () {
+    test(
+      'a "0" cell is dropped for a plain kg exercise but kept for a bodyweight one',
+      () {
+        final rows = [
+          ['exercise name', '30'],
+          ['quads'],
+          ['Barbell squats', '0'],
+          ['upper back'],
+          ['Pull-ups', '0'],
+        ];
+        final data = parser.parseMatrixTab(
+          tabName: '2026',
+          year: 2026,
+          rows: rows,
+          exerciseUnitOverrides: {
+            'pull-ups': (unit: ExerciseUnit.bodyweight, customLabel: null),
+          },
+        );
+
+        final squats = data.muscleGroupSections[MuscleGroup.quads]!.first;
+        final pullUps = data.muscleGroupSections[MuscleGroup.upperBack]!.first;
+        expect(data.cellValues[CellKey(squats.sheetRow!, 1)], isNull);
+        expect(data.cellValues[CellKey(pullUps.sheetRow!, 1)], 0.0);
+      },
+    );
+
+    test('flatV2: same rule applies with no section headers at all', () {
+      final rows = [
+        ['exercise name', '30'],
+        ['Barbell squats', '0'],
+        ['Pull-ups', '0'],
+      ];
+      final data = parser.parseMatrixTab(
+        tabName: '2026',
+        year: 2026,
+        rows: rows,
+        exerciseUnitOverrides: {
+          'pull-ups': (unit: ExerciseUnit.bodyweight, customLabel: null),
+        },
+      );
+
+      expect(data.format, MatrixTabFormat.flatV2);
+      final squats = data.allExercises.firstWhere((e) => e.name == 'Barbell squats');
+      final pullUps = data.allExercises.firstWhere((e) => e.name == 'Pull-ups');
+      expect(data.cellValues[CellKey(squats.sheetRow!, 1)], isNull);
+      expect(data.cellValues[CellKey(pullUps.sheetRow!, 1)], 0.0);
+    });
   });
 
   group('parseWorkoutDaysTab', () {

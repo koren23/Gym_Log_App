@@ -8,6 +8,7 @@ import '../core/utils/result.dart';
 import '../models/body_weight_entry.dart';
 import '../models/exercise.dart';
 import '../models/exercise_muscle_info.dart';
+import '../models/exercise_unit.dart';
 import '../models/rating_relevance.dart';
 import '../models/workout_day_def.dart';
 import '../models/workout_visit.dart';
@@ -457,6 +458,35 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
     return true;
   }
 
+  /// Persists an exercise's unit to the "Exercises" tab's `Exercise`/`Unit`
+  /// side-table — called whenever a new exercise is added with a non-kg
+  /// unit, or an existing exercise's unit is edited from Settings. No-op
+  /// (returns true without writing) when [unit] is [ExerciseUnit.kg] and
+  /// the exercise has no existing row yet, since blank/missing already
+  /// means kg — avoids cluttering the sheet with the common case.
+  Future<bool> addExerciseUnit({
+    required String exerciseName,
+    required ExerciseUnit unit,
+    String? customLabel,
+  }) async {
+    final table = state.value?.snapshot.exerciseUnitsTable;
+    if (table == null) return false;
+    final hasExistingRow =
+        table.assignments.containsKey(exerciseName.toLowerCase());
+    if (unit == ExerciseUnit.kg && !hasExistingRow) return true;
+
+    final repository = await ref.read(sheetsRepositoryProvider.future);
+    final result = await repository.setExerciseUnit(
+      exerciseName: exerciseName,
+      unit: unit,
+      customLabel: customLabel,
+      currentTable: table,
+    );
+    if (result.isErr) return false;
+    await refresh();
+    return true;
+  }
+
   /// Appends a custom workout day to the sheet-backed `WorkoutDays` tab,
   /// queuing a durable retry on failure (safe to replay later since an
   /// append doesn't depend on current row positions).
@@ -845,6 +875,26 @@ final exerciseMuscleInfoProvider = Provider<List<ExerciseMuscleInfo>>((ref) {
 final sheetWorkoutDayDefsProvider = Provider<List<WorkoutDayDef>>((ref) {
   final snapshot = ref.watch(snapshotProvider).value;
   return snapshot?.snapshot.workoutDayDefs ?? const [];
+});
+
+/// Every exercise known across all loaded years, deduped by name
+/// (case-insensitive; last-seen year wins, matching the app's existing
+/// "later years are authoritative" convention) — each carrying its
+/// resolved [Exercise.unit]. Backs the "Exercises" section in Settings
+/// where a unit can be edited after the fact.
+final allKnownExercisesProvider = Provider<List<Exercise>>((ref) {
+  final snapshot = ref.watch(snapshotProvider).value;
+  if (snapshot == null) return const [];
+  final byName = <String, Exercise>{};
+  final years = snapshot.snapshot.yearData.keys.toList()..sort();
+  for (final year in years) {
+    for (final exercise in snapshot.snapshot.yearData[year]!.allExercises) {
+      byName[exercise.name.toLowerCase()] = exercise;
+    }
+  }
+  final result = byName.values.toList()
+    ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+  return result;
 });
 
 /// Exercise name (lowercased) -> its muscle/workout info, for O(1) lookups

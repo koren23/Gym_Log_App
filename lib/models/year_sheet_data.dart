@@ -30,6 +30,9 @@ class LoggedExerciseRepRange {
     this.approxReps = const [],
     this.actualWeights = const [],
     this.setFeedback = const [],
+    this.targetLowPerSet = const [],
+    this.targetHighPerSet = const [],
+    this.targetWeightPerSet = const [],
   });
 
   final String exerciseName;
@@ -56,6 +59,18 @@ class LoggedExerciseRepRange {
   /// this exercise had any feedback marked.
   final List<SetFeedback> setFeedback;
 
+  /// Per-set target rep-range override, parsed from the exercises-cell's
+  /// optional 6th segment — see `SheetParser._parseExercisesCell`. A null
+  /// entry (or the list being shorter than [actualReps]) means "no
+  /// override, use [repRangeLow]/[repRangeHigh] for that set" — see
+  /// [effectiveTargetLow]/[effectiveTargetHigh].
+  final List<int?> targetLowPerSet;
+  final List<int?> targetHighPerSet;
+
+  /// Per-set target weight override, parsed from the optional 7th segment.
+  /// Null/missing means no override — see [effectiveTargetWeight].
+  final List<double?> targetWeightPerSet;
+
   int? get setCount => actualReps.isEmpty ? null : actualReps.length;
 
   double? get avgReps => actualReps.isEmpty
@@ -67,6 +82,21 @@ class LoggedExerciseRepRange {
 
   SetFeedback feedbackFor(int setIndex) =>
       setIndex < setFeedback.length ? setFeedback[setIndex] : SetFeedback.none;
+
+  int effectiveTargetLow(int setIndex) =>
+      (setIndex < targetLowPerSet.length ? targetLowPerSet[setIndex] : null) ??
+      repRangeLow;
+
+  int effectiveTargetHigh(int setIndex) =>
+      (setIndex < targetHighPerSet.length
+          ? targetHighPerSet[setIndex]
+          : null) ??
+      repRangeHigh;
+
+  double? effectiveTargetWeight(int setIndex) =>
+      setIndex < targetWeightPerSet.length
+          ? targetWeightPerSet[setIndex]
+          : null;
 }
 
 /// One gym-visit record from a year's `<year>_meta` tab.

@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/analysis_result.dart';
+import '../../models/workout_day_def.dart';
 import '../../models/workout_visit.dart';
 import '../../providers/analysis_providers.dart';
+import '../../providers/settings_providers.dart';
 import '../../providers/sheet_data_providers.dart';
 import '../../widgets/insight_summary.dart';
 import '../root/main_shell.dart';
@@ -23,12 +25,25 @@ class PostSaveInsightScreen extends ConsumerWidget {
     final yearsAscending = snapshotState?.snapshot.yearData.values.toList()
       ?..sort((a, b) => a.year.compareTo(b.year));
 
+    final workoutDays = ref.watch(workoutDayDefsProvider);
+    WorkoutDayDef? day;
+    if (visit.workoutDayId != null) {
+      for (final d in workoutDays) {
+        if (d.id == visit.workoutDayId) {
+          day = d;
+          break;
+        }
+      }
+    }
+
     final findings = yearsAscending == null
         ? const <AnalysisFinding>[]
         : analyzeExercises(
             yearsAscending: yearsAscending,
             exerciseNames: visit.entries.map((e) => e.exercise.name).toList(),
             bodyWeightEntries: ref.watch(bodyWeightEntriesProvider),
+            settings: ref.watch(appSettingsServiceProvider),
+            day: day,
           );
 
     return Scaffold(

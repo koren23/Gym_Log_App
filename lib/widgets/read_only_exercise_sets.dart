@@ -1,16 +1,27 @@
 import 'package:flutter/material.dart';
 
+import '../core/utils/exercise_value_format.dart';
+import '../models/exercise_unit.dart';
 import '../models/set_feedback.dart';
 import '../models/year_sheet_data.dart';
 
 /// Read-only rendering of one previously-logged exercise's sets — reused by
 /// [LastWorkoutInsightScreen]'s full workout preview. Sourced directly from
 /// [LoggedExerciseRepRange], which already carries per-set actual
-/// reps/weights/approx/feedback.
+/// reps/weights/approx/feedback. [unit]/[customUnitLabel] describe the unit
+/// those weights are in (resolved by the caller, since this model only
+/// carries the exercise's name, not the full [Exercise] object).
 class ReadOnlyExerciseSets extends StatelessWidget {
-  const ReadOnlyExerciseSets({super.key, required this.exercise});
+  const ReadOnlyExerciseSets({
+    super.key,
+    required this.exercise,
+    this.unit = ExerciseUnit.kg,
+    this.customUnitLabel,
+  });
 
   final LoggedExerciseRepRange exercise;
+  final ExerciseUnit unit;
+  final String? customUnitLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -46,6 +57,8 @@ class ReadOnlyExerciseSets extends StatelessWidget {
                     reps: exercise.actualReps[i],
                     approx: exercise.isApprox(i),
                     feedback: exercise.feedbackFor(i),
+                    unit: unit,
+                    customUnitLabel: customUnitLabel,
                   ),
               ],
             ),
@@ -61,18 +74,24 @@ class _SetChip extends StatelessWidget {
     required this.reps,
     required this.approx,
     required this.feedback,
+    this.unit = ExerciseUnit.kg,
+    this.customUnitLabel,
   });
 
   final double? weight;
   final int reps;
   final bool approx;
   final SetFeedback feedback;
+  final ExerciseUnit unit;
+  final String? customUnitLabel;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final label =
-        '${weight?.toStringAsFixed(1) ?? '?'}×${approx ? '~' : ''}$reps';
+    final weightLabel = weight == null
+        ? '?'
+        : formatExerciseValue(unit, weight!, customLabel: customUnitLabel);
+    final label = '$weightLabel×${approx ? '~' : ''}$reps';
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [

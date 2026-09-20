@@ -3,13 +3,24 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../models/analysis_result.dart';
+import '../../models/exercise.dart';
+import '../../models/exercise_unit.dart';
 import '../../models/workout_day_def.dart';
+import '../../models/year_sheet_data.dart';
 import '../../providers/analysis_providers.dart';
 import '../../providers/sheet_data_providers.dart';
 import '../../providers/settings_providers.dart';
 import '../../widgets/insight_summary.dart';
 import '../../widgets/read_only_exercise_sets.dart';
 import '../../widgets/star_rating_input.dart';
+
+/// Looks up [name]'s resolved [Exercise] (for its unit) in the most recent
+/// loaded year — null if [yearsAscending] is empty/unavailable or the name
+/// isn't found there.
+Exercise? _resolveExercise(List<YearSheetData>? yearsAscending, String name) {
+  if (yearsAscending == null || yearsAscending.isEmpty) return null;
+  return yearsAscending.last.findExercise(name);
+}
 
 /// Read-only preview of the most recent real [day] workout — exercise
 /// order, per-set reps/weights, whole-visit rating, personal notes, and the
@@ -61,7 +72,19 @@ class LastWorkoutInsightScreen extends ConsumerWidget {
                     ),
                     const SizedBox(height: 12),
                     for (final ex in entry.metaRow!.exercises)
-                      ReadOnlyExerciseSets(exercise: ex),
+                      ReadOnlyExerciseSets(
+                        exercise: ex,
+                        unit:
+                            _resolveExercise(
+                              yearsAscending,
+                              ex.exerciseName,
+                            )?.unit ??
+                            ExerciseUnit.kg,
+                        customUnitLabel: _resolveExercise(
+                          yearsAscending,
+                          ex.exerciseName,
+                        )?.customUnitLabel,
+                      ),
                     const SizedBox(height: 8),
                     Row(
                       children: [

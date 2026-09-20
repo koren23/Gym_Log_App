@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/constants/muscle_groups.dart';
 import '../models/app_colors.dart';
+import '../models/pending_suggestion.dart';
 import '../models/workout_day_def.dart';
 import '../models/workout_defaults.dart';
 import '../services/settings/app_settings_service.dart';
@@ -234,4 +235,43 @@ class WorkoutDayDefsNotifier extends Notifier<List<WorkoutDayDef>> {
 final workoutDayDefsProvider =
     NotifierProvider<WorkoutDayDefsNotifier, List<WorkoutDayDef>>(
       WorkoutDayDefsNotifier.new,
+    );
+
+/// Suggestions the user has accepted from a [SuggestionCard] but not yet
+/// consumed — see `AppSettingsService.pendingSuggestions`. Local-only
+/// (never synced to the sheet): a suggestion applies once, to whichever
+/// device is used to log that exercise next.
+class PendingSuggestionsNotifier extends Notifier<Map<String, PendingSuggestion>> {
+  @override
+  Map<String, PendingSuggestion> build() =>
+      ref.watch(appSettingsServiceProvider).pendingSuggestions;
+
+  Future<void> accept(PendingSuggestion suggestion) async {
+    final updated = {...state, suggestion.subjectExerciseName: suggestion};
+    state = updated;
+    await ref.read(appSettingsServiceProvider).setPendingSuggestions(updated);
+  }
+
+  /// Removes and returns the pending suggestion for [exerciseName], if any
+  /// — call once it's actually been applied to a draft.
+  PendingSuggestion? consume(String exerciseName) {
+    final existing = state[exerciseName];
+    if (existing == null) return null;
+    final updated = {...state}..remove(exerciseName);
+    state = updated;
+    ref.read(appSettingsServiceProvider).setPendingSuggestions(updated);
+    return existing;
+  }
+
+  Future<void> dismiss(String exerciseName) async {
+    if (!state.containsKey(exerciseName)) return;
+    final updated = {...state}..remove(exerciseName);
+    state = updated;
+    await ref.read(appSettingsServiceProvider).setPendingSuggestions(updated);
+  }
+}
+
+final pendingSuggestionsProvider =
+    NotifierProvider<PendingSuggestionsNotifier, Map<String, PendingSuggestion>>(
+      PendingSuggestionsNotifier.new,
     );

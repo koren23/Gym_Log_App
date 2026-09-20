@@ -5,6 +5,7 @@ import '../../core/constants/sheet_layout.dart';
 import '../../core/utils/result.dart';
 import '../../models/body_weight_entry.dart';
 import '../../models/exercise_muscle_info.dart';
+import '../../models/exercise_unit.dart';
 import '../../models/rating_relevance.dart';
 import '../../models/workout_day_def.dart';
 import '../../models/workout_visit.dart';
@@ -22,6 +23,7 @@ class SpreadsheetSnapshot {
     required this.bodyWeightEntries,
     this.exerciseMuscleInfo = const [],
     this.workoutDayDefs = const [],
+    this.exerciseUnitsTable = const ExerciseUnitsTable(),
   });
 
   final ClassifiedTabs classifiedTabs;
@@ -37,9 +39,13 @@ class SpreadsheetSnapshot {
   /// From the sheet-backed `WorkoutDays` tab, if present.
   final List<WorkoutDayDef> workoutDayDefs;
 
+  /// From the "Exercises" tab's `Exercise`/`Unit` side-table, if present.
+  final ExerciseUnitsTable exerciseUnitsTable;
+
   SpreadsheetSnapshot copyWith({
     List<ExerciseMuscleInfo>? exerciseMuscleInfo,
     List<WorkoutDayDef>? workoutDayDefs,
+    ExerciseUnitsTable? exerciseUnitsTable,
   }) => SpreadsheetSnapshot(
     classifiedTabs: classifiedTabs,
     gridIdsByTabName: gridIdsByTabName,
@@ -47,6 +53,7 @@ class SpreadsheetSnapshot {
     bodyWeightEntries: bodyWeightEntries,
     exerciseMuscleInfo: exerciseMuscleInfo ?? this.exerciseMuscleInfo,
     workoutDayDefs: workoutDayDefs ?? this.workoutDayDefs,
+    exerciseUnitsTable: exerciseUnitsTable ?? this.exerciseUnitsTable,
   );
 }
 
@@ -112,6 +119,7 @@ class SheetsRepository {
       var bodyWeightEntries = <BodyWeightEntry>[];
       var exerciseMuscleInfo = <ExerciseMuscleInfo>[];
       var workoutDayDefs = <WorkoutDayDef>[];
+      var exerciseUnitsTable = const ExerciseUnitsTable();
 
       if (rangesToFetch.isNotEmpty) {
         final batch = await _api.spreadsheets.values.batchGet(
@@ -123,6 +131,9 @@ class SheetsRepository {
         if (classified.hasExercisesTab) {
           final vr = _findValueRangeForTab(valueRanges, kExercisesTabName);
           exerciseMuscleInfo = _parser.parseExercisesTab(
+            vr?.values ?? const [],
+          );
+          exerciseUnitsTable = _parser.parseExerciseUnitsTab(
             vr?.values ?? const [],
           );
         }
@@ -143,6 +154,10 @@ class SheetsRepository {
           for (final info in exerciseMuscleInfo)
             info.exerciseName.toLowerCase(): info.muscleGroup,
         };
+        final exerciseUnitOverrides = <String, ExerciseUnitAssignment>{
+          for (final e in exerciseUnitsTable.assignments.entries)
+            e.key: (unit: e.value.unit, customLabel: e.value.customLabel),
+        };
         final sortedYears = resolvedYears.toList()..sort();
         for (final year in sortedYears) {
           final tab = classified.writableTabFor(year);
@@ -154,6 +169,7 @@ class SheetsRepository {
             tabName: tab,
             year: year,
             rows: rows,
+            exerciseUnitOverrides: exerciseUnitOverrides,
           );
           for (final exercise in firstPass.allExercises) {
             canonicalGroupByExerciseName[exercise.name.toLowerCase()] =
@@ -173,6 +189,7 @@ class SheetsRepository {
             year: year,
             rows: rowsByYear[year] ?? const [],
             exerciseGroupOverrides: canonicalGroupByExerciseName,
+            exerciseUnitOverrides: exerciseUnitOverrides,
           );
 
           final metaTab = classified.metaTabByYear[year];
@@ -214,6 +231,7 @@ class SheetsRepository {
           bodyWeightEntries: bodyWeightEntries,
           exerciseMuscleInfo: exerciseMuscleInfo,
           workoutDayDefs: workoutDayDefs,
+          exerciseUnitsTable: exerciseUnitsTable,
         ),
       );
     } catch (e, st) {
@@ -802,6 +820,69 @@ class SheetsRepository {
         valueInputOption: 'USER_ENTERED',
         insertDataOption: 'INSERT_ROWS',
       );
+      return const Result.ok(null);
+    } catch (e, st) {
+      return Result.err(e, st);
+    }
+  }
+
+  /// Sets [exerciseName]'s unit in the "Exercises" tab's `Exercise`/`Unit`
+  /// side-table: updates its row in place if it already has one (per
+  /// [currentTable]), otherwise appends a new row — creating the
+  /// `Exercise`/`Unit` header pair first if the table doesn't exist yet on
+  /// this sheet at all. [currentTable] must come from the snapshot this
+  /// call is based on (row indices must be exact).
+  Future<Result<void>> setExerciseUnit({
+    required String exerciseName,
+    required ExerciseUnit unit,
+    String? customLabel,
+    required ExerciseUnitsTable currentTable,
+  }) async {
+    try {
+      var exerciseCol = currentTable.exerciseColumnIndex;
+      var unitCol = currentTable.unitColumnIndex;
+      if (exerciseCol == null || unitCol == null) {
+        exerciseCol = currentTable.headerRowLength;
+        unitCol = exerciseCol + 1;
+        await _api.spreadsheets.values.update(
+          ValueRange(
+            values: [
+              ['Exercise', 'Unit'],
+            ],
+          ),
+          _spreadsheetId,
+          "'$kExercisesTabName'!${_columnLetter(exerciseCol)}1:${_columnLetter(unitCol)}1",
+          valueInputOption: 'USER_ENTERED',
+        );
+      }
+
+      final token = exerciseUnitToSheetToken(unit, customUnitLabel: customLabel);
+      final existingRow =
+          currentTable.assignments[exerciseName.toLowerCase()]?.rowIndex;
+      if (existingRow != null) {
+        await _api.spreadsheets.values.update(
+          ValueRange(
+            values: [
+              [token],
+            ],
+          ),
+          _spreadsheetId,
+          "'$kExercisesTabName'!${_columnLetter(unitCol)}${existingRow + 1}",
+          valueInputOption: 'USER_ENTERED',
+        );
+      } else {
+        await _api.spreadsheets.values.append(
+          ValueRange(
+            values: [
+              [exerciseName, token],
+            ],
+          ),
+          _spreadsheetId,
+          "'$kExercisesTabName'!${_columnLetter(exerciseCol)}1:${_columnLetter(unitCol)}1",
+          valueInputOption: 'USER_ENTERED',
+          insertDataOption: 'INSERT_ROWS',
+        );
+      }
       return const Result.ok(null);
     } catch (e, st) {
       return Result.err(e, st);

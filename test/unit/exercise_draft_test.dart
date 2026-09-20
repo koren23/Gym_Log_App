@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gym_tracker/core/constants/muscle_groups.dart';
 import 'package:gym_tracker/models/exercise.dart';
+import 'package:gym_tracker/models/exercise_unit.dart';
 import 'package:gym_tracker/models/set_feedback.dart';
 import 'package:gym_tracker/widgets/exercise_tile.dart';
 
@@ -121,6 +122,51 @@ void main() {
 
     draft.loadSets(weights: [60.0], reps: [8]);
     expect(draft.setFeedback, [SetFeedback.none]);
+  });
+
+  group('ExerciseDraft.isComplete unit-awareness', () {
+    test('a 0 weight is incomplete for a plain kg exercise', () {
+      final draft = ExerciseDraft(
+        Exercise(name: 'Bench press', muscleGroup: MuscleGroup.upperChest),
+      );
+      draft.setWeights = [0];
+      expect(draft.isComplete, isFalse);
+    });
+
+    test('a 0 added weight IS complete for a bodyweight exercise', () {
+      final draft = ExerciseDraft(
+        Exercise(
+          name: 'Pull-ups',
+          muscleGroup: MuscleGroup.upperBack,
+          unit: ExerciseUnit.bodyweight,
+        ),
+      );
+      draft.setWeights = [0];
+      expect(draft.isComplete, isTrue);
+    });
+
+    test('a 0 value is still incomplete for time/custom units', () {
+      final timeDraft = ExerciseDraft(
+        Exercise(
+          name: 'Plank',
+          muscleGroup: MuscleGroup.abdominals,
+          unit: ExerciseUnit.time,
+        ),
+      );
+      timeDraft.setWeights = [0];
+      expect(timeDraft.isComplete, isFalse);
+
+      final customDraft = ExerciseDraft(
+        Exercise(
+          name: 'Stairmaster',
+          muscleGroup: MuscleGroup.quads,
+          unit: ExerciseUnit.custom,
+          customUnitLabel: 'floors',
+        ),
+      );
+      customDraft.setWeights = [0];
+      expect(customDraft.isComplete, isFalse);
+    });
   });
 
   group('ExerciseDraft.completedNamesFrom', () {

@@ -4,7 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/constants/sheet_layout.dart';
+import '../../models/analysis_result.dart';
 import '../../models/app_colors.dart';
+import '../../models/pending_suggestion.dart';
+import '../../models/recent_suggestion_record.dart';
 import '../../models/workout_day_def.dart';
 
 /// The Android launcher icon/label is fixed at "Koren's Gym Log" (baked
@@ -26,7 +29,17 @@ class AppSettingsService {
   static const _kWebRefreshToken = 'web_refresh_token';
   static const _kWebPendingPkceVerifier = 'web_pending_pkce_verifier';
   static const _kWebPendingPkceState = 'web_pending_pkce_state';
-  static const _kDismissedFindingSignatures = 'dismissed_finding_signatures';
+  static const _kDismissedSuggestionSignatures =
+      'dismissed_suggestion_signatures_v1';
+  static const _kRecentSuggestions = 'recent_suggestions_v1';
+  static const _kPendingSuggestions = 'pending_suggestions_v1';
+
+  /// How long a shown suggestion stays "recent" for cooldown/variety
+  /// purposes — see [recordSuggestionShown].
+  static const int recentSuggestionCooldownDays = 10;
+
+  /// Oldest records are pruned past this so the pref doesn't grow forever.
+  static const int recentSuggestionsCap = 200;
   static const _kAppDisplayName = 'app_display_name';
   static const _kAppBarColor = 'color_app_bar';
   static const _kBackgroundColor = 'color_background';
@@ -144,14 +157,94 @@ class AppSettingsService {
     await _prefs.remove(_kLogWorkoutHeroColor);
   }
 
-  Set<String> get dismissedFindingSignatures =>
-      (_prefs.getStringList(_kDismissedFindingSignatures) ?? const []).toSet();
+  /// Signatures of the form `'${kind.name}::$subjectName'` — a "Not now" on
+  /// one suggestion kind for an exercise no longer suppresses unrelated
+  /// kinds for that same exercise (unlike the old, coarser
+  /// `name::isPlateaued` scheme this replaces).
+  Set<String> get dismissedSuggestionSignatures =>
+      (_prefs.getStringList(_kDismissedSuggestionSignatures) ?? const [])
+          .toSet();
 
-  Future<void> dismissFinding(String signature) async {
-    final current = dismissedFindingSignatures;
-    current.add(signature);
-    await _prefs.setStringList(_kDismissedFindingSignatures, current.toList());
+  Future<void> dismissSuggestion(SuggestionKind kind, String subjectName) async {
+    final current = dismissedSuggestionSignatures;
+    current.add('${kind.name}::$subjectName');
+    await _prefs.setStringList(
+      _kDismissedSuggestionSignatures,
+      current.toList(),
+    );
   }
+
+  /// Suggestions actually shown to the user recently — drives per-kind
+  /// cooldown/variety in [AnalysisEngine.analyze] (`recentlySuggestedKinds`)
+  /// so the same nudge doesn't repeat every session. Recorded once, at
+  /// display time (see `SuggestionCard`), not whenever the engine merely
+  /// computes a candidate.
+  List<RecentSuggestionRecord> get recentSuggestions {
+    final raw = _prefs.getString(_kRecentSuggestions);
+    if (raw == null) return const [];
+    try {
+      final list = jsonDecode(raw) as List;
+      return [
+        for (final e in list)
+          RecentSuggestionRecord.fromJson(e as Map<String, dynamic>),
+      ];
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<void> recordSuggestionShown(
+    SuggestionKind kind,
+    String subjectName, {
+    String? detail,
+  }) async {
+    final updated = [
+      ...recentSuggestions,
+      RecentSuggestionRecord(
+        kind: kind,
+        subjectName: subjectName,
+        detail: detail,
+        shownAt: DateTime.now(),
+      ),
+    ];
+    final trimmed = updated.length > recentSuggestionsCap
+        ? updated.sublist(updated.length - recentSuggestionsCap)
+        : updated;
+    await _prefs.setString(
+      _kRecentSuggestions,
+      jsonEncode([for (final r in trimmed) r.toJson()]),
+    );
+  }
+
+  /// Suggestions the user has accepted but not yet consumed — one per
+  /// exercise name (accepting a new one for the same exercise overwrites
+  /// the old one). Consulted by `log_workout_screen.dart` when starting a
+  /// new entry for that exercise, or (for [SuggestionKind.changeExercise])
+  /// when building a day's exercise list. See `PendingSuggestionsNotifier`.
+  Map<String, PendingSuggestion> get pendingSuggestions {
+    final raw = _prefs.getString(_kPendingSuggestions);
+    if (raw == null) return const {};
+    try {
+      final map = jsonDecode(raw) as Map<String, dynamic>;
+      return {
+        for (final entry in map.entries)
+          entry.key: PendingSuggestion.fromJson(
+            entry.value as Map<String, dynamic>,
+          ),
+      };
+    } catch (_) {
+      return const {};
+    }
+  }
+
+  Future<void> setPendingSuggestions(
+    Map<String, PendingSuggestion> suggestions,
+  ) => _prefs.setString(
+    _kPendingSuggestions,
+    jsonEncode({
+      for (final e in suggestions.entries) e.key: e.value.toJson(),
+    }),
+  );
 
   /// The single in-progress "Log workout" draft, as JSON — overwritten on
   /// every change (only one draft exists at a time) so a session survives

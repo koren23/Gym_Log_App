@@ -3,6 +3,7 @@ import '../../core/constants/sheet_layout.dart';
 import '../../models/body_weight_entry.dart';
 import '../../models/exercise.dart';
 import '../../models/exercise_muscle_info.dart';
+import '../../models/exercise_unit.dart';
 import '../../models/rating_relevance.dart';
 import '../../models/set_feedback.dart';
 import '../../models/workout_day_def.dart';
@@ -142,6 +143,7 @@ class SheetParser {
     required int year,
     required List<List<Object?>> rows,
     Map<String, MuscleGroup>? exerciseGroupOverrides,
+    Map<String, ExerciseUnitAssignment>? exerciseUnitOverrides,
   }) {
     final format = detectMatrixFormat(rows);
     final weekColumns = <int, int>{};
@@ -185,17 +187,20 @@ class SheetParser {
 
         final override = exerciseGroupOverrides?[colA.trim().toLowerCase()];
         final resolvedGroup = override ?? kCurrentMuscleGroups.first;
+        final unitAssignment = exerciseUnitOverrides?[colA.trim().toLowerCase()];
         final exercise = Exercise(
           name: colA.trim(),
           muscleGroup: resolvedGroup,
           sheetRow: row,
           muscleGroupKnown: override != null,
+          unit: unitAssignment?.unit ?? ExerciseUnit.kg,
+          customUnitLabel: unitAssignment?.customLabel,
         );
         muscleGroupSections[resolvedGroup]!.add(exercise);
 
         for (var col = 1; col < rowValues.length; col++) {
           final weight = _asDouble(rowValues[col]);
-          if (weight != null && weight != 0) {
+          if (weight != null && (weight != 0 || exercise.unit.allowsZeroAsRealValue)) {
             cellValues[CellKey(row, col)] = weight;
           }
         }
@@ -257,19 +262,24 @@ class SheetParser {
       final resolvedGroup =
           exerciseGroupOverrides?[colA.trim().toLowerCase()] ?? currentGroup;
       if (resolvedGroup == null) continue; // stray row before any header.
+      final unitAssignment = exerciseUnitOverrides?[colA.trim().toLowerCase()];
       final exercise = Exercise(
         name: colA.trim(),
         muscleGroup: resolvedGroup,
         sheetRow: row,
+        unit: unitAssignment?.unit ?? ExerciseUnit.kg,
+        customUnitLabel: unitAssignment?.customLabel,
       );
       muscleGroupSections[resolvedGroup]!.add(exercise);
 
       for (var col = 1; col < rowValues.length; col++) {
         final weight = _asDouble(rowValues[col]);
-        // A "0" cell is never a real logged weight in this sheet — treat it
-        // as an unfilled placeholder rather than actual data, otherwise
-        // blank-but-zero-filled cells masquerade as a phantom first entry.
-        if (weight != null && weight != 0) {
+        // A "0" cell is never a real logged weight in this sheet (unless
+        // this exercise's unit allows a genuine 0, e.g. bodyweight with no
+        // added weight) — treat it as an unfilled placeholder rather than
+        // actual data, otherwise blank-but-zero-filled cells masquerade as
+        // a phantom first entry.
+        if (weight != null && (weight != 0 || exercise.unit.allowsZeroAsRealValue)) {
           cellValues[CellKey(row, col)] = weight;
         }
       }
@@ -358,6 +368,50 @@ class SheetParser {
     return result;
   }
 
+  /// Parses the "Exercises" tab's optional `Exercise`/`Unit` side-table (a
+  /// flat, name-keyed 2-column table appended somewhere on the tab,
+  /// independent of the per-muscle columns [parseExercisesTab] reads) —
+  /// header cells matched by case-insensitive text, not position. Returns
+  /// an empty map when the header pair doesn't exist yet (tab predates this
+  /// feature, or the user hasn't set any non-kg units) — every exercise
+  /// then defaults to [ExerciseUnit.kg], no migration needed.
+  ExerciseUnitsTable parseExerciseUnitsTab(List<List<Object?>> rows) {
+    if (rows.isEmpty) return const ExerciseUnitsTable();
+    final header = rows.first;
+
+    int? exerciseCol;
+    int? unitCol;
+    for (var col = 0; col < header.length; col++) {
+      final text = _asString(header[col])?.trim().toLowerCase();
+      if (text == 'exercise') exerciseCol = col;
+      if (text == 'unit') unitCol = col;
+    }
+    if (exerciseCol == null || unitCol == null) {
+      return ExerciseUnitsTable(headerRowLength: header.length);
+    }
+
+    final result = <String, ExerciseUnitRow>{};
+    for (var row = 1; row < rows.length; row++) {
+      final r = rows[row];
+      if (exerciseCol >= r.length) continue;
+      final name = _asString(r[exerciseCol])?.trim();
+      if (name == null || name.isEmpty) continue;
+      final token = unitCol < r.length ? (_asString(r[unitCol]) ?? '') : '';
+      final assignment = exerciseUnitAssignmentFromSheetToken(token);
+      result[name.toLowerCase()] = (
+        unit: assignment.unit,
+        customLabel: assignment.customLabel,
+        rowIndex: row,
+      );
+    }
+    return ExerciseUnitsTable(
+      assignments: result,
+      exerciseColumnIndex: exerciseCol,
+      unitColumnIndex: unitCol,
+      headerRowLength: header.length,
+    );
+  }
+
   /// Parses the sheet-backed `WorkoutDays` tab: one row per user-defined
   /// day, columns id/label/muscleGroups (comma-joined [MuscleGroup] enum
   /// names).
@@ -418,13 +472,22 @@ class SheetParser {
   /// Parses the `exercises` cell, formatted as
   /// `Exercise Name:low-high` (legacy, no per-set data),
   /// `Exercise Name:low-high:r1,r2,r3` (reps-only, last session's format),
-  /// `Exercise Name:low-high:r1,r2,r3:w1,w2,w3` (reps + per-set weight), or
-  /// `Exercise Name:low-high:r1,r2,r3:w1,w2,w3:t1,t2,t3` (current format —
-  /// adds a 5th segment for optional per-set thumbs-up/down feedback, `u`,
-  /// `d`, or empty per set). A rep token may be prefixed `~` (e.g. `~8`) to
-  /// mark that set's reps as approximate. The feedback segment is only ever
-  /// present when at least one set in the exercise has feedback set, so
-  /// most cells stay 2-4 segments exactly as before.
+  /// `Exercise Name:low-high:r1,r2,r3:w1,w2,w3` (reps + per-set weight),
+  /// `Exercise Name:low-high:r1,r2,r3:w1,w2,w3:t1,t2,t3` (adds a 5th segment
+  /// for optional per-set thumbs-up/down feedback, `u`, `d`, or empty per
+  /// set), `...:tl1-th1,tl2-th2,` (adds a 6th segment: per-set target
+  /// rep-range override, `low-high` or empty per set), or `...:tw1,,tw3`
+  /// (adds a 7th segment: per-set target weight override, a number or
+  /// empty per set). A rep token may be prefixed `~` (e.g. `~8`) to mark
+  /// that set's reps as approximate. Each of segments 5-7 is only ever
+  /// present when at least one set actually needs it — but once a later
+  /// segment (6 or 7) is present, every segment before it must also be
+  /// present (even all-empty), since segment *count* alone determines which
+  /// fields are present; a sparse/gapped set of segments would be ambiguous
+  /// (a 5-segment cell could otherwise mean either "has feedback, no
+  /// targets" or "no feedback, has an omitted-then-present target
+  /// segment"). So most cells stay 2-5 segments, and only exercises with an
+  /// actual per-set target override ever reach 6 or 7.
   List<LoggedExerciseRepRange> _parseExercisesCell(String value) {
     final result = <LoggedExerciseRepRange>[];
     for (final part in value.split('|')) {
@@ -442,15 +505,19 @@ class SheetParser {
         continue;
       }
 
+      final hasTargetWeight = segments.length >= 7;
+      final hasTargetRange = segments.length >= 6;
       final hasFeedback = segments.length >= 5;
       final hasWeights = segments.length >= 4;
       final hasReps = segments.length >= 3;
-      final trailingCount = hasFeedback ? 4 : (hasWeights ? 3 : (hasReps ? 2 : 1));
-      final name = segments
-          .sublist(0, segments.length - trailingCount)
-          .join(':')
-          .trim();
-      final rangePart = segments[segments.length - trailingCount].trim();
+      final trailingCount = hasTargetWeight
+          ? 6
+          : (hasTargetRange
+                ? 5
+                : (hasFeedback ? 4 : (hasWeights ? 3 : (hasReps ? 2 : 1))));
+      final rangeIndex = segments.length - trailingCount;
+      final name = segments.sublist(0, rangeIndex).join(':').trim();
+      final rangePart = segments[rangeIndex].trim();
       final dashIndex = rangePart.indexOf('-');
       final low =
           int.tryParse(
@@ -469,7 +536,7 @@ class SheetParser {
         final reps = <int>[];
         final approx = <bool>[];
         for (final token
-            in segments[segments.length - trailingCount + 1]
+            in segments[rangeIndex + 1]
                 .split(',')
                 .map((s) => s.trim())
                 .where((s) => s.isNotEmpty)) {
@@ -484,7 +551,7 @@ class SheetParser {
       }
 
       final actualWeights = hasWeights
-          ? segments[segments.length - trailingCount + 2]
+          ? segments[rangeIndex + 2]
                 .split(',')
                 .map((s) => double.tryParse(s.trim()))
                 .whereType<double>()
@@ -494,11 +561,38 @@ class SheetParser {
       // Positions must stay aligned with actualReps/actualWeights, so empty
       // tokens are kept (unlike the reps segment above, which drops them).
       final setFeedback = hasFeedback
-          ? segments.last
+          ? segments[rangeIndex + 3]
                 .split(',')
                 .map((t) => setFeedbackFromSheetToken(t.trim()))
                 .toList()
           : const <SetFeedback>[];
+
+      var targetLowPerSet = const <int?>[];
+      var targetHighPerSet = const <int?>[];
+      if (hasTargetRange) {
+        final lows = <int?>[];
+        final highs = <int?>[];
+        for (final token in segments[rangeIndex + 4].split(',')) {
+          final t = token.trim();
+          final dash = t.indexOf('-');
+          if (t.isEmpty || dash == -1) {
+            lows.add(null);
+            highs.add(null);
+            continue;
+          }
+          lows.add(int.tryParse(t.substring(0, dash)));
+          highs.add(int.tryParse(t.substring(dash + 1)));
+        }
+        targetLowPerSet = lows;
+        targetHighPerSet = highs;
+      }
+
+      final targetWeightPerSet = hasTargetWeight
+          ? segments[rangeIndex + 5]
+                .split(',')
+                .map((t) => double.tryParse(t.trim()))
+                .toList()
+          : const <double?>[];
 
       result.add(
         LoggedExerciseRepRange(
@@ -509,6 +603,9 @@ class SheetParser {
           approxReps: approxReps,
           actualWeights: actualWeights,
           setFeedback: setFeedback,
+          targetLowPerSet: targetLowPerSet,
+          targetHighPerSet: targetHighPerSet,
+          targetWeightPerSet: targetWeightPerSet,
         ),
       );
     }

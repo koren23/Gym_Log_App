@@ -216,6 +216,45 @@ void main() {
   );
 
   test(
+    'buildMetaAppendRow appends per-set target range/weight overrides, '
+    'forcing the feedback segment even when empty',
+    () {
+      final exercise = Exercise(
+        name: 'Bench press',
+        muscleGroup: MuscleGroup.legacyPush,
+      );
+      final visit = WorkoutVisit(
+        visitId: 'v1',
+        date: DateTime(2026, 8, 14),
+        isoWeek: 33,
+        isoYear: 2026,
+        entries: [
+          ExerciseEntry(
+            exercise: exercise,
+            sets: const [
+              SetEntry(weight: 60, reps: 8),
+              SetEntry(weight: 60, reps: 7),
+              SetEntry(weight: 62.5, reps: 6),
+            ],
+            targetRepRangeLow: 6,
+            targetRepRangeHigh: 8,
+            targetWeightPerSet: const [null, null, 55.0],
+          ),
+        ],
+      );
+
+      final range = writer.buildMetaAppendRow(
+        metaTabName: '2026_meta',
+        visit: visit,
+      );
+      expect(
+        range.values!.single[5] as String,
+        'Bench press:6-8:8,7,6:60.0,60.0,62.5:,,:,,:,,55.0',
+      );
+    },
+  );
+
+  test(
     'currentGrouped: inserts a new exercise directly below its existing section',
     () {
       final legPress = Exercise(
@@ -500,6 +539,33 @@ void main() {
       expect(
         range.values!.single.single,
         'Bench press:6-8:8,~7,6:60.0,60.0,62.5:,u,',
+      );
+    },
+  );
+
+  test(
+    'buildExercisesOrderUpdateRange round-trips a per-set target range '
+    'override, forcing the feedback segment even when empty',
+    () {
+      final range = writer.buildExercisesOrderUpdateRange(
+        metaTabName: '2026_meta',
+        metaRowIndex: 3,
+        exercises: const [
+          LoggedExerciseRepRange(
+            exerciseName: 'Bench press',
+            repRangeLow: 6,
+            repRangeHigh: 8,
+            actualReps: [8, 7, 6],
+            actualWeights: [60.0, 60.0, 62.5],
+            targetLowPerSet: [8, null, null],
+            targetHighPerSet: [10, null, null],
+          ),
+        ],
+      );
+      expect(range.range, "'2026_meta'!F4");
+      expect(
+        range.values!.single.single,
+        'Bench press:6-8:8,7,6:60.0,60.0,62.5:,,:8-10,,',
       );
     },
   );

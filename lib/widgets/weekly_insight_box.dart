@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/analysis_result.dart';
 import '../providers/analysis_providers.dart';
+import 'suggestion_card.dart';
 
 /// A compact "last few weeks" summary box for the home screen: the top 3
 /// improving exercises and top 3 stuck ones (each just a name + trend
@@ -73,7 +74,7 @@ class WeeklyInsightBox extends ConsumerWidget {
                         _SectionHeader(emoji: '💪', label: 'Improving'),
                         for (final f in improving)
                           _FindingRow(
-                            subject: f.subjectName,
+                            finding: f,
                             icon: Icons.trending_up,
                             iconColor: Colors.green,
                           ),
@@ -83,7 +84,7 @@ class WeeklyInsightBox extends ConsumerWidget {
                         _SectionHeader(emoji: '🎯', label: 'Stuck'),
                         for (final f in stuck)
                           _FindingRow(
-                            subject: f.subjectName,
+                            finding: f,
                             icon: Icons.trending_flat,
                             iconColor: Colors.orange,
                           ),
@@ -92,7 +93,7 @@ class WeeklyInsightBox extends ConsumerWidget {
                         _SectionHeader(emoji: '📊', label: 'Steady'),
                         for (final f in steady)
                           _FindingRow(
-                            subject: f.subjectName,
+                            finding: f,
                             icon: Icons.horizontal_rule,
                             iconColor: Colors.blueGrey,
                           ),
@@ -128,34 +129,53 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
+/// A compact row for one finding — tapping opens the full [SuggestionCard]
+/// (with its Do this/Not now actions, if any) in a bottom sheet, so the box
+/// itself stays small while still surfacing actionable suggestions.
 class _FindingRow extends StatelessWidget {
   const _FindingRow({
-    required this.subject,
+    required this.finding,
     required this.icon,
     required this.iconColor,
   });
 
-  final String subject;
+  final AnalysisFinding finding;
   final IconData icon;
   final Color iconColor;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
-      child: Row(
-        children: [
-          Icon(icon, size: 16, color: iconColor),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text(
-              subject,
-              style: theme.textTheme.bodyMedium,
-              overflow: TextOverflow.ellipsis,
+    return InkWell(
+      onTap: () => showModalBottomSheet<void>(
+        context: context,
+        showDragHandle: true,
+        builder: (_) => Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          child: SuggestionCard(finding: finding),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Row(
+          children: [
+            Icon(icon, size: 16, color: iconColor),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                finding.subjectName,
+                style: theme.textTheme.bodyMedium,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
-          ),
-        ],
+            if (finding.kind != SuggestionKind.none)
+              Icon(
+                Icons.chevron_right,
+                size: 18,
+                color: theme.colorScheme.outline,
+              ),
+          ],
+        ),
       ),
     );
   }

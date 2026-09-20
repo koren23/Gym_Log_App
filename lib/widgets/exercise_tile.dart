@@ -3,7 +3,11 @@ import 'package:flutter/material.dart';
 import '../core/analysis/tile_trend.dart';
 import '../core/constants/semantic_colors.dart';
 import '../core/constants/sheet_layout.dart';
+import '../core/utils/exercise_value_format.dart';
+import '../models/analysis_result.dart';
 import '../models/exercise.dart';
+import '../models/exercise_unit.dart';
+import '../models/pending_suggestion.dart';
 import '../models/set_feedback.dart';
 import '../models/workout_visit.dart';
 
@@ -28,6 +32,21 @@ class ExerciseDraft {
          SetFeedback.none,
          growable: true,
        ),
+       targetRepRangeLowOverridePerSet = List<int?>.filled(
+         setCount,
+         null,
+         growable: true,
+       ),
+       targetRepRangeHighOverridePerSet = List<int?>.filled(
+         setCount,
+         null,
+         growable: true,
+       ),
+       targetWeightOverridePerSet = List<double?>.filled(
+         setCount,
+         null,
+         growable: true,
+       ),
        weightControllers = List.generate(
          setCount,
          (_) => TextEditingController(),
@@ -45,12 +64,84 @@ class ExerciseDraft {
   List<int?> setReps;
   List<bool> setApproxReps;
   List<SetFeedback> setFeedback;
+
+  /// Per-set target overrides from an accepted suggestion (see
+  /// `SuggestionKind.changeRepRangeForSet`/`changeRepRangeOverall`/
+  /// `changeWeightForSet`) — null where no override applies, in which case
+  /// [repsFor] falls back to the plain historical hint.
+  List<int?> targetRepRangeLowOverridePerSet;
+  List<int?> targetRepRangeHighOverridePerSet;
+  List<double?> targetWeightOverridePerSet;
   final List<TextEditingController> weightControllers;
   final List<TextEditingController> repsControllers;
 
-  bool get isComplete => setWeights.every((w) => w != null && w > 0);
+  bool get isComplete => setWeights.every(
+    (w) => w != null && (w > 0 || (w == 0 && exercise.unit.allowsZeroAsRealValue)),
+  );
 
-  int repsFor(int index) => setReps[index] ?? _repsMid;
+  int repsFor(int index) {
+    if (setReps[index] != null) return setReps[index]!;
+    final lo = index < targetRepRangeLowOverridePerSet.length
+        ? targetRepRangeLowOverridePerSet[index]
+        : null;
+    final hi = index < targetRepRangeHighOverridePerSet.length
+        ? targetRepRangeHighOverridePerSet[index]
+        : null;
+    if (lo != null && hi != null) return (lo + hi) ~/ 2;
+    return _repsMid;
+  }
+
+  /// True when [index] has a target from an accepted suggestion, distinct
+  /// from the plain global-default hint — used to show a small badge.
+  bool hasSuggestedTarget(int index) =>
+      (index < targetRepRangeLowOverridePerSet.length &&
+          targetRepRangeLowOverridePerSet[index] != null) ||
+      (index < targetWeightOverridePerSet.length &&
+          targetWeightOverridePerSet[index] != null);
+
+  /// Applies an accepted [suggestion] into this draft's fields — pre-filling
+  /// a specific set's target reps/weight (or, for exercise-wide kinds,
+  /// every set), so the next time this exercise is logged the change is
+  /// already reflected instead of just remembered as text.
+  void applyPendingSuggestion(PendingSuggestion suggestion) {
+    switch (suggestion.kind) {
+      case SuggestionKind.changeRepRangeForSet:
+        final i = suggestion.setIndex;
+        if (i != null && i < targetRepRangeLowOverridePerSet.length) {
+          targetRepRangeLowOverridePerSet[i] = suggestion.newRepRangeLow;
+          targetRepRangeHighOverridePerSet[i] = suggestion.newRepRangeHigh;
+        }
+      case SuggestionKind.changeRepRangeOverall:
+        for (var i = 0; i < targetRepRangeLowOverridePerSet.length; i++) {
+          targetRepRangeLowOverridePerSet[i] = suggestion.newRepRangeLow;
+          targetRepRangeHighOverridePerSet[i] = suggestion.newRepRangeHigh;
+        }
+      case SuggestionKind.changeWeightForSet:
+        final i = suggestion.setIndex;
+        if (i != null &&
+            i < weightControllers.length &&
+            suggestion.newWeight != null) {
+          setWeights[i] = suggestion.newWeight;
+          weightControllers[i].text = suggestion.newWeight!.toStringAsFixed(1);
+          targetWeightOverridePerSet[i] = suggestion.newWeight;
+        }
+      case SuggestionKind.changeTotalWeight:
+      case SuggestionKind.deload:
+        if (suggestion.newWeight != null) {
+          for (var i = 0; i < weightControllers.length; i++) {
+            setWeights[i] = suggestion.newWeight;
+            weightControllers[i].text = suggestion.newWeight!.toStringAsFixed(
+              1,
+            );
+            targetWeightOverridePerSet[i] = suggestion.newWeight;
+          }
+        }
+      case SuggestionKind.changeExercise:
+      case SuggestionKind.changeWorkoutDay:
+      case SuggestionKind.none:
+        break;
+    }
+  }
 
   /// Names from [checked], in order, whose draft in [drafts] is complete —
   /// the pure rule behind the "Workout so far" / suggestion-pinning filter.
@@ -64,6 +155,9 @@ class ExerciseDraft {
     setReps.add(null);
     setApproxReps.add(false);
     setFeedback.add(SetFeedback.none);
+    targetRepRangeLowOverridePerSet.add(null);
+    targetRepRangeHighOverridePerSet.add(null);
+    targetWeightOverridePerSet.add(null);
     weightControllers.add(TextEditingController());
     repsControllers.add(TextEditingController());
   }
@@ -74,6 +168,9 @@ class ExerciseDraft {
     setReps.removeLast();
     setApproxReps.removeLast();
     setFeedback.removeLast();
+    targetRepRangeLowOverridePerSet.removeLast();
+    targetRepRangeHighOverridePerSet.removeLast();
+    targetWeightOverridePerSet.removeLast();
     weightControllers.removeLast().dispose();
     repsControllers.removeLast().dispose();
   }
@@ -99,6 +196,21 @@ class ExerciseDraft {
     this.setFeedback =
         setFeedback ??
         List<SetFeedback>.filled(weights.length, SetFeedback.none, growable: true);
+    targetRepRangeLowOverridePerSet = List<int?>.filled(
+      weights.length,
+      null,
+      growable: true,
+    );
+    targetRepRangeHighOverridePerSet = List<int?>.filled(
+      weights.length,
+      null,
+      growable: true,
+    );
+    targetWeightOverridePerSet = List<double?>.filled(
+      weights.length,
+      null,
+      growable: true,
+    );
     weightControllers
       ..clear()
       ..addAll([
@@ -138,6 +250,11 @@ class ExerciseDraft {
       sets: sets,
       targetRepRangeLow: repsUsed.reduce((a, b) => a < b ? a : b),
       targetRepRangeHigh: repsUsed.reduce((a, b) => a > b ? a : b),
+      targetRepRangeLowPerSet: List<int?>.from(targetRepRangeLowOverridePerSet),
+      targetRepRangeHighPerSet: List<int?>.from(
+        targetRepRangeHighOverridePerSet,
+      ),
+      targetWeightPerSet: List<double?>.from(targetWeightOverridePerSet),
     );
   }
 }
@@ -201,7 +318,7 @@ class ExerciseTile extends StatelessWidget {
               subtitle: previousWeight == null
                   ? null
                   : Text(
-                      'Last time: ${previousWeight!.toStringAsFixed(1)} kg',
+                      'Last time: ${formatExerciseValue(draft.exercise.unit, previousWeight!, customLabel: draft.exercise.customUnitLabel)}',
                     ),
               value: selected,
               onChanged: (v) => onToggle(v ?? false),
@@ -287,7 +404,7 @@ class SetsEditor extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(top: 8),
             child: Text(
-              'Average: ${draft.toEntry()!.averageWeight.toStringAsFixed(1)} kg',
+              'Average: ${formatExerciseValue(draft.exercise.unit, draft.toEntry()!.averageWeight, customLabel: draft.exercise.customUnitLabel)}',
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ),
@@ -380,7 +497,8 @@ class _SetEditorRowState extends State<_SetEditorRow> {
                 decimal: true,
               ),
               decoration: InputDecoration(
-                labelText: 'Set ${i + 1} (kg)',
+                labelText:
+                    'Set ${i + 1} (${draft.exercise.unit.labelSuffix(customLabel: draft.exercise.customUnitLabel)})',
                 isDense: true,
               ),
               onChanged: (text) {
@@ -399,6 +517,12 @@ class _SetEditorRowState extends State<_SetEditorRow> {
                 labelText: 'Reps',
                 isDense: true,
                 hintText: '${draft.repsFor(i)}',
+                suffixIcon: draft.hasSuggestedTarget(i)
+                    ? const Tooltip(
+                        message: 'Target updated from a recent suggestion',
+                        child: Icon(Icons.auto_awesome, size: 16),
+                      )
+                    : null,
               ),
               onChanged: (text) {
                 draft.setReps[i] = int.tryParse(text);

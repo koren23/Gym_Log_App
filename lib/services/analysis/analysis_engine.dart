@@ -1,5 +1,9 @@
+import '../../core/utils/exercise_value_format.dart';
 import '../../models/analysis_result.dart';
+import '../../models/exercise.dart';
+import '../../models/exercise_unit.dart';
 import '../../models/rating_relevance.dart';
+import '../../models/set_feedback.dart';
 
 /// One historical data point for a single exercise (or, for muscle-group
 /// level analysis, one week's aggregate across that group's exercises).
@@ -18,6 +22,9 @@ class HistoryPoint {
     this.avgReps,
     this.thumbsUpCount = 0,
     this.thumbsDownCount = 0,
+    this.actualRepsPerSet = const [],
+    this.actualWeightsPerSet = const [],
+    this.perSetFeedback = const [],
   });
 
   final int isoYear;
@@ -49,6 +56,15 @@ class HistoryPoint {
   /// ._thumbsSuggestOverridePlateau].
   final int thumbsUpCount;
   final int thumbsDownCount;
+
+  /// Raw per-set reps/weights/feedback for this visit, in set order —
+  /// empty for visits logged before per-set data was tracked. Used by
+  /// [AnalysisEngine._findWeakSet]/[AnalysisEngine._allSetsTopOfRangeStreak]
+  /// to reason about one specific set rather than only the exercise-wide
+  /// average.
+  final List<int> actualRepsPerSet;
+  final List<double> actualWeightsPerSet;
+  final List<SetFeedback> perSetFeedback;
 }
 
 /// On-device, rule-based analysis of an exercise's (or muscle group's)
@@ -79,50 +95,106 @@ class AnalysisEngine {
   /// alongside [ratingVeryLowThreshold] toward suggesting a deload.
   static const int thumbsDeloadSuggestThreshold = 3;
 
+  /// Sessions considered when looking for one specific set trailing its
+  /// siblings (see [_findWeakSet]).
+  static const int perSetWindow = 4;
+
+  /// Minimum sessions with per-set data required before judging any one set
+  /// weak — too few and normal session-to-session noise looks like a
+  /// pattern.
+  static const int perSetMinSessions = 3;
+
+  /// A set must average this many reps below its siblings (over
+  /// [perSetWindow]) to count as trailing.
+  static const double perSetRepDeficitThreshold = 2.0;
+
+  /// Net thumbs-down at one specific set index (over [perSetWindow]) that,
+  /// alone, is enough to flag that set even without a rep deficit.
+  static const int perSetFeedbackDownThreshold = 2;
+
+  /// Consecutive sessions where every single set hit its own session's
+  /// target-high, needed before suggesting a straight weight increase.
+  static const int topOfRangeStreak = 3;
+
+  static const double standardWeightIncrementKg = 2.5;
+  static const double deloadPct = 0.10;
+
+  /// Smaller, single-set version of [deloadPct] — used when only one set is
+  /// underperforming, not the whole exercise.
+  static const double weakSetDeloadPct = 0.08;
+
   /// [history] must be sorted chronologically ascending (oldest first).
   /// [bodyWeightTrend] is the user's overall body-weight trend over a
   /// comparable recent window (see `bodyWeightTrend` in
-  /// analysis_providers.dart) — left `unknown` if not available.
+  /// analysis_providers.dart) — left `unknown` if not available. [unit] is
+  /// the exercise's logged unit (see [ExerciseUnit]) — for
+  /// [ExerciseUnit.bodyweight], where added weight is frequently 0/
+  /// unchanging, volume (sets×reps) is treated as the primary "is this
+  /// improving" signal instead of weight, with weight only checked as the
+  /// secondary signal (mirroring, with the two swapped, how a plain
+  /// kg exercise treats volume as its secondary signal).
+  ///
+  /// [recentlySuggestedAlternatives] avoids repeating the exact same
+  /// replacement-exercise name when picking a [SuggestionKind.changeExercise]
+  /// candidate. [recentlySuggestedKinds] is broader — any suggestion kind
+  /// shown recently for this subject — and causes the engine to fall
+  /// through to the next applicable kind instead of repeating one that was
+  /// just shown; see the "stuck" ladder below.
   AnalysisFinding? analyze({
     required String subjectName,
     required List<HistoryPoint> history,
-    required List<String> alternativeExerciseNames,
+    required List<Exercise> alternativeExercises,
     required Set<String> recentlySuggestedAlternatives,
+    Set<SuggestionKind> recentlySuggestedKinds = const {},
     TrendDirection bodyWeightTrend = TrendDirection.unknown,
+    ExerciseUnit unit = ExerciseUnit.kg,
+    String? customUnitLabel,
   }) {
     if (history.length < minHistoryPoints) return null;
 
+    final isBodyweight = unit == ExerciseUnit.bodyweight;
     final weightTrend = _weightTrend(history);
-    final rawWeightPlateaued = _isPlateaued(history);
     final volumeTrend = _volumeTrend(history);
-    // Weight alone looking stuck doesn't mean progress has actually
-    // stopped — more reps or more sets at the same weight is still real
-    // overload. Only call it a plateau when volume isn't climbing either.
-    final isPlateaued = rawWeightPlateaued && volumeTrend != TrendDirection.up;
+    // The trend that drives "is this improving" — volume for a bodyweight
+    // exercise (since added weight is often 0/unchanging), weight for
+    // everything else. The other one is only consulted as a secondary
+    // signal below, with the two roles fully swapped for bodyweight.
+    final primaryTrend = isBodyweight ? volumeTrend : weightTrend;
+    final secondaryTrend = isBodyweight ? weightTrend : volumeTrend;
+    final rawPlateaued = isBodyweight
+        ? _isVolumePlateaued(history)
+        : _isPlateaued(history);
+    // A primary metric alone looking stuck doesn't mean progress has
+    // actually stopped — real overload via the secondary metric still
+    // counts. Only call it a plateau when the secondary metric isn't
+    // climbing either.
+    final isPlateaued = rawPlateaued && secondaryTrend != TrendDirection.up;
     final ratingTrend = _ratingTrend(history);
     final repRangeChanged = _repRangeChanged(history);
 
-    if (rawWeightPlateaued && volumeTrend == TrendDirection.up) {
+    if (rawPlateaued && secondaryTrend == TrendDirection.up) {
       return AnalysisFinding(
         subjectName: subjectName,
         weightTrend: TrendDirection.up,
         ratingTrend: ratingTrend,
         isPlateaued: false,
         repRangeChanged: repRangeChanged,
-        message:
-            '$subjectName — weight has held steady, but you\'re doing more '
-            'reps or sets than before. That still counts as progress.',
+        message: isBodyweight
+            ? '$subjectName — reps/sets have held steady, but you\'re adding '
+                  'more weight than before. That still counts as progress.'
+            : '$subjectName — weight has held steady, but you\'re doing more '
+                  'reps or sets than before. That still counts as progress.',
         priority: 0,
       );
     }
 
-    // A raw weight plateau with flat/declining volume can still be worth a
-    // second look if recent sets have been marked (optionally, via the
-    // per-set thumbs feedback) as feeling strong — a lighter signal than
-    // the volume-trend override above, so it only applies once that one
+    // A raw plateau with a flat/declining secondary metric can still be
+    // worth a second look if recent sets have been marked (optionally, via
+    // the per-set thumbs feedback) as feeling strong — a lighter signal
+    // than the trend override above, so it only applies once that one
     // doesn't.
-    if (rawWeightPlateaued &&
-        volumeTrend != TrendDirection.up &&
+    if (rawPlateaued &&
+        secondaryTrend != TrendDirection.up &&
         _thumbsSuggestOverridePlateau(history)) {
       return AnalysisFinding(
         subjectName: subjectName,
@@ -169,31 +241,55 @@ class AnalysisEngine {
         : ratedPoints;
     final avgRecentRating = _weightedMean(recentRatedPoints);
 
-    // Either a genuine weight plateau or a declining rating is reason
-    // enough on its own — a plateau while ratings are merely flat (not
-    // improving) still deserves a heads-up, and a rating that's dropping
-    // even while weight climbs is worth flagging too.
+    // Either a genuine plateau or a declining rating is reason enough on
+    // its own — a plateau while ratings are merely flat (not improving)
+    // still deserves a heads-up, and a rating that's dropping even while
+    // the primary metric climbs is worth flagging too.
     final ratingDeclining = ratingTrend == TrendDirection.down;
     final needsAttention = isPlateaued || ratingDeclining;
+    final metricNoun = _metricNoun(unit, customUnitLabel);
 
-    if (!needsAttention && weightTrend == TrendDirection.up) {
+    if (!needsAttention && primaryTrend == TrendDirection.up) {
+      // Not just "trending up" but every set maxing out its own target —
+      // that's a concrete "go heavier" moment, not just a compliment.
+      final readyForMore =
+          !isBodyweight && _allSetsTopOfRangeStreak(history);
+      if (readyForMore) {
+        final newWeight = history.last.avgWeight + standardWeightIncrementKg;
+        return AnalysisFinding(
+          subjectName: subjectName,
+          weightTrend: primaryTrend,
+          ratingTrend: ratingTrend,
+          isPlateaued: false,
+          repRangeChanged: repRangeChanged,
+          message:
+              '$subjectName is trending up — every set has hit the top of '
+              'its rep range for the last $topOfRangeStreak sessions.',
+          suggestion:
+              'Try ${formatExerciseValue(unit, newWeight, customLabel: customUnitLabel)} '
+              'next time.',
+          priority: 1,
+          kind: SuggestionKind.changeTotalWeight,
+          payload: WeightSuggestionPayload(newWeight: newWeight),
+        );
+      }
       return AnalysisFinding(
         subjectName: subjectName,
-        weightTrend: weightTrend,
+        weightTrend: primaryTrend,
         ratingTrend: ratingTrend,
         isPlateaued: false,
         repRangeChanged: repRangeChanged,
         message:
             '$subjectName is trending up — recent sessions show steady '
-            'weight progress. Keep the current rep range and pace.',
+            '$metricNoun progress. Keep the current rep range and pace.',
         priority: 0,
       );
     }
 
-    if (!needsAttention && weightTrend == TrendDirection.down) {
+    if (!needsAttention && primaryTrend == TrendDirection.down) {
       return AnalysisFinding(
         subjectName: subjectName,
-        weightTrend: weightTrend,
+        weightTrend: primaryTrend,
         ratingTrend: ratingTrend,
         isPlateaued: false,
         repRangeChanged: repRangeChanged,
@@ -207,7 +303,7 @@ class AnalysisEngine {
     if (!needsAttention) {
       return AnalysisFinding(
         subjectName: subjectName,
-        weightTrend: weightTrend,
+        weightTrend: primaryTrend,
         ratingTrend: ratingTrend,
         isPlateaued: false,
         repRangeChanged: repRangeChanged,
@@ -220,34 +316,111 @@ class AnalysisEngine {
 
     String suggestion;
     int priority;
+    SuggestionKind kind;
+    SuggestionPayload? payload;
     final lowRatings =
         avgRecentRating != null && avgRecentRating < ratingVeryLowThreshold;
     final thumbsDownCluster = _recentThumbsDownCluster(history);
     if (lowRatings || thumbsDownCluster) {
+      final newWeight = history.last.avgWeight * (1 - deloadPct);
       suggestion =
           '${lowRatings ? 'Ratings have been low' : 'Recent sets have felt bad'} '
-          'regardless of weight trend — consider a deload (reduce working '
-          'weight ~10%) or double-check form before pushing further.';
+          'regardless of trend — consider a deload (reduce $metricNoun ~10%, '
+          'to about ${formatExerciseValue(unit, newWeight, customLabel: customUnitLabel)}) '
+          'or double-check form before pushing further.';
       priority = 3;
-    } else if (!repRangeChanged) {
-      final low = history.last.repRangeLow;
-      final high = history.last.repRangeHigh;
-      final suggestedLow = low + 2;
-      final suggestedHigh = high + 2;
-      suggestion =
-          'Try switching the rep range to $suggestedLow-$suggestedHigh reps '
-          'for a few sessions before increasing weight again.';
-      priority = 2;
+      kind = SuggestionKind.deload;
+      payload = WeightSuggestionPayload(newWeight: newWeight);
     } else {
+      // A ladder of candidate remedies, most specific first — walked in
+      // order and skipped past whenever its kind was already suggested
+      // recently, so the same nudge doesn't repeat every session. Falls
+      // back to a plain (non-actionable) message only once every rung is
+      // on cooldown.
+      final rungs =
+          <({SuggestionKind kind, String suggestion, SuggestionPayload? payload})>[];
+
+      final weakSet = _findWeakSet(history);
+      if (weakSet != null) {
+        final setNum = weakSet.index + 1;
+        if (weakSet.avgAtIndex < history.last.repRangeLow) {
+          final currentWeightAtIndex =
+              weakSet.index < history.last.actualWeightsPerSet.length
+              ? history.last.actualWeightsPerSet[weakSet.index]
+              : history.last.avgWeight;
+          final newWeight = currentWeightAtIndex * (1 - weakSetDeloadPct);
+          rungs.add((
+            kind: SuggestionKind.changeWeightForSet,
+            suggestion:
+                'Set $setNum has been trailing your other sets — try '
+                'dropping just that set to '
+                '${formatExerciseValue(unit, newWeight, customLabel: customUnitLabel)}.',
+            payload: WeightSuggestionPayload(
+              setIndex: weakSet.index,
+              newWeight: newWeight,
+            ),
+          ));
+        } else {
+          final newLow = weakSet.avgAtIndex.round() - 1;
+          final newHigh = weakSet.avgAtIndex.round() + 1;
+          rungs.add((
+            kind: SuggestionKind.changeRepRangeForSet,
+            suggestion:
+                'Set $setNum has been trailing your other sets — try '
+                'giving it its own target of $newLow-$newHigh reps instead.',
+            payload: RepRangeSuggestionPayload(
+              setIndex: weakSet.index,
+              newLow: newLow,
+              newHigh: newHigh,
+            ),
+          ));
+        }
+      }
+
+      if (!repRangeChanged) {
+        final low = history.last.repRangeLow;
+        final high = history.last.repRangeHigh;
+        final newLow = low + 2;
+        final newHigh = high + 2;
+        rungs.add((
+          kind: SuggestionKind.changeRepRangeOverall,
+          suggestion:
+              'Try switching the rep range to $newLow-$newHigh reps for a '
+              'few sessions before increasing weight again.',
+          payload: RepRangeSuggestionPayload(newLow: newLow, newHigh: newHigh),
+        ));
+      }
+
       final alt = _pickAlternative(
-        alternativeExerciseNames,
+        alternativeExercises,
         recentlySuggestedAlternatives,
       );
-      suggestion = alt != null
-          ? 'Progress has stalled even after a rep-range change — try '
-                'swapping in $alt for a few weeks.'
-          : 'Progress has stalled — consider swapping this exercise for a '
-                'variation targeting the same muscle group.';
+      rungs.add((
+        kind: SuggestionKind.changeExercise,
+        suggestion: alt != null
+            ? 'Progress has stalled — try swapping in ${alt.name} for a '
+                  'few weeks.'
+            : 'Progress has stalled — consider swapping this exercise for '
+                  'a variation targeting the same muscle group.',
+        payload: alt != null ? ExerciseSwapPayload(replacement: alt) : null,
+      ));
+
+      final chosenIndex = rungs.indexWhere(
+        (r) => !recentlySuggestedKinds.contains(r.kind),
+      );
+      if (chosenIndex == -1) {
+        suggestion =
+            "You've already gotten a few different suggestions for this "
+            'recently — still worth keeping an eye on, nothing new to try '
+            'just yet.';
+        kind = SuggestionKind.none;
+        payload = null;
+      } else {
+        final chosen = rungs[chosenIndex];
+        suggestion = chosen.suggestion;
+        kind = chosen.kind;
+        payload = chosen.payload;
+      }
       priority = 2;
     }
 
@@ -255,19 +428,32 @@ class AnalysisEngine {
         ? '$subjectName has been stuck for the last $plateauWindow sessions'
               '${avgRecentRating != null ? ' and ratings have been ${avgRecentRating <= ratingLowThreshold ? 'low' : 'flat'}' : ''}.'
         : '$subjectName — ratings on this exercise have been dropping, even '
-              'though the weight itself is fine. Worth a closer look.';
+              'though the $metricNoun itself is fine. Worth a closer look.';
 
     return AnalysisFinding(
       subjectName: subjectName,
-      weightTrend: weightTrend,
+      weightTrend: primaryTrend,
       ratingTrend: ratingTrend,
       isPlateaued: true,
       repRangeChanged: repRangeChanged,
       message: message,
       suggestion: suggestion,
       priority: priority,
+      kind: kind,
+      payload: payload,
     );
   }
+
+  /// The right noun for [unit] when a message needs to name "the number
+  /// that's stuck/climbing/dropping" — e.g. "consider a deload (reduce
+  /// $noun ~10%)".
+  String _metricNoun(ExerciseUnit unit, String? customUnitLabel) =>
+      switch (unit) {
+        ExerciseUnit.kg => 'working weight',
+        ExerciseUnit.bodyweight => 'added weight',
+        ExerciseUnit.time => 'hold time',
+        ExerciseUnit.custom => customUnitLabel ?? 'value',
+      };
 
   TrendDirection _weightTrend(List<HistoryPoint> history) {
     final points = history.length > 6
@@ -336,6 +522,24 @@ class AnalysisEngine {
         .map((h) => h.avgWeight)
         .reduce((a, b) => a > b ? a : b);
     final fifthBack = history[history.length - plateauWindow - 1].avgWeight;
+    return maxLast4 <= fifthBack;
+  }
+
+  /// Same idea as [_isPlateaued] but tracking sets×reps instead of weight —
+  /// used for [ExerciseUnit.bodyweight], where added weight is often
+  /// 0/unchanging by design. Points without reps/sets data are skipped
+  /// (see [_volumeTrend]); returns false (never "plateaued") if there
+  /// aren't enough such points to judge.
+  bool _isVolumePlateaued(List<HistoryPoint> history) {
+    final withVolume = [
+      for (final h in history)
+        if (h.totalSets != null && h.avgReps != null) h,
+    ];
+    if (withVolume.length < plateauWindow + 1) return false;
+    double volume(HistoryPoint h) => h.totalSets! * h.avgReps!;
+    final last4 = withVolume.sublist(withVolume.length - plateauWindow);
+    final maxLast4 = last4.map(volume).reduce((a, b) => a > b ? a : b);
+    final fifthBack = volume(withVolume[withVolume.length - plateauWindow - 1]);
     return maxLast4 <= fifthBack;
   }
 
@@ -442,14 +646,94 @@ class AnalysisEngine {
     return modeKey != '${latest.repRangeLow}-${latest.repRangeHigh}';
   }
 
-  String? _pickAlternative(
-    List<String> candidates,
+  Exercise? _pickAlternative(
+    List<Exercise> candidates,
     Set<String> recentlySuggested,
   ) {
     if (candidates.isEmpty) return null;
     for (final c in candidates) {
-      if (!recentlySuggested.contains(c)) return c;
+      if (!recentlySuggested.contains(c.name)) return c;
     }
     return candidates.first;
+  }
+
+  /// Looks for one specific set index that's been consistently trailing its
+  /// siblings (fewer reps, or a net negative thumbs-feedback cluster) over
+  /// the last [perSetWindow] sessions that have per-set data — e.g. a
+  /// shoulder that fatigues faster than usual on the final set. Only
+  /// evaluated by [analyze] once an exercise already needs attention
+  /// (plateaued or rating-declining), so it never nags about an
+  /// intentionally lighter set in a deliberate pyramid/drop-set structure
+  /// on an otherwise healthy exercise. Returns null if there isn't enough
+  /// per-set data, only one set is logged, or no set qualifies.
+  ({int index, double avgAtIndex})? _findWeakSet(List<HistoryPoint> history) {
+    final withPerSet = [
+      for (final h in history)
+        if (h.actualRepsPerSet.isNotEmpty) h,
+    ];
+    if (withPerSet.length < perSetMinSessions) return null;
+    final points = withPerSet.length > perSetWindow
+        ? withPerSet.sublist(withPerSet.length - perSetWindow)
+        : withPerSet;
+    if (points.length < perSetMinSessions) return null;
+
+    final minSetCount = points
+        .map((p) => p.actualRepsPerSet.length)
+        .reduce((a, b) => a < b ? a : b);
+    if (minSetCount < 2) return null;
+
+    int? weakIndex;
+    double weakDeficit = 0;
+    double weakAvgAtIndex = 0;
+    for (var idx = 0; idx < minSetCount; idx++) {
+      final atIndex = <int>[];
+      final others = <int>[];
+      var feedbackNet = 0;
+      for (final p in points) {
+        atIndex.add(p.actualRepsPerSet[idx]);
+        for (var j = 0; j < p.actualRepsPerSet.length; j++) {
+          if (j != idx) others.add(p.actualRepsPerSet[j]);
+        }
+        if (idx < p.perSetFeedback.length) {
+          if (p.perSetFeedback[idx] == SetFeedback.down) feedbackNet++;
+          if (p.perSetFeedback[idx] == SetFeedback.up) feedbackNet--;
+        }
+      }
+      if (others.isEmpty) continue;
+      final avgAtIndex = atIndex.reduce((a, b) => a + b) / atIndex.length;
+      final avgOthers = others.reduce((a, b) => a + b) / others.length;
+      final deficit = avgOthers - avgAtIndex;
+      final qualifies =
+          deficit >= perSetRepDeficitThreshold ||
+          feedbackNet >= perSetFeedbackDownThreshold;
+      // The first qualifying index always wins, so a set flagged purely by
+      // bad feedback (deficit near zero or negative) isn't silently passed
+      // over just because it doesn't beat an initial deficit of 0 — after
+      // that, a strictly larger deficit among other qualifying sets can
+      // still take over as "the" weak one.
+      if (qualifies && (weakIndex == null || deficit > weakDeficit)) {
+        weakDeficit = deficit;
+        weakIndex = idx;
+        weakAvgAtIndex = avgAtIndex;
+      }
+    }
+    if (weakIndex == null) return null;
+    return (index: weakIndex, avgAtIndex: weakAvgAtIndex);
+  }
+
+  /// Whether every set in the last [topOfRangeStreak] sessions (that have
+  /// per-set data) hit at least that session's own target-high — a
+  /// concrete "ready to go heavier" signal, stronger than just "trending
+  /// up".
+  bool _allSetsTopOfRangeStreak(List<HistoryPoint> history) {
+    final withPerSet = [
+      for (final h in history)
+        if (h.actualRepsPerSet.isNotEmpty) h,
+    ];
+    if (withPerSet.length < topOfRangeStreak) return false;
+    final points = withPerSet.sublist(withPerSet.length - topOfRangeStreak);
+    return points.every(
+      (p) => p.actualRepsPerSet.every((reps) => reps >= p.repRangeHigh),
+    );
   }
 }

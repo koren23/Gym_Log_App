@@ -9,9 +9,9 @@ class AlternativeExerciseMap {
 
   final YearSheetData _sheetData;
 
-  /// Returns other exercise names in [exercise]'s muscle group, ordered to
+  /// Returns other exercises in [exercise]'s muscle group, ordered to
   /// prefer ones not logged recently (least-recently-used first).
-  List<String> alternativesFor(
+  List<Exercise> alternativesFor(
     Exercise exercise, {
     Map<String, DateTime>? lastLoggedDate,
   }) {
@@ -20,7 +20,7 @@ class AlternativeExerciseMap {
         .where((e) => e.name.toLowerCase() != exercise.name.toLowerCase())
         .toList();
 
-    if (lastLoggedDate == null) return siblings.map((e) => e.name).toList();
+    if (lastLoggedDate == null) return siblings;
 
     siblings.sort((a, b) {
       final da = lastLoggedDate[a.name];
@@ -30,6 +30,6 @@ class AlternativeExerciseMap {
       if (db == null) return 1;
       return da.compareTo(db);
     });
-    return siblings.map((e) => e.name).toList();
+    return siblings;
   }
 }

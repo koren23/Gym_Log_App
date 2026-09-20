@@ -8,10 +8,13 @@ import 'package:uuid/uuid.dart';
 import '../../core/analysis/tile_trend.dart';
 import '../../core/constants/muscle_groups.dart';
 import '../../core/constants/sheet_layout.dart';
+import '../../core/utils/exercise_value_format.dart';
 import '../../core/utils/iso_week.dart';
 import '../../core/utils/text.dart';
+import '../../models/analysis_result.dart';
 import '../../models/exercise.dart';
 import '../../models/exercise_muscle_info.dart';
+import '../../models/exercise_unit.dart';
 import '../../models/history_entry.dart';
 import '../../models/set_feedback.dart';
 import '../../models/workout_day_def.dart';
@@ -457,13 +460,33 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
           yearsAscending: yearsAscending,
           exerciseName: exercise.name,
         );
-        return ExerciseDraft(
+        final draft = ExerciseDraft(
           exercise,
           setCount: historicalSetCount ?? kDefaultSetCount,
           repRangeLow: defaults.repRangeLow,
           repRangeHigh: defaults.repRangeHigh,
         );
+        _applyPendingSuggestionIfAny(exercise, draft);
+        return draft;
       });
+
+  /// Applies (and consumes) an accepted suggestion for [exercise] — see
+  /// `PendingSuggestionsNotifier`/`SuggestionCard`. [SuggestionKind
+  /// .changeExercise]/[SuggestionKind.changeWorkoutDay] are handled
+  /// elsewhere ([_exercisesForDay], directly), not here.
+  void _applyPendingSuggestionIfAny(Exercise exercise, ExerciseDraft draft) {
+    final pending = ref.read(pendingSuggestionsProvider)[exercise.name];
+    if (pending == null ||
+        pending.kind == SuggestionKind.changeExercise ||
+        pending.kind == SuggestionKind.changeWorkoutDay) {
+      return;
+    }
+    draft.applyPendingSuggestion(pending);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref.read(pendingSuggestionsProvider.notifier).consume(exercise.name);
+    });
+  }
 
   double? _previousWeightFor(
     String exerciseName,
@@ -633,6 +656,16 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
                                       );
                                     }
                                   }
+                                  if (result.exercise.unit != ExerciseUnit.kg) {
+                                    await ref
+                                        .read(snapshotProvider.notifier)
+                                        .addExerciseUnit(
+                                          exerciseName: result.exercise.name,
+                                          unit: result.exercise.unit,
+                                          customLabel:
+                                              result.exercise.customUnitLabel,
+                                        );
+                                  }
                                 },
                               ),
                               const Spacer(),
@@ -789,6 +822,40 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
       if (exercise == null) continue;
       exercises.add(exercise);
       existingNames.add(info.exerciseName.toLowerCase());
+    }
+
+    // A pending SuggestionKind.changeExercise swap: substitute the accepted
+    // replacement in place of the original, so it's what actually shows up
+    // to log next time this day is opened — rather than just a message the
+    // user has to remember to act on themselves.
+    final pending = ref.watch(pendingSuggestionsProvider);
+    final consumedNames = <String>[];
+    for (var i = 0; i < exercises.length; i++) {
+      final suggestion = pending[exercises[i].name];
+      if (suggestion == null ||
+          suggestion.kind != SuggestionKind.changeExercise ||
+          suggestion.replacementExercise == null) {
+        continue;
+      }
+      final replacement = suggestion.replacementExercise!;
+      final alreadyPresent = exercises.any(
+        (e) => e.name.toLowerCase() == replacement.name.toLowerCase(),
+      );
+      if (!alreadyPresent) exercises[i] = replacement;
+      consumedNames.add(suggestion.subjectExerciseName);
+    }
+    if (consumedNames.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        for (final name in consumedNames) {
+          ref.read(pendingSuggestionsProvider.notifier).consume(name);
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Swapped in a suggested exercise for this day.'),
+          ),
+        );
+      });
     }
     return exercises;
   }
@@ -1071,7 +1138,7 @@ class _CompletedRowState extends State<_CompletedRow> {
     final draft = widget.draft;
     final setsSummary = [
       for (var i = 0; i < draft.setWeights.length; i++)
-        '${draft.setWeights[i]!.toStringAsFixed(1)}×'
+        '${formatExerciseValue(draft.exercise.unit, draft.setWeights[i]!, customLabel: draft.exercise.customUnitLabel)}×'
             '${draft.setApproxReps[i] ? '~' : ''}${draft.repsFor(i)}',
     ].join(', ');
     return Padding(
@@ -1107,10 +1174,7 @@ class _CompletedRowState extends State<_CompletedRow> {
                             fontWeight: FontWeight.w600,
                           ),
                         ),
-                        Text(
-                          '$setsSummary kg',
-                          style: theme.textTheme.bodySmall,
-                        ),
+                        Text(setsSummary, style: theme.textTheme.bodySmall),
                       ],
                     ),
                   ),
