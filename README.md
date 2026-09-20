@@ -22,6 +22,13 @@ the Sheet itself is the database.
   distort the trend analysis. Adding a new exercise always asks which muscle
   it belongs to. The default number of sets for a new entry comes from your
   own logging history for that exercise, not a fixed number.
+- **Per-exercise weight units**: most exercises log plain weight in kg, but
+  any exercise can instead be marked bodyweight (tracks added weight,
+  defaulting to 0), timed (plain seconds — planks, holds), or a custom unit
+  of your own (e.g. "floors" on a stairmaster). Set this when adding an
+  exercise or later from Settings → "Exercises". Trends, plateau detection,
+  and suggestions all stay unit-aware (e.g. a bodyweight exercise with flat
+  added weight but climbing reps still reads as progress, not a stall).
 - **Edit a past workout**: adjust each set's weight and reps individually
   (not just an averaged number), reorder exercises, edit the note/rating/
   feeling-sick flag, change the date (including moving it to a different
@@ -39,7 +46,13 @@ the Sheet itself is the database.
   flag — a slight dip in lifting weight during a deliberate cut isn't read
   as a stall, and a rating from a day you were sick doesn't get treated like
   a normal one. Post-workout notifications only surface for exercises that
-  are genuinely stuck or whose ratings are declining. See Settings → "How
+  are genuinely stuck, whose ratings are declining, or that are ready for
+  more weight — with real variety: a deload, a rep-range or weight change
+  for one specific set, a bumped overall rep range, a specific replacement
+  exercise, or (when most of a day is stuck at once) a nudge to rework the
+  whole day. Most suggestions have a "Do this" button that pre-fills the
+  change the next time you log that exercise, and a "Not now" that
+  suppresses just that suggestion for about 10 days. See Settings → "How
   suggestions work" for the full plain-language explanation.
 - **Settings**: pick from named color themes (light and dark presets) or
   customize the app's four accent colors individually; set the default rep
@@ -75,7 +88,11 @@ recognize a muscle you don't see yet. A handful of pluralized/abbreviated
 header spellings ("front delts", "lateral delts", "abs", "hams") are
 tolerated automatically via an alias table in that same file. The
 `Exercises` reference tab (one column per muscle) is now entirely optional —
-kept only as a fallback name->muscle source if present, not required. Workout
+kept only as a fallback name->muscle source if present, not required. The
+same `Exercises` tab also gets a small `Exercise`/`Unit` table (auto-created
+the first time a non-kg exercise is added) recording each exercise's weight
+unit (`kg`/`bw`/`time`/`custom:<label>`) — a blank or missing entry defaults
+to `kg`, so nothing needs to change for exercises you don't touch. Workout
 day definitions live in a `WorkoutDays` tab (id/label/muscleGroups columns),
 auto-created the first time you use the app, and are fully editable
 (add/edit/remove muscles or rename) from Settings.

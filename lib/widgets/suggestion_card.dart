@@ -75,9 +75,9 @@ class SuggestionCard extends ConsumerWidget {
 
   String _actionLabel(SuggestionKind kind) => switch (kind) {
     SuggestionKind.changeExercise => 'Swap exercise',
-    SuggestionKind.changeRepRangeForSet => 'Update this set',
+    SuggestionKind.changeRepRangeForSet => 'Update this set\'s reps',
     SuggestionKind.changeRepRangeOverall => 'Update rep range',
-    SuggestionKind.changeWeightForSet => 'Update this set',
+    SuggestionKind.changeWeightForSet => 'Update this set\'s weight',
     SuggestionKind.changeTotalWeight => 'Update weight',
     SuggestionKind.deload => 'Apply deload',
     SuggestionKind.changeWorkoutDay => 'Review this day',

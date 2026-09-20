@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../core/utils/exercise_value_format.dart';
+import '../models/exercise_unit.dart';
 import '../models/history_entry.dart';
 import '../models/workout_day_def.dart';
 import '../models/year_sheet_data.dart';
@@ -213,6 +215,10 @@ class _ExerciseRow extends StatelessWidget {
     }
 
     final latestWeight = history.isEmpty ? null : history.last.avgWeight;
+    final exercise = yearsAscending.isEmpty
+        ? null
+        : yearsAscending.last.findExercise(name);
+    final unit = exercise?.unit ?? ExerciseUnit.kg;
 
     return ListTile(
       dense: true,
@@ -222,7 +228,14 @@ class _ExerciseRow extends StatelessWidget {
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (latestWeight != null) Text(latestWeight.toStringAsFixed(1)),
+          if (latestWeight != null)
+            Text(
+              formatExerciseValue(
+                unit,
+                latestWeight,
+                customLabel: exercise?.customUnitLabel,
+              ),
+            ),
           const SizedBox(width: 6),
           Icon(trendIcon, size: 16, color: trendColor),
         ],

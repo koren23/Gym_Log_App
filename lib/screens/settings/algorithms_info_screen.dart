@@ -80,22 +80,68 @@ class AlgorithmsInfoScreen extends StatelessWidget {
                 'exercise if it\'s either genuinely stuck (a real plateau, '
                 'not softened by the volume or body-weight checks above) or '
                 'your ratings on it have been dropping — a plain "looks '
-                'stable" note is never shown. Exercises that are trending '
-                'up still get a quick positive mention.',
+                'stable" note is never shown, unless every set has been '
+                'hitting the top of its rep range for a few sessions in a '
+                'row, in which case you get a "try more weight" nudge '
+                'instead. The same box on the home tab shows the same '
+                'suggestions for your last few weeks, and you can tap any '
+                'row there to see the full card again.',
           ),
           _Section(
             title: 'What it suggests when you\'re stuck',
             body:
-                '• If your recent ratings (how the session felt, last 3 '
-                'ratings averaged) have been very low, it suggests a '
-                'deload — cut the working weight by about 10% or check '
-                'your form.\n'
-                '• Otherwise, if you haven\'t changed rep range recently, '
-                'it suggests trying a slightly higher rep range for a few '
+                'One specific suggestion is picked per exercise, in this '
+                'order:\n\n'
+                '• If one particular set is clearly the weak link (its reps '
+                'or your feedback on it lag behind your other sets), it '
+                'suggests adjusting just that set\'s weight or rep range — '
+                'not the whole exercise.\n'
+                '• Otherwise, if your recent ratings (how the session felt, '
+                'last 3 ratings averaged) have been very low, it suggests a '
+                'deload — cut the working weight by about 10% or check your '
+                'form.\n'
+                '• Otherwise, if you haven\'t changed rep range recently, it '
+                'suggests trying a slightly higher rep range for a few '
                 'sessions before pushing weight again.\n'
                 '• Otherwise (you already tried a rep-range change and '
-                'you\'re still stuck), it suggests swapping in a different '
-                'exercise for the same muscle group.',
+                'you\'re still stuck), it suggests one specific replacement '
+                'exercise for the same muscle group — picked from ones '
+                'you\'ve trained least recently, never one you were just '
+                'told to swap away from.\n\n'
+                'If most of a workout day\'s exercises are stuck at once and '
+                'each already has its own suggestion above, you additionally '
+                'get a nudge to rework that whole day rather than tweaking '
+                'exercises one at a time.\n\n'
+                'A suggestion you dismiss with "Not now" won\'t come back for '
+                'about 10 days, and only that specific suggestion is '
+                'suppressed — an unrelated one for the same exercise can '
+                'still show up sooner.',
+          ),
+          _Section(
+            title: 'Suggestions you can act on',
+            body:
+                'Most suggestions come with a "Do this" button. Tapping it '
+                'doesn\'t change anything immediately — it queues the change '
+                'for the next time you log that exercise, where it shows up '
+                'pre-filled: a specific set\'s weight or rep-range target, a '
+                'bumped-up rep range, or a replacement exercise swapped '
+                'straight into the day\'s list (with a note that it was '
+                'swapped in). A "rework this day" suggestion instead takes '
+                'you straight to editing that workout day in Settings.',
+          ),
+          _Section(
+            title: 'Weight units per exercise',
+            body:
+                'Most exercises track plain weight in kg, but you can mark '
+                'one as bodyweight (tracks added weight, defaulting to 0), '
+                'timed (plain seconds, e.g. planks or holds), or a custom '
+                'unit of your own (e.g. "floors" on a stairmaster) — set '
+                'this from Settings → "Exercises" or when first adding the '
+                'exercise. Trends and suggestions still work the same way '
+                'for every unit ("higher is better"), just labeled and '
+                'phrased for the right unit — a bodyweight exercise with '
+                'flat added weight but climbing reps still counts as '
+                'progress rather than a stall.',
           ),
           _Section(
             title: 'Everything runs on your device',
