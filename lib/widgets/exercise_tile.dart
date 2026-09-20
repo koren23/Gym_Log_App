@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/analysis/tile_trend.dart';
 import '../core/constants/semantic_colors.dart';
@@ -10,6 +11,8 @@ import '../models/exercise_unit.dart';
 import '../models/pending_suggestion.dart';
 import '../models/set_feedback.dart';
 import '../models/workout_visit.dart';
+import '../providers/sheet_data_providers.dart';
+import '../screens/log_workout/add_new_exercise_dialog.dart';
 
 /// Mutable per-exercise editing state used while building up a workout
 /// visit in the log-workout flow. Owns the [TextEditingController]s for
@@ -58,7 +61,10 @@ class ExerciseDraft {
          growable: true,
        );
 
-  final Exercise exercise;
+  /// Not final: updated in place when the unit is edited from the log page
+  /// or Settings (see [ExerciseTile]'s edit-unit button), so an in-progress
+  /// draft's fields relabel immediately without losing entered values.
+  Exercise exercise;
   final int _repsMid;
   List<double?> setWeights;
   List<int?> setReps;
@@ -261,7 +267,7 @@ class ExerciseDraft {
 
 /// A checkable exercise row that expands into a set-entry editor when
 /// selected.
-class ExerciseTile extends StatelessWidget {
+class ExerciseTile extends ConsumerWidget {
   const ExerciseTile({
     super.key,
     required this.draft,
@@ -294,7 +300,7 @@ class ExerciseTile extends StatelessWidget {
   final TileTrend trend;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final colors = semanticTrendColors(
       Theme.of(context).scaffoldBackgroundColor,
     );
@@ -322,6 +328,11 @@ class ExerciseTile extends StatelessWidget {
                     ),
               value: selected,
               onChanged: (v) => onToggle(v ?? false),
+              secondary: IconButton(
+                icon: const Icon(Icons.straighten),
+                tooltip: 'Change unit (kg / bodyweight / time / custom)',
+                onPressed: () => _editUnit(context, ref),
+              ),
             ),
             if (selected)
               Padding(
@@ -336,6 +347,25 @@ class ExerciseTile extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _editUnit(BuildContext context, WidgetRef ref) async {
+    final result = await showAddNewExerciseDialog(
+      context,
+      muscleGroupOptions: [draft.exercise.muscleGroup],
+      allMuscleInfo: const [],
+      existing: draft.exercise,
+    );
+    if (result == null) return;
+    draft.exercise = result.exercise;
+    onChanged();
+    await ref
+        .read(snapshotProvider.notifier)
+        .addExerciseUnit(
+          exerciseName: result.exercise.name,
+          unit: result.exercise.unit,
+          customLabel: result.exercise.customUnitLabel,
+        );
   }
 }
 
