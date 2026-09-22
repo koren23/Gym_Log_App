@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/constants/muscle_groups.dart';
 import '../../core/utils/iso_week.dart';
+import '../../core/utils/text.dart';
 import '../../models/exercise.dart';
+import '../../models/exercise_muscle_info.dart';
 import '../../models/rating_relevance.dart';
 import '../../models/set_feedback.dart';
 import '../../models/workout_visit.dart';
@@ -117,6 +119,53 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
       final item = _exerciseOrder.removeAt(oldIndex);
       _exerciseOrder.insert(newIndex, item);
     });
+  }
+
+  void _addExercise(Exercise exercise) {
+    if (_exerciseOrder.contains(exercise.name)) return;
+    setState(() {
+      _exerciseOrder.add(exercise.name);
+      _drafts[exercise.name] = ExerciseDraft(exercise)
+        ..loadSets(weights: <double?>[null], reps: <int?>[null]);
+    });
+  }
+
+  void _removeExercise(String name) {
+    setState(() {
+      _exerciseOrder.remove(name);
+      _drafts.remove(name)?.dispose();
+    });
+  }
+
+  /// Exercises this visit's year already has a matrix-tab row for, minus
+  /// ones already in this visit — only these are safely addable without a
+  /// heavier structural sheet write (see [_showAddExerciseSheet]).
+  List<Exercise> _addableExercises() {
+    final yearData = ref
+        .read(snapshotProvider)
+        .value
+        ?.snapshot
+        .yearData[widget.metaRow.isoYear];
+    if (yearData == null) return const [];
+    final already = _exerciseOrder.toSet();
+    return [
+      for (final e in yearData.allExercises)
+        if (e.sheetRow != null && !already.contains(e.name)) e,
+    ];
+  }
+
+  Future<void> _showAddExerciseSheet() async {
+    final muscleByName = ref.read(exerciseMuscleByNameProvider);
+    final candidates = _addableExercises();
+    final selected = await showModalBottomSheet<Exercise>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => _AddExerciseSheet(
+        candidates: candidates,
+        muscleByName: muscleByName,
+      ),
+    );
+    if (selected != null) _addExercise(selected);
   }
 
   LoggedExerciseRepRange _toLoggedRange(ExerciseEntry entry) =>
@@ -347,6 +396,17 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
                 ),
               ),
             ),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                icon: const Icon(Icons.add),
+                label: const Text('Add exercise'),
+                onPressed: _showAddExerciseSheet,
+              ),
+            ),
+          ),
           ReorderableListView(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
@@ -378,6 +438,13 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
                                 _exerciseOrder[i],
                                 style: Theme.of(context).textTheme.titleSmall,
                               ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.remove_circle_outline),
+                              tooltip: 'Remove exercise',
+                              onPressed: _exerciseOrder.length <= 1
+                                  ? null
+                                  : () => _removeExercise(_exerciseOrder[i]),
                             ),
                           ],
                         ),
@@ -433,6 +500,99 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
                 : const Text('Save changes'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Bottom sheet for picking an exercise to add to the visit being edited —
+/// tapping a row immediately adds it and closes the sheet, so no separate
+/// confirm step is needed (only one exercise is added per open).
+class _AddExerciseSheet extends StatefulWidget {
+  const _AddExerciseSheet({required this.candidates, required this.muscleByName});
+
+  final List<Exercise> candidates;
+  final Map<String, ExerciseMuscleInfo> muscleByName;
+
+  @override
+  State<_AddExerciseSheet> createState() => _AddExerciseSheetState();
+}
+
+class _AddExerciseSheetState extends State<_AddExerciseSheet> {
+  String _search = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = widget.candidates.where(
+      (e) => _search.isEmpty || e.name.toLowerCase().contains(_search),
+    );
+    final byMuscle = <String, List<Exercise>>{};
+    for (final exercise in filtered) {
+      final muscle =
+          widget.muscleByName[exercise.name.toLowerCase()]?.muscleGroup.sheetHeader ??
+          exercise.muscleGroup.sheetHeader;
+      byMuscle.putIfAbsent(muscle, () => []).add(exercise);
+    }
+    final muscleNames = byMuscle.keys.toList()..sort();
+
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+        ),
+        child: DraggableScrollableSheet(
+          initialChildSize: 0.7,
+          minChildSize: 0.4,
+          maxChildSize: 0.9,
+          expand: false,
+          builder: (context, scrollController) => Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                child: TextField(
+                  autofocus: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Search exercises',
+                    isDense: true,
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.search),
+                  ),
+                  onChanged: (v) =>
+                      setState(() => _search = v.trim().toLowerCase()),
+                ),
+              ),
+              Expanded(
+                child: muscleNames.isEmpty
+                    ? const Center(child: Text('No exercises to add.'))
+                    : ListView(
+                        controller: scrollController,
+                        children: [
+                          for (final muscle in muscleNames) ...[
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                              child: Text(
+                                titleCase(muscle),
+                                style: Theme.of(context).textTheme.labelLarge
+                                    ?.copyWith(
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.primary,
+                                    ),
+                              ),
+                            ),
+                            for (final e in byMuscle[muscle]!)
+                              ListTile(
+                                dense: true,
+                                title: Text(e.name),
+                                onTap: () => Navigator.of(context).pop(e),
+                              ),
+                          ],
+                        ],
+                      ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

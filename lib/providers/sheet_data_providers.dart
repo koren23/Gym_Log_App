@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:googleapis/sheets/v4.dart';
 
@@ -482,7 +483,13 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
       customLabel: customLabel,
       currentTable: table,
     );
-    if (result.isErr) return false;
+    if (result.isErr) {
+      result.when(
+        ok: (_) {},
+        err: (e, st) => debugPrint('addExerciseUnit failed for $exerciseName: $e\n$st'),
+      );
+      return false;
+    }
     await refresh();
     return true;
   }

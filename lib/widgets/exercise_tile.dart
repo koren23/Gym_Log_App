@@ -359,13 +359,22 @@ class ExerciseTile extends ConsumerWidget {
     if (result == null) return;
     draft.exercise = result.exercise;
     onChanged();
-    await ref
+    final ok = await ref
         .read(snapshotProvider.notifier)
         .addExerciseUnit(
           exerciseName: result.exercise.name,
           unit: result.exercise.unit,
           customLabel: result.exercise.customUnitLabel,
         );
+    if (!ok && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            "Couldn't save the unit — check your connection and try again.",
+          ),
+        ),
+      );
+    }
   }
 }
 
