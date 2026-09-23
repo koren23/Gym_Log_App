@@ -14,7 +14,6 @@ import '../../core/utils/text.dart';
 import '../../models/analysis_result.dart';
 import '../../models/exercise.dart';
 import '../../models/exercise_muscle_info.dart';
-import '../../models/exercise_unit.dart';
 import '../../models/history_entry.dart';
 import '../../models/set_feedback.dart';
 import '../../models/workout_day_def.dart';
@@ -656,16 +655,14 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
                                       );
                                     }
                                   }
-                                  if (result.exercise.unit != ExerciseUnit.kg) {
-                                    await ref
-                                        .read(snapshotProvider.notifier)
-                                        .addExerciseUnit(
-                                          exerciseName: result.exercise.name,
-                                          unit: result.exercise.unit,
-                                          customLabel:
-                                              result.exercise.customUnitLabel,
-                                        );
-                                  }
+                                  await ref
+                                      .read(snapshotProvider.notifier)
+                                      .addExerciseUnit(
+                                        exerciseName: result.exercise.name,
+                                        unit: result.exercise.unit,
+                                        customLabel:
+                                            result.exercise.customUnitLabel,
+                                      );
                                 },
                               ),
                               const Spacer(),

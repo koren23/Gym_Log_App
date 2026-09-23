@@ -461,10 +461,10 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
 
   /// Persists an exercise's unit to the "Exercises" tab's `Exercise`/`Unit`
   /// side-table — called whenever a new exercise is added with a non-kg
-  /// unit, or an existing exercise's unit is edited from Settings. No-op
-  /// (returns true without writing) when [unit] is [ExerciseUnit.kg] and
-  /// the exercise has no existing row yet, since blank/missing already
-  /// means kg — avoids cluttering the sheet with the common case.
+  /// unit, or an existing exercise's unit is edited from Settings. Every
+  /// unit is written explicitly (`kg`, `bw`, `time`, `custom:<label>`),
+  /// and any other known exercise that has no row yet is filled in as `kg`
+  /// in the same write, so the sheet ends up holding a unit for each one.
   Future<bool> addExerciseUnit({
     required String exerciseName,
     required ExerciseUnit unit,
@@ -473,9 +473,11 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
     final current = state.value;
     final table = current?.snapshot.exerciseUnitsTable;
     if (current == null || table == null) return false;
-    final hasExistingRow =
-        table.assignments.containsKey(exerciseName.toLowerCase());
-    if (unit == ExerciseUnit.kg && !hasExistingRow) return true;
+
+    final knownNames = <String>{
+      for (final y in current.snapshot.yearData.values)
+        for (final e in y.allExercises) e.name,
+    }.toList();
 
     final repository = await ref.read(sheetsRepositoryProvider.future);
 
@@ -496,6 +498,7 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
       unit: unit,
       customLabel: customLabel,
       currentTable: table,
+      backfillNames: knownNames,
     );
     if (result.isErr) {
       result.when(

@@ -853,7 +853,8 @@ class SheetsRepository {
 
   /// Sets [exerciseName]'s unit in the "Exercises" tab's `Exercise`/`Unit`
   /// side-table: updates its row in place if it already has one (per
-  /// [currentTable]), otherwise appends a new row — creating the
+  /// [currentTable]), otherwise adds a new row — and also adds an explicit
+  /// `kg` row for each of [backfillNames] that has none — creating the
   /// `Exercise`/`Unit` header pair first if the table doesn't exist yet on
   /// this sheet at all. [currentTable] must come from the snapshot this
   /// call is based on (row indices must be exact).
@@ -862,6 +863,7 @@ class SheetsRepository {
     required ExerciseUnit unit,
     String? customLabel,
     required ExerciseUnitsTable currentTable,
+    List<String> backfillNames = const [],
   }) async {
     try {
       var exerciseCol = currentTable.exerciseColumnIndex;
@@ -895,17 +897,36 @@ class SheetsRepository {
           "'$kExercisesTabName'!${_columnLetter(unitCol)}${existingRow + 1}",
           valueInputOption: 'USER_ENTERED',
         );
-      } else {
-        await _api.spreadsheets.values.append(
-          ValueRange(
-            values: [
-              [exerciseName, token],
-            ],
-          ),
+      }
+
+      // New rows (this exercise if it has none yet, plus an explicit `kg`
+      // row for every other known exercise that has none) go in one
+      // contiguous block right below the last existing row of the table.
+      // Written to an explicit range rather than `values.append`, whose
+      // table-detection can land the rows far from the header when other
+      // columns of the tab are filled.
+      final seen = {exerciseName.toLowerCase()};
+      final newRows = <List<Object?>>[
+        if (existingRow == null) [exerciseName, token],
+        for (final name in backfillNames)
+          if (seen.add(name.toLowerCase()) &&
+              !currentTable.assignments.containsKey(name.toLowerCase()))
+            [name, ExerciseUnit.kg.sheetToken],
+      ];
+      if (newRows.isNotEmpty) {
+        final firstRow = currentTable.assignments.values
+                .map((r) => r.rowIndex)
+                .fold(0, (a, b) => a > b ? a : b) +
+            1;
+        final startRow = firstRow + 1;
+        final endRow = startRow + newRows.length - 1;
+        final startCol = _columnLetter(exerciseCol);
+        final endCol = _columnLetter(unitCol);
+        await _api.spreadsheets.values.update(
+          ValueRange(values: newRows),
           _spreadsheetId,
-          "'$kExercisesTabName'!${_columnLetter(exerciseCol)}1:${_columnLetter(unitCol)}1",
+          "'$kExercisesTabName'!$startCol$startRow:$endCol$endRow",
           valueInputOption: 'USER_ENTERED',
-          insertDataOption: 'INSERT_ROWS',
         );
       }
       return const Result.ok(null);
