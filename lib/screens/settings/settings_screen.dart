@@ -1,16 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/constants/muscle_groups.dart';
-import '../../core/utils/text.dart';
 import '../../models/app_colors.dart';
-import '../../models/exercise.dart';
-import '../../models/exercise_muscle_info.dart';
-import '../../models/exercise_unit.dart';
 import '../../providers/auth_providers.dart';
 import '../../providers/settings_providers.dart';
 import '../../providers/sheet_data_providers.dart';
-import '../log_workout/add_new_exercise_dialog.dart';
 import 'add_workout_day_dialog.dart';
 import 'algorithms_info_screen.dart';
 
@@ -22,101 +16,6 @@ class SettingsScreen extends ConsumerStatefulWidget {
 }
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
-  final _exerciseSearchController = TextEditingController();
-  String _exerciseSearch = '';
-
-  @override
-  void dispose() {
-    _exerciseSearchController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _editExerciseUnit(Exercise e) async {
-    final result = await showAddNewExerciseDialog(
-      context,
-      muscleGroupOptions: kCurrentMuscleGroups,
-      allMuscleInfo: const [],
-      existing: e,
-    );
-    if (result == null) return;
-    final ok = await ref
-        .read(snapshotProvider.notifier)
-        .addExerciseUnit(
-          exerciseName: result.exercise.name,
-          unit: result.exercise.unit,
-          customLabel: result.exercise.customUnitLabel,
-        );
-    if (!ok && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            "Couldn't save the unit — check your connection and try again.",
-          ),
-        ),
-      );
-    }
-  }
-
-  /// Groups [knownExercises] by muscle (preferring the authoritative
-  /// "Exercises" tab lookup, falling back to the matrix-tab [MuscleGroup]),
-  /// filtered by [_exerciseSearch], sorted alphabetically by muscle then
-  /// exercise name — mirrors `_buildMuscleSections` in `log_workout_screen`.
-  List<Widget> _buildExerciseSections(
-    List<Exercise> knownExercises,
-    Map<String, ExerciseMuscleInfo> muscleByName,
-  ) {
-    final filtered = knownExercises.where(
-      (e) =>
-          _exerciseSearch.isEmpty ||
-          e.name.toLowerCase().contains(_exerciseSearch),
-    );
-
-    final byMuscle = <String, List<Exercise>>{};
-    for (final exercise in filtered) {
-      final muscle =
-          muscleByName[exercise.name.toLowerCase()]?.muscleGroup.sheetHeader ??
-          exercise.muscleGroup.sheetHeader;
-      byMuscle.putIfAbsent(muscle, () => []).add(exercise);
-    }
-    final muscleNames = byMuscle.keys.toList()..sort();
-
-    if (muscleNames.isEmpty) {
-      return [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-          child: Text('No exercises match "$_exerciseSearch".'),
-        ),
-      ];
-    }
-
-    return [
-      for (final muscle in muscleNames) ...[
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-          child: Text(
-            titleCase(muscle),
-            style: Theme.of(
-              context,
-            ).textTheme.labelLarge?.copyWith(color: Theme.of(context).colorScheme.primary),
-          ),
-        ),
-        for (final e in byMuscle[muscle]!)
-          ListTile(
-            dense: true,
-            title: Text(e.name),
-            subtitle: Text(switch (e.unit) {
-              ExerciseUnit.kg => 'kg',
-              ExerciseUnit.bodyweight => 'Bodyweight (+kg)',
-              ExerciseUnit.time => 'Time (sec)',
-              ExerciseUnit.custom => 'Custom (${e.customUnitLabel ?? '?'})',
-            }),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => _editExerciseUnit(e),
-          ),
-      ],
-    ];
-  }
-
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authStateProvider);
@@ -125,8 +24,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final pendingItems = ref.watch(pendingSyncQueueProvider).getAll();
     final currentColors = ref.watch(appColorsProvider);
     final dayDefs = ref.watch(workoutDayDefsProvider);
-    final knownExercises = ref.watch(allKnownExercisesProvider);
-    final muscleByName = ref.watch(exerciseMuscleByNameProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
@@ -254,46 +151,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               },
             ),
           ),
-          const Divider(),
-          const Padding(
-            padding: EdgeInsets.fromLTRB(16, 8, 16, 4),
-            child: Text(
-              'Exercises',
-              style: TextStyle(fontWeight: FontWeight.w600),
-            ),
-          ),
-          const Padding(
-            padding: EdgeInsets.fromLTRB(16, 0, 16, 4),
-            child: Text(
-              'Most exercises log in kg. Switch one to bodyweight, time, or '
-              'a custom unit (e.g. floors) here. Tap an exercise to edit it.',
-              style: TextStyle(fontSize: 12),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
-            child: TextField(
-              controller: _exerciseSearchController,
-              decoration: InputDecoration(
-                labelText: 'Search exercises',
-                isDense: true,
-                border: const OutlineInputBorder(),
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: _exerciseSearch.isEmpty
-                    ? null
-                    : IconButton(
-                        icon: const Icon(Icons.clear),
-                        onPressed: () {
-                          _exerciseSearchController.clear();
-                          setState(() => _exerciseSearch = '');
-                        },
-                      ),
-              ),
-              onChanged: (v) =>
-                  setState(() => _exerciseSearch = v.trim().toLowerCase()),
-            ),
-          ),
-          ..._buildExerciseSections(knownExercises, muscleByName),
           const Divider(),
           ListTile(
             title: const Text('How suggestions work'),
