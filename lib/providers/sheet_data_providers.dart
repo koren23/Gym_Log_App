@@ -470,13 +470,27 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
     required ExerciseUnit unit,
     String? customLabel,
   }) async {
-    final table = state.value?.snapshot.exerciseUnitsTable;
-    if (table == null) return false;
+    final current = state.value;
+    final table = current?.snapshot.exerciseUnitsTable;
+    if (current == null || table == null) return false;
     final hasExistingRow =
         table.assignments.containsKey(exerciseName.toLowerCase());
     if (unit == ExerciseUnit.kg && !hasExistingRow) return true;
 
     final repository = await ref.read(sheetsRepositoryProvider.future);
+
+    if (!current.snapshot.classifiedTabs.hasExercisesTab) {
+      final ensured = await repository.ensureExercisesTab();
+      if (ensured.isErr) {
+        ensured.when(
+          ok: (_) {},
+          err: (e, st) =>
+              debugPrint('ensureExercisesTab failed for $exerciseName: $e\n$st'),
+        );
+        return false;
+      }
+    }
+
     final result = await repository.setExerciseUnit(
       exerciseName: exerciseName,
       unit: unit,

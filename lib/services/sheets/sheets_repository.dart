@@ -383,6 +383,31 @@ class SheetsRepository {
     }
   }
 
+  /// Creates the "Exercises" reference tab when it doesn't exist yet — the
+  /// tab is documented as optional, so nothing creates it automatically
+  /// until the first write (a non-kg unit) actually needs it. No header row
+  /// is written here: [setExerciseUnit] already creates the `Exercise`/
+  /// `Unit` header pair itself once the tab exists.
+  Future<Result<void>> ensureExercisesTab() async {
+    try {
+      await _api.spreadsheets.batchUpdate(
+        BatchUpdateSpreadsheetRequest(
+          requests: [
+            Request(
+              addSheet: AddSheetRequest(
+                properties: SheetProperties(title: kExercisesTabName),
+              ),
+            ),
+          ],
+        ),
+        _spreadsheetId,
+      );
+      return const Result.ok(null);
+    } catch (e, st) {
+      return Result.err(e, st);
+    }
+  }
+
   Future<Result<void>> appendWorkoutDay(WorkoutDayDef def) async {
     try {
       final row = _writer.buildWorkoutDayAppendRow(def);
