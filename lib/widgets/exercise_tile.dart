@@ -321,18 +321,27 @@ class ExerciseTile extends ConsumerWidget {
           children: [
             CheckboxListTile(
               title: Text(draft.exercise.name),
-              subtitle: previousWeight == null
-                  ? null
-                  : Text(
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (previousWeight != null)
+                    Text(
                       'Last time: ${formatExerciseValue(draft.exercise.unit, previousWeight!, customLabel: draft.exercise.customUnitLabel)}',
                     ),
+                  const SizedBox(height: 4),
+                  ActionChip(
+                    avatar: const Icon(Icons.straighten, size: 16),
+                    label: Text(
+                      'Unit: ${_unitName(draft.exercise.unit, draft.exercise.customUnitLabel)}',
+                    ),
+                    tooltip: 'Change unit (kg / bodyweight / time / custom)',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => _editUnit(context, ref),
+                  ),
+                ],
+              ),
               value: selected,
               onChanged: (v) => onToggle(v ?? false),
-              secondary: IconButton(
-                icon: const Icon(Icons.straighten),
-                tooltip: 'Change unit (kg / bodyweight / time / custom)',
-                onPressed: () => _editUnit(context, ref),
-              ),
             ),
             if (selected)
               Padding(
@@ -348,6 +357,14 @@ class ExerciseTile extends ConsumerWidget {
       ),
     );
   }
+
+  static String _unitName(ExerciseUnit unit, String? customLabel) =>
+      switch (unit) {
+        ExerciseUnit.kg => 'kg',
+        ExerciseUnit.bodyweight => 'bodyweight',
+        ExerciseUnit.time => 'time',
+        ExerciseUnit.custom => customLabel ?? 'custom',
+      };
 
   Future<void> _editUnit(BuildContext context, WidgetRef ref) async {
     final result = await showAddNewExerciseDialog(
