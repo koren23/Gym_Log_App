@@ -317,21 +317,18 @@ class _EntryDetail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final explicitId = entry.metaRow?.workoutDayId;
-    WorkoutDayDef? matchedDay;
-    if (explicitId != null) {
-      for (final d in workoutDayDefs) {
-        if (d.id == explicitId) {
-          matchedDay = d;
-          break;
-        }
-      }
-    }
-    final day = workoutDayForGroupLabels(entry.muscleGroups);
+    // bestMatchingDayForEntry already tries the explicit workoutDayId first
+    // (authoritative when present) and otherwise arbitrates among every
+    // WorkoutDayDef via the same most-specific-match rule Home uses — so
+    // History and Home always agree, including for legacy (pre-workoutDayId)
+    // visits that used to fall back to the weaker legacy-taxonomy-only match.
+    final matchedDay = bestMatchingDayForEntry(entry, workoutDayDefs);
+    // Kept separately only for the legacy week-note lookup below, which
+    // needs the legacy [WorkoutDay] enum specifically, not a [WorkoutDayDef].
+    final legacyDay = workoutDayForGroupLabels(entry.muscleGroups);
     final note =
         entry.metaRow?.note ?? yearData?.weekNotes[entry.isoWeek];
     final dayLabel = matchedDay?.label ??
-        day?.label ??
         (entry.muscleGroups.isEmpty
             ? null
             : entry.muscleGroups.map(titleCase).join(', '));
@@ -380,10 +377,10 @@ class _EntryDetail extends StatelessWidget {
                       metaRow: entry.metaRow!,
                       initialNote:
                           entry.metaRow!.note ??
-                          (day == null
+                          (legacyDay == null
                               ? null
                               : yearData?.weekNotesByGroup[primaryGroupForDay(
-                                  day,
+                                  legacyDay,
                                 )]?[entry.isoWeek]),
                     ),
                   ),

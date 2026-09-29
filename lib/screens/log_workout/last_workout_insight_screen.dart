@@ -45,6 +45,7 @@ class LastWorkoutInsightScreen extends ConsumerWidget {
         : mostRecentRealVisitForDay(
             buildHistoryEntries(yearsAscending, workoutDays: dayDefs),
             day,
+            dayDefs,
           );
     final findings = (entry == null || yearsAscending == null)
         ? const <AnalysisFinding>[]

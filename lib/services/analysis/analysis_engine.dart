@@ -25,6 +25,7 @@ class HistoryPoint {
     this.actualRepsPerSet = const [],
     this.actualWeightsPerSet = const [],
     this.perSetFeedback = const [],
+    this.approxRepsPerSet = const [],
   });
 
   final int isoYear;
@@ -65,6 +66,11 @@ class HistoryPoint {
   final List<int> actualRepsPerSet;
   final List<double> actualWeightsPerSet;
   final List<SetFeedback> perSetFeedback;
+
+  /// Which sets in [actualRepsPerSet] were marked "~" (approximate, ±1 rep
+  /// tolerance) — parallel to [actualRepsPerSet]. Empty for visits logged
+  /// before this was tracked, or with no set marked approximate.
+  final List<bool> approxRepsPerSet;
 }
 
 /// On-device, rule-based analysis of an exercise's (or muscle group's)
@@ -152,9 +158,20 @@ class AnalysisEngine {
   }) {
     if (history.length < minHistoryPoints) return null;
 
+    // A sick-flagged visit's numbers shouldn't count as "the previous
+    // workout" for any trend/plateau/weak-set/streak calculation below —
+    // the last non-sick visit becomes the effective reference, same as if
+    // the sick visit simply hadn't happened. The rating trend below
+    // deliberately keeps using the raw [history] list — it already filters
+    // by [RatingRelevance] itself (see [ratedPoints]/[_ratingTrend]).
+    final effectiveHistory = history
+        .where((h) => h.ratingRelevance != RatingRelevance.unrelated)
+        .toList();
+    if (effectiveHistory.length < minHistoryPoints) return null;
+
     final isBodyweight = unit == ExerciseUnit.bodyweight;
-    final weightTrend = _weightTrend(history);
-    final volumeTrend = _volumeTrend(history);
+    final weightTrend = _weightTrend(effectiveHistory);
+    final volumeTrend = _volumeTrend(effectiveHistory);
     // The trend that drives "is this improving" — volume for a bodyweight
     // exercise (since added weight is often 0/unchanging), weight for
     // everything else. The other one is only consulted as a secondary
@@ -162,8 +179,8 @@ class AnalysisEngine {
     final primaryTrend = isBodyweight ? volumeTrend : weightTrend;
     final secondaryTrend = isBodyweight ? weightTrend : volumeTrend;
     final rawPlateaued = isBodyweight
-        ? _isVolumePlateaued(history)
-        : _isPlateaued(history);
+        ? _isVolumePlateaued(effectiveHistory)
+        : _isPlateaued(effectiveHistory);
     // A primary metric alone looking stuck doesn't mean progress has
     // actually stopped — real overload via the secondary metric still
     // counts. Only call it a plateau when the secondary metric isn't
@@ -253,9 +270,10 @@ class AnalysisEngine {
       // Not just "trending up" but every set maxing out its own target —
       // that's a concrete "go heavier" moment, not just a compliment.
       final readyForMore =
-          !isBodyweight && _allSetsTopOfRangeStreak(history);
+          !isBodyweight && _allSetsTopOfRangeStreak(effectiveHistory);
       if (readyForMore) {
-        final newWeight = history.last.avgWeight + standardWeightIncrementKg;
+        final newWeight =
+            effectiveHistory.last.avgWeight + standardWeightIncrementKg;
         return AnalysisFinding(
           subjectName: subjectName,
           weightTrend: primaryTrend,
@@ -322,7 +340,7 @@ class AnalysisEngine {
         avgRecentRating != null && avgRecentRating < ratingVeryLowThreshold;
     final thumbsDownCluster = _recentThumbsDownCluster(history);
     if (lowRatings || thumbsDownCluster) {
-      final newWeight = history.last.avgWeight * (1 - deloadPct);
+      final newWeight = effectiveHistory.last.avgWeight * (1 - deloadPct);
       suggestion =
           '${lowRatings ? 'Ratings have been low' : 'Recent sets have felt bad'} '
           'regardless of trend — consider a deload (reduce $metricNoun ~10%, '
@@ -340,14 +358,14 @@ class AnalysisEngine {
       final rungs =
           <({SuggestionKind kind, String suggestion, SuggestionPayload? payload})>[];
 
-      final weakSet = _findWeakSet(history);
+      final weakSet = _findWeakSet(effectiveHistory);
       if (weakSet != null) {
         final setNum = weakSet.index + 1;
-        if (weakSet.avgAtIndex < history.last.repRangeLow) {
+        if (weakSet.avgAtIndex < effectiveHistory.last.repRangeLow) {
           final currentWeightAtIndex =
-              weakSet.index < history.last.actualWeightsPerSet.length
-              ? history.last.actualWeightsPerSet[weakSet.index]
-              : history.last.avgWeight;
+              weakSet.index < effectiveHistory.last.actualWeightsPerSet.length
+              ? effectiveHistory.last.actualWeightsPerSet[weakSet.index]
+              : effectiveHistory.last.avgWeight;
           final newWeight = currentWeightAtIndex * (1 - weakSetDeloadPct);
           rungs.add((
             kind: SuggestionKind.changeWeightForSet,
@@ -378,8 +396,8 @@ class AnalysisEngine {
       }
 
       if (!repRangeChanged) {
-        final low = history.last.repRangeLow;
-        final high = history.last.repRangeHigh;
+        final low = effectiveHistory.last.repRangeLow;
+        final high = effectiveHistory.last.repRangeHigh;
         final newLow = low + 2;
         final newHigh = high + 2;
         rungs.add((
@@ -690,7 +708,13 @@ class AnalysisEngine {
       final others = <int>[];
       var feedbackNet = 0;
       for (final p in points) {
-        atIndex.add(p.actualRepsPerSet[idx]);
+        // A "~" (approximate) rep count gets a +1 benefit of the doubt
+        // here, so a set the user flagged as "close enough" isn't flagged
+        // weak purely for landing exactly on/near the tolerance boundary.
+        // Only ever makes this set *less* likely to qualify as weak, never
+        // more, since the adjustment only raises its own average.
+        final approx = idx < p.approxRepsPerSet.length && p.approxRepsPerSet[idx];
+        atIndex.add(p.actualRepsPerSet[idx] + (approx ? 1 : 0));
         for (var j = 0; j < p.actualRepsPerSet.length; j++) {
           if (j != idx) others.add(p.actualRepsPerSet[j]);
         }
@@ -732,8 +756,15 @@ class AnalysisEngine {
     ];
     if (withPerSet.length < topOfRangeStreak) return false;
     final points = withPerSet.sublist(withPerSet.length - topOfRangeStreak);
-    return points.every(
-      (p) => p.actualRepsPerSet.every((reps) => reps >= p.repRangeHigh),
-    );
+    return points.every((p) {
+      for (var i = 0; i < p.actualRepsPerSet.length; i++) {
+        // A "~" (approximate) set gets a +1 rep tolerance toward the top of
+        // its range, matching how it's treated as "close enough" elsewhere.
+        final approx = i < p.approxRepsPerSet.length && p.approxRepsPerSet[i];
+        final reps = p.actualRepsPerSet[i] + (approx ? 1 : 0);
+        if (reps < p.repRangeHigh) return false;
+      }
+      return true;
+    });
   }
 }

@@ -10,6 +10,7 @@ import '../models/year_sheet_data.dart';
 import '../providers/analysis_providers.dart';
 import '../providers/settings_providers.dart';
 import '../providers/sheet_data_providers.dart';
+import '../screens/settings/edit_premade_workout_dialog.dart';
 import 'simple_line_chart.dart' show approximateWeekLabel;
 
 /// A lightweight "at a glance" card for the home screen: the most recent
@@ -37,6 +38,8 @@ class ThisWeekSummary extends ConsumerWidget {
     final snapshotState = ref.watch(snapshotProvider).value;
     final theme = Theme.of(context);
     final dayDefs = ref.watch(workoutDayDefsProvider);
+    ref.watch(premadeWorkoutsProvider); // rebuild when a template changes.
+    final premadeNotifier = ref.read(premadeWorkoutsProvider.notifier);
 
     if (snapshotState == null) {
       return const SizedBox.shrink();
@@ -70,18 +73,20 @@ class ThisWeekSummary extends ConsumerWidget {
               ? Expanded(
                   child: _DaySection(
                     day: day,
-                    entry: _latestEntryForDay(allEntries, day),
+                    entry: _latestEntryForDay(allEntries, day, dayDefs),
                     yearsAscending: yearsAscending,
                     expanded: true,
                     onToggle: () => onDayToggled(null),
+                    hasPremade: premadeNotifier.forDay(day.id) != null,
                   ),
                 )
               : _DaySection(
                   day: day,
-                  entry: _latestEntryForDay(allEntries, day),
+                  entry: _latestEntryForDay(allEntries, day, dayDefs),
                   yearsAscending: yearsAscending,
                   expanded: false,
                   onToggle: () => onDayToggled(day.id),
+                  hasPremade: premadeNotifier.forDay(day.id) != null,
                 ),
           if (day != dayDefs.last) const SizedBox(height: 10),
         ],
@@ -90,10 +95,14 @@ class ThisWeekSummary extends ConsumerWidget {
   }
 
   /// The most recent entry belonging to [day] — see
-  /// [historyEntryBelongsToDay] for the matching rule.
-  HistoryEntry? _latestEntryForDay(List<HistoryEntry> entries, WorkoutDayDef day) {
+  /// [bestMatchingDayForEntry] for the matching rule.
+  HistoryEntry? _latestEntryForDay(
+    List<HistoryEntry> entries,
+    WorkoutDayDef day,
+    List<WorkoutDayDef> allDays,
+  ) {
     for (final entry in entries) {
-      if (historyEntryBelongsToDay(entry, day)) return entry;
+      if (historyEntryBelongsToDay(entry, day, allDays)) return entry;
     }
     return null;
   }
@@ -106,6 +115,7 @@ class _DaySection extends StatelessWidget {
     required this.yearsAscending,
     required this.expanded,
     required this.onToggle,
+    required this.hasPremade,
   });
 
   final WorkoutDayDef day;
@@ -113,6 +123,7 @@ class _DaySection extends StatelessWidget {
   final List<YearSheetData> yearsAscending;
   final bool expanded;
   final VoidCallback onToggle;
+  final bool hasPremade;
 
   @override
   Widget build(BuildContext context) {
@@ -152,6 +163,17 @@ class _DaySection extends StatelessWidget {
                       ),
                     ),
                   const Spacer(),
+                  if (hasPremade)
+                    IconButton(
+                      icon: const Icon(Icons.list_alt_outlined, size: 18),
+                      tooltip: 'View premade workout',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => EditPremadeWorkoutScreen(day: day),
+                        ),
+                      ),
+                    ),
                   Icon(
                     expanded ? Icons.expand_less : Icons.expand_more,
                     color: theme.colorScheme.outline,

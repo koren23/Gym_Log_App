@@ -95,9 +95,7 @@ class _GraphsScreenState extends ConsumerState<GraphsScreen> {
     }
     final muscleNames = exercisesByMuscleName.keys.toList()..sort();
 
-    _selectedOption ??= allExerciseNames.isEmpty
-        ? _kBodyWeightOption
-        : allExerciseNames.first;
+    _selectedOption ??= _kBodyWeightOption;
     final showingBodyWeight = _selectedOption == _kBodyWeightOption;
     final showingMuscle = _selectedOption!.startsWith(_kMusclePrefix);
 

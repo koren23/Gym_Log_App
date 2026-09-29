@@ -2,18 +2,24 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/constants/muscle_groups.dart';
+import '../../core/utils/exercise_value_format.dart';
 import '../../core/utils/iso_week.dart';
 import '../../core/utils/text.dart';
 import '../../models/exercise.dart';
 import '../../models/exercise_muscle_info.dart';
 import '../../models/rating_relevance.dart';
 import '../../models/set_feedback.dart';
+import '../../models/workout_day_def.dart';
 import '../../models/workout_visit.dart';
 import '../../models/year_sheet_data.dart';
+import '../../providers/analysis_providers.dart';
+import '../../providers/settings_providers.dart';
 import '../../providers/sheet_data_providers.dart';
 import '../../widgets/exercise_tile.dart';
 import '../../widgets/star_rating_input.dart';
+import '../log_workout/add_new_exercise_dialog.dart';
 import '../log_workout/post_save_insight_screen.dart';
+import '../settings/edit_premade_workout_dialog.dart';
 
 class EditVisitScreen extends ConsumerStatefulWidget {
   const EditVisitScreen({super.key, required this.metaRow, this.initialNote});
@@ -135,6 +141,90 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
       _exerciseOrder.remove(name);
       _drafts.remove(name)?.dispose();
     });
+  }
+
+  /// Opens the same add/edit-exercise dialog the log page uses, so an
+  /// exercise's name/muscle/unit can be corrected (or the exercise deleted
+  /// entirely) directly from here — matching what's possible while logging.
+  Future<void> _editExercise(String name) async {
+    final old = _drafts[name]!.exercise;
+    final result = await showAddNewExerciseDialog(
+      context,
+      muscleGroupOptions: kCurrentMuscleGroups,
+      allMuscleInfo: ref.read(exerciseMuscleInfoProvider),
+      existing: old,
+    );
+    if (result == null) return;
+
+    if (result.deleted) {
+      final ok = await ref.read(snapshotProvider.notifier).deleteExercise(old);
+      if (ok) {
+        _removeExercise(name);
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              "Couldn't delete the exercise — check your connection and try again.",
+            ),
+          ),
+        );
+      }
+      return;
+    }
+
+    final newExercise = result.exercise!;
+    setState(() {
+      if (newExercise.name != name) {
+        final index = _exerciseOrder.indexOf(name);
+        if (index != -1) _exerciseOrder[index] = newExercise.name;
+        final draft = _drafts.remove(name);
+        if (draft != null) {
+          draft.exercise = newExercise;
+          _drafts[newExercise.name] = draft;
+        }
+      } else {
+        _drafts[name]!.exercise = newExercise;
+      }
+    });
+
+    final updateResult = await ref
+        .read(snapshotProvider.notifier)
+        .updateExercise(
+          oldExercise: old,
+          newExercise: newExercise,
+          newMuscleColumnIndex: result.muscleColumnIndex,
+        );
+    if (!updateResult.success && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            "Couldn't save: ${updateResult.failedSteps.join(', ')} — check your connection and try again.",
+          ),
+        ),
+      );
+    }
+  }
+
+  /// The most recent weight logged for [exerciseName] strictly before this
+  /// visit's own date — a "last time" preview, matching the one shown while
+  /// logging a new workout (see `exercise_tile.dart`'s "Last time" line).
+  /// Excludes this visit's own (possibly not-yet-saved) entry so editing
+  /// doesn't show the visit as a preview of itself.
+  double? _previousWeightFor(String exerciseName) {
+    final yearsAscending = ref
+        .read(snapshotProvider)
+        .value
+        ?.snapshot
+        .yearData
+        .values
+        .toList();
+    if (yearsAscending == null) return null;
+    yearsAscending.sort((a, b) => a.year.compareTo(b.year));
+    final history = buildExerciseHistory(
+      yearsAscending: yearsAscending,
+      exerciseName: exerciseName,
+    ).where((h) => h.date.isBefore(widget.metaRow.date)).toList();
+    return history.isEmpty ? null : history.last.avgWeight;
   }
 
   /// Exercises this visit's year already has a matrix-tab row for, minus
@@ -346,10 +436,34 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final dayId = widget.metaRow.workoutDayId;
+    WorkoutDayDef? day;
+    if (dayId != null) {
+      for (final d in ref.watch(workoutDayDefsProvider)) {
+        if (d.id == dayId) {
+          day = d;
+          break;
+        }
+      }
+    }
+    final premade = day == null
+        ? null
+        : ref.watch(premadeWorkoutsProvider.notifier).forDay(day.id);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Edit workout'),
         actions: [
+          if (premade != null && day != null)
+            IconButton(
+              icon: const Icon(Icons.list_alt_outlined),
+              tooltip: 'View premade workout',
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => EditPremadeWorkoutScreen(day: day!),
+                ),
+              ),
+            ),
           IconButton(
             icon: const Icon(Icons.delete_outline),
             onPressed: _saving ? null : _delete,
@@ -434,10 +548,42 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
                               ),
                             ),
                             Expanded(
-                              child: Text(
-                                _exerciseOrder[i],
-                                style: Theme.of(context).textTheme.titleSmall,
+                              child: Builder(
+                                builder: (context) {
+                                  final draft = _drafts[_exerciseOrder[i]]!;
+                                  final previousWeight = _previousWeightFor(
+                                    _exerciseOrder[i],
+                                  );
+                                  return Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        _exerciseOrder[i],
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.titleSmall,
+                                      ),
+                                      if (previousWeight != null)
+                                        Text(
+                                          'Last time: ${formatExerciseValue(draft.exercise.unit, previousWeight, customLabel: draft.exercise.customUnitLabel)}',
+                                          style: Theme.of(
+                                            context,
+                                          ).textTheme.bodySmall?.copyWith(
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.outline,
+                                          ),
+                                        ),
+                                    ],
+                                  );
+                                },
                               ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.edit_outlined),
+                              tooltip: 'Edit exercise (name / muscle / unit / delete)',
+                              onPressed: () => _editExercise(_exerciseOrder[i]),
                             ),
                             IconButton(
                               icon: const Icon(Icons.remove_circle_outline),

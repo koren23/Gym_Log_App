@@ -8,6 +8,7 @@ import '../../providers/sheet_data_providers.dart';
 import 'add_workout_day_dialog.dart';
 import 'algorithms_info_screen.dart';
 import 'changelog_screen.dart';
+import 'edit_premade_workout_dialog.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -112,6 +113,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  IconButton(
+                    icon: const Icon(Icons.list_alt_outlined),
+                    tooltip: 'Manage premade workout',
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => EditPremadeWorkoutScreen(day: d),
+                      ),
+                    ),
+                  ),
                   IconButton(
                     icon: const Icon(Icons.edit_outlined),
                     onPressed: () async {

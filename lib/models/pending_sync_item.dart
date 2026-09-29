@@ -1,4 +1,12 @@
-enum PendingSyncPayloadType { workoutVisit, rating, bodyWeight, workoutDay }
+enum PendingSyncPayloadType {
+  workoutVisit,
+  rating,
+  bodyWeight,
+  workoutDay,
+  exerciseUnit,
+  exerciseMuscle,
+  premadeWorkout,
+}
 
 class PendingSyncItem {
   const PendingSyncItem({

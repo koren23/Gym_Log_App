@@ -402,10 +402,14 @@ class ExerciseTile extends ConsumerWidget {
           newMuscleColumnIndex: result.muscleColumnIndex,
         );
     if (!updateResult.success && context.mounted) {
+      final onlyUnitFailed = updateResult.failedSteps.length == 1 &&
+          updateResult.failedSteps.single == 'unit';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            "Couldn't save: ${updateResult.failedSteps.join(', ')} — check your connection and try again.",
+            onlyUnitFailed
+                ? "Couldn't reach your sheet — the unit change is queued and will retry automatically."
+                : "Couldn't save: ${updateResult.failedSteps.join(', ')} — check your connection and try again.",
           ),
         ),
       );

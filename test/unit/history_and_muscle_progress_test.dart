@@ -682,8 +682,8 @@ void main() {
         legacyDay: WorkoutDay.legs,
       );
 
-      expect(historyEntryBelongsToDay(entry, push), isTrue);
-      expect(historyEntryBelongsToDay(entry, legs), isFalse);
+      expect(historyEntryBelongsToDay(entry, push, [push, legs]), isTrue);
+      expect(historyEntryBelongsToDay(entry, legs, [push, legs]), isFalse);
     });
 
     test(
@@ -708,8 +708,14 @@ void main() {
           muscleGroups: const [MuscleGroup.triceps],
         );
 
-        expect(historyEntryBelongsToDay(entry, pushWide), isTrue);
-        expect(historyEntryBelongsToDay(entry, tricepsOnly), isFalse);
+        expect(
+          historyEntryBelongsToDay(entry, pushWide, [pushWide, tricepsOnly]),
+          isTrue,
+        );
+        expect(
+          historyEntryBelongsToDay(entry, tricepsOnly, [pushWide, tricepsOnly]),
+          isFalse,
+        );
       },
     );
 
@@ -747,8 +753,8 @@ void main() {
           legacyDay: WorkoutDay.push,
         );
 
-        expect(historyEntryBelongsToDay(entry, pull), isTrue);
-        expect(historyEntryBelongsToDay(entry, push), isFalse);
+        expect(historyEntryBelongsToDay(entry, pull, [pull, push]), isTrue);
+        expect(historyEntryBelongsToDay(entry, push, [pull, push]), isFalse);
       },
     );
 
@@ -773,8 +779,8 @@ void main() {
         legacyDay: WorkoutDay.pull,
       );
 
-      expect(historyEntryBelongsToDay(entry, push), isTrue);
-      expect(historyEntryBelongsToDay(entry, pull), isFalse);
+      expect(historyEntryBelongsToDay(entry, push, [push, pull]), isTrue);
+      expect(historyEntryBelongsToDay(entry, pull, [push, pull]), isFalse);
     });
 
     test(
@@ -795,7 +801,7 @@ void main() {
           legacyDay: WorkoutDay.pull,
         );
 
-        expect(historyEntryBelongsToDay(entry, pull), isTrue);
+        expect(historyEntryBelongsToDay(entry, pull, [pull]), isTrue);
       },
     );
   });
@@ -849,7 +855,7 @@ void main() {
       );
 
       final entries = buildHistoryEntries([year], workoutDays: [push]);
-      final result = mostRecentRealVisitForDay(entries, push);
+      final result = mostRecentRealVisitForDay(entries, push, [push]);
 
       expect(result, isNotNull);
       expect(result!.isSynthetic, isFalse);
@@ -881,7 +887,7 @@ void main() {
 
       final entries = buildHistoryEntries([year], workoutDays: [legs]);
 
-      expect(mostRecentRealVisitForDay(entries, legs), isNull);
+      expect(mostRecentRealVisitForDay(entries, legs, [legs]), isNull);
     });
   });
 

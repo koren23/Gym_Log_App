@@ -4,7 +4,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../core/utils/result.dart';
+import '../../models/exercise_unit.dart';
 import '../../models/pending_sync_item.dart';
+import '../../models/premade_workout.dart';
 import '../../models/rating_relevance.dart';
 import '../../models/workout_day_def.dart';
 import '../../models/workout_visit.dart';
@@ -17,6 +19,12 @@ import '../sheets/sheets_repository.dart';
 /// de-dupe week-column creation against what's actually on the sheet now.
 typedef YearContextResolver =
     Future<Result<YearWriteContext>> Function(int year);
+
+/// Resolves a fresh `Exercises` tab `Exercise`/`Unit` side-table (creating
+/// the tab first if it doesn't exist yet), needed to replay a queued
+/// exercise-unit write. Must re-read current sheet state, not a stale
+/// cache — row indices may have shifted since the write was queued.
+typedef ExerciseUnitsTableResolver = Future<Result<ExerciseUnitsTable>> Function();
 
 class YearWriteContext {
   const YearWriteContext({
@@ -85,6 +93,32 @@ class PendingSyncQueue {
   Future<void> enqueueWorkoutDay(WorkoutDayDef def) =>
       _enqueue(PendingSyncPayloadType.workoutDay, jsonEncode(def.toJson()));
 
+  Future<void> enqueueExerciseUnit({
+    required String exerciseName,
+    required ExerciseUnit unit,
+    String? customLabel,
+  }) => _enqueue(
+    PendingSyncPayloadType.exerciseUnit,
+    jsonEncode({
+      'exerciseName': exerciseName,
+      'unit': unit.name,
+      if (customLabel != null) 'customLabel': customLabel,
+    }),
+  );
+
+  Future<void> enqueueExerciseMuscle({
+    required String exerciseName,
+    required int columnIndex,
+  }) => _enqueue(
+    PendingSyncPayloadType.exerciseMuscle,
+    jsonEncode({'exerciseName': exerciseName, 'columnIndex': columnIndex}),
+  );
+
+  Future<void> enqueuePremadeWorkout(PremadeWorkout workout) => _enqueue(
+    PendingSyncPayloadType.premadeWorkout,
+    jsonEncode(workout.toJson()),
+  );
+
   /// Removes any still-queued "add this workout day" item for [id] — used
   /// when the user deletes a day before its add ever synced, so it doesn't
   /// get resurrected by a later retry.
@@ -117,6 +151,7 @@ class PendingSyncQueue {
   Future<int> retryAll({
     required SheetsRepository repository,
     required YearContextResolver resolveYearContext,
+    required ExerciseUnitsTableResolver resolveExerciseUnitsTable,
   }) async {
     final items = getAll();
     var syncedCount = 0;
@@ -126,6 +161,7 @@ class PendingSyncQueue {
         item,
         repository: repository,
         resolveYearContext: resolveYearContext,
+        resolveExerciseUnitsTable: resolveExerciseUnitsTable,
       );
       final remaining = getAll();
 
@@ -157,6 +193,7 @@ class PendingSyncQueue {
     PendingSyncItem item, {
     required SheetsRepository repository,
     required YearContextResolver resolveYearContext,
+    required ExerciseUnitsTableResolver resolveExerciseUnitsTable,
   }) async {
     switch (item.payloadType) {
       case PendingSyncPayloadType.workoutVisit:
@@ -210,6 +247,34 @@ class PendingSyncQueue {
       case PendingSyncPayloadType.workoutDay:
         final json = jsonDecode(item.serializedPayload) as Map<String, dynamic>;
         return repository.appendWorkoutDay(WorkoutDayDef.fromJson(json));
+
+      case PendingSyncPayloadType.exerciseUnit:
+        final json = jsonDecode(item.serializedPayload) as Map<String, dynamic>;
+        final tableResult = await resolveExerciseUnitsTable();
+        if (tableResult is Err<ExerciseUnitsTable>) {
+          return Result.err(tableResult.error, tableResult.stackTrace);
+        }
+        final table = (tableResult as Ok<ExerciseUnitsTable>).value;
+        return repository.setExerciseUnit(
+          exerciseName: json['exerciseName'] as String,
+          unit: ExerciseUnit.values.firstWhere(
+            (u) => u.name == json['unit'],
+            orElse: () => ExerciseUnit.kg,
+          ),
+          customLabel: json['customLabel'] as String?,
+          currentTable: table,
+        );
+
+      case PendingSyncPayloadType.exerciseMuscle:
+        final json = jsonDecode(item.serializedPayload) as Map<String, dynamic>;
+        return repository.appendExerciseToMuscleColumn(
+          columnIndex: json['columnIndex'] as int,
+          exerciseName: json['exerciseName'] as String,
+        );
+
+      case PendingSyncPayloadType.premadeWorkout:
+        final json = jsonDecode(item.serializedPayload) as Map<String, dynamic>;
+        return repository.appendPremadeWorkout(PremadeWorkout.fromJson(json));
     }
   }
 }

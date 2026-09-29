@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:fl_chart/fl_chart.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -138,7 +139,7 @@ class SimpleLineChart extends StatefulWidget {
 }
 
 class _SimpleLineChartState extends State<SimpleLineChart> {
-  static const double _minVisibleDays = 3;
+  static const double _minVisibleDays = 1;
 
   /// Null = showing the full range (not zoomed). Both day-offset units,
   /// same as `xFor()` below.
@@ -199,6 +200,34 @@ class _SimpleLineChartState extends State<SimpleLineChart> {
       );
       final focalFraction = (currentFocalX / _chartWidth).clamp(0.0, 1.0);
       var newStart = _pinchGestureStartValue - focalFraction * newSpan;
+      newStart = newStart.clamp(
+        0.0,
+        (_cachedTotalDays - newSpan).clamp(0.0, _cachedTotalDays),
+      );
+      _visibleStart = newStart;
+      _visibleSpan = newSpan;
+    });
+  }
+
+  /// Scroll-wheel/trackpad zoom (desktop/web) — mouse pointers never fire
+  /// the two-finger pinch handlers above, so this is the only zoom path on
+  /// those platforms. Zooms around the cursor's x-position, reusing the
+  /// same cached range fields the pinch handler maintains.
+  void _onPointerSignal(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent) return;
+    final zoomIn = event.scrollDelta.dy < 0;
+    setState(() {
+      final factor = zoomIn ? 0.85 : 1 / 0.85;
+      final newSpan = (_cachedVisibleSpan * factor).clamp(
+        _cachedMinSpan,
+        _cachedTotalDays,
+      );
+      final focalFraction = (event.localPosition.dx / _chartWidth).clamp(
+        0.0,
+        1.0,
+      );
+      final focalValue = _cachedVisibleStart + focalFraction * _cachedVisibleSpan;
+      var newStart = focalValue - focalFraction * newSpan;
       newStart = newStart.clamp(
         0.0,
         (_cachedTotalDays - newSpan).clamp(0.0, _cachedTotalDays),
@@ -389,6 +418,7 @@ class _SimpleLineChartState extends State<SimpleLineChart> {
                     onPointerMove: _onPointerMove,
                     onPointerUp: _onPointerUpOrCancel,
                     onPointerCancel: _onPointerUpOrCancel,
+                    onPointerSignal: _onPointerSignal,
                     child: LineChart(
                       LineChartData(
                         minY: primaryMin,

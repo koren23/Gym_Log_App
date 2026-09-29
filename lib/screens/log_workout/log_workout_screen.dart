@@ -14,6 +14,7 @@ import '../../core/utils/text.dart';
 import '../../models/analysis_result.dart';
 import '../../models/exercise.dart';
 import '../../models/exercise_muscle_info.dart';
+import '../../models/exercise_unit.dart';
 import '../../models/history_entry.dart';
 import '../../models/set_feedback.dart';
 import '../../models/workout_day_def.dart';
@@ -24,6 +25,7 @@ import '../../providers/settings_providers.dart';
 import '../../providers/sheet_data_providers.dart';
 import '../../widgets/exercise_tile.dart';
 import '../history/edit_visit_screen.dart';
+import '../settings/edit_premade_workout_dialog.dart';
 import 'add_new_exercise_dialog.dart';
 import 'last_workout_insight_screen.dart';
 import 'rating_screen.dart';
@@ -149,8 +151,17 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
         final group = MuscleGroup.values.firstWhere(
           (g) => g.name == data['muscleGroup'],
         );
+        final unit = ExerciseUnit.values.firstWhere(
+          (u) => u.name == data['unit'],
+          orElse: () => ExerciseUnit.kg,
+        );
         final draft = ExerciseDraft(
-          Exercise(name: entry.key, muscleGroup: group),
+          Exercise(
+            name: entry.key,
+            muscleGroup: group,
+            unit: unit,
+            customUnitLabel: data['customUnitLabel'] as String?,
+          ),
         );
         draft.loadSets(
           weights: (data['setWeights'] as List)
@@ -190,6 +201,8 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
       for (final entry in _drafts.entries)
         entry.key: {
           'muscleGroup': entry.value.exercise.muscleGroup.name,
+          'unit': entry.value.exercise.unit.name,
+          'customUnitLabel': entry.value.exercise.customUnitLabel,
           'setWeights': entry.value.setWeights,
           'setReps': entry.value.setReps,
           'setApproxReps': entry.value.setApproxReps,
@@ -295,7 +308,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
       ..sort((a, b) => a.year.compareTo(b.year));
     final dayDefs = ref.read(workoutDayDefsProvider);
     return buildHistoryEntries(yearsAscending, workoutDays: dayDefs)
-        .where((e) => historyEntryBelongsToDay(e, day))
+        .where((e) => historyEntryBelongsToDay(e, day, dayDefs))
         .take(2)
         .toList();
   }
@@ -325,17 +338,24 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
     return candidates.first;
   }
 
-  /// Reconstructs the full "usual order" of exercises for [day] by chasing
-  /// the modal successor chain (the same one-step logic [_modeOfNames]-based
-  /// lookahead used to rely on) repeatedly instead of just once: starting
-  /// from the modal starter exercise, repeatedly find what usually follows
-  /// the current exercise, stopping on a repeat (cycle guard) or once no
-  /// successor pattern exists. Returns an empty list if recent history has
-  /// nothing usable.
+  /// Reconstructs the full "usual order" of exercises for [day]. A premade
+  /// template, when one exists for this day, always wins outright — it's
+  /// the user's explicitly-maintained plan, so editing it should change
+  /// what's suggested immediately, not just when history is sparse.
+  /// Otherwise, chases the modal successor chain (the same one-step logic
+  /// [_modeOfNames]-based lookahead used to rely on) repeatedly instead of
+  /// just once: starting from the modal starter exercise, repeatedly find
+  /// what usually follows the current exercise, stopping on a repeat
+  /// (cycle guard) or once no successor pattern exists. Returns an empty
+  /// list if there's no premade and recent history has nothing usable.
   List<String> _usualOrderFor(
     WorkoutDayDef day,
     List<HistoryEntry> recentVisits,
   ) {
+    final premade = ref.read(premadeWorkoutsProvider.notifier).forDay(day.id);
+    if (premade != null && premade.exerciseNames.isNotEmpty) {
+      return premade.exerciseNames;
+    }
     if (recentVisits.isEmpty) return const [];
     final order = <String>[];
     final used = <String>{};
@@ -418,8 +438,11 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
     Map<String, ExerciseMuscleInfo> muscleByName,
   ) {
     final recentVisits = _recentVisitsFor(day);
-    if (recentVisits.isEmpty) return null;
 
+    // _usualOrderFor checks for a premade template first, which — unlike
+    // the history-derived order below — applies even with zero recent
+    // visits, so a brand-new day with a template still gets a real
+    // suggestion instead of falling through to "no history yet".
     final usualOrder = _usualOrderFor(day, recentVisits);
     if (usualOrder.isNotEmpty) {
       final covered = _coveredMuscleGroupsThisSession(
@@ -436,6 +459,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
       if (remaining.isNotEmpty) return remaining.first;
     }
 
+    if (recentVisits.isEmpty) return null;
     final allNames = [
       for (final v in recentVisits) ...v.exerciseNames,
     ].where((n) => !_checked.contains(n)).toList();
@@ -559,6 +583,23 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
     });
   }
 
+  /// Defense in depth for the unit-round-trip bug: whenever an in-progress
+  /// draft's `Exercise` disagrees with what the sheet currently says about
+  /// its unit (e.g. a stale kg-default that survived an app-restart draft
+  /// restore), the live sheet value always wins. Safe to call every build
+  /// — `ExerciseDraft.exercise` is deliberately mutable for exactly this
+  /// kind of in-place relabeling (see its doc comment).
+  void _reconcileDraftUnitsWithSnapshot(List<Exercise> availableExercises) {
+    for (final live in availableExercises) {
+      final draft = _drafts[live.name];
+      if (draft == null) continue;
+      if (draft.exercise.unit != live.unit ||
+          draft.exercise.customUnitLabel != live.customUnitLabel) {
+        draft.exercise = live;
+      }
+    }
+  }
+
   double? _previousWeightFor(
     String exerciseName,
     List<YearSheetData> yearsAscending,
@@ -595,12 +636,14 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
     final day = _selectedDay;
     final groups = day?.muscleGroups ?? const <MuscleGroup>[];
     final dayDefs = ref.watch(workoutDayDefsProvider);
+    ref.watch(premadeWorkoutsProvider); // rebuild when a template changes.
 
     final selectedCount = _checked.length;
 
     final availableExercises = day == null
         ? const <Exercise>[]
-        : _exercisesForDay(yearData, groups, exerciseMuscleInfo);
+        : _exercisesForDay(yearData, groups, exerciseMuscleInfo, day: day);
+    _reconcileDraftUnitsWithSnapshot(availableExercises);
     final suggestedNextName = day == null
         ? null
         : _resolveSuggestion(day, availableExercises, muscleByName);
@@ -724,22 +767,45 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
                                       ).showSnackBar(
                                         const SnackBar(
                                           content: Text(
-                                            'Could not save the muscle to your sheet — added locally only.',
+                                            "Couldn't reach your sheet — the muscle is queued and will retry automatically.",
                                           ),
                                         ),
                                       );
                                     }
                                   }
-                                  await ref
+                                  final unitOk = await ref
                                       .read(snapshotProvider.notifier)
                                       .addExerciseUnit(
                                         exerciseName: newExercise.name,
                                         unit: newExercise.unit,
                                         customLabel: newExercise.customUnitLabel,
                                       );
+                                  if (!unitOk && context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          "Couldn't reach your sheet — the unit is queued and will retry automatically.",
+                                        ),
+                                      ),
+                                    );
+                                  }
                                 },
                               ),
                               const Spacer(),
+                              if (ref
+                                      .read(premadeWorkoutsProvider.notifier)
+                                      .forDay(day.id) !=
+                                  null)
+                                TextButton.icon(
+                                  icon: const Icon(Icons.list_alt_outlined),
+                                  label: const Text('View premade'),
+                                  onPressed: () => Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) =>
+                                          EditPremadeWorkoutScreen(day: day),
+                                    ),
+                                  ),
+                                ),
                               TextButton.icon(
                                 icon: const Icon(Icons.insights_outlined),
                                 label: Text('Last ${day.label} day'),
@@ -868,8 +934,9 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
   List<Exercise> _exercisesForDay(
     YearSheetData? yearData,
     List<MuscleGroup> groups,
-    List<ExerciseMuscleInfo> exerciseMuscleInfo,
-  ) {
+    List<ExerciseMuscleInfo> exerciseMuscleInfo, {
+    WorkoutDayDef? day,
+  }) {
     final exercises = <Exercise>[
       for (final group in groups) ...?yearData?.muscleGroupSections[group],
     ];
@@ -879,6 +946,30 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
       if (existingNames.contains(added.name.toLowerCase())) continue;
       exercises.add(added);
       existingNames.add(added.name.toLowerCase());
+    }
+
+    // Premade-listed exercises show up in the checklist even before
+    // they've ever been logged, so the template's full plan is visible
+    // right away — not just once each exercise has real history.
+    if (day != null) {
+      final premade = ref
+          .read(premadeWorkoutsProvider.notifier)
+          .forDay(day.id);
+      for (final name in premade?.exerciseNames ?? const <String>[]) {
+        if (existingNames.contains(name.toLowerCase())) continue;
+        final known = yearData?.findExercise(name);
+        final exercise =
+            known ??
+            Exercise(
+              name: name,
+              muscleGroup: groups.isNotEmpty
+                  ? groups.first
+                  : kCurrentMuscleGroups.first,
+              muscleGroupKnown: false,
+            );
+        exercises.add(exercise);
+        existingNames.add(name.toLowerCase());
+      }
     }
 
     // Bonus inclusion: any exercise whose muscle (per the Exercises tab) is

@@ -10,6 +10,7 @@ import '../models/body_weight_entry.dart';
 import '../models/exercise.dart';
 import '../models/exercise_muscle_info.dart';
 import '../models/exercise_unit.dart';
+import '../models/premade_workout.dart';
 import '../models/rating_relevance.dart';
 import '../models/workout_day_def.dart';
 import '../models/workout_visit.dart';
@@ -450,11 +451,18 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
     required int columnIndex,
   }) async {
     final repository = await ref.read(sheetsRepositoryProvider.future);
+    final queue = ref.read(pendingSyncQueueProvider);
     final result = await repository.appendExerciseToMuscleColumn(
       columnIndex: columnIndex,
       exerciseName: exerciseName,
     );
-    if (result.isErr) return false;
+    if (result.isErr) {
+      await queue.enqueueExerciseMuscle(
+        exerciseName: exerciseName,
+        columnIndex: columnIndex,
+      );
+      return false;
+    }
     await refresh();
     return true;
   }
@@ -472,7 +480,15 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
   }) async {
     final current = state.value;
     final table = current?.snapshot.exerciseUnitsTable;
-    if (current == null || table == null) return false;
+    final queue = ref.read(pendingSyncQueueProvider);
+    if (current == null || table == null) {
+      await queue.enqueueExerciseUnit(
+        exerciseName: exerciseName,
+        unit: unit,
+        customLabel: customLabel,
+      );
+      return false;
+    }
 
     final knownNames = <String>{
       for (final y in current.snapshot.yearData.values)
@@ -489,6 +505,11 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
           err: (e, st) =>
               debugPrint('ensureExercisesTab failed for $exerciseName: $e\n$st'),
         );
+        await queue.enqueueExerciseUnit(
+          exerciseName: exerciseName,
+          unit: unit,
+          customLabel: customLabel,
+        );
         return false;
       }
     }
@@ -504,6 +525,11 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
       result.when(
         ok: (_) {},
         err: (e, st) => debugPrint('addExerciseUnit failed for $exerciseName: $e\n$st'),
+      );
+      await queue.enqueueExerciseUnit(
+        exerciseName: exerciseName,
+        unit: unit,
+        customLabel: customLabel,
       );
       return false;
     }
@@ -617,7 +643,15 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
         );
         ok = r.isOk;
       }
-      if (!ok) failedSteps.add('unit');
+      if (!ok) {
+        final queue = ref.read(pendingSyncQueueProvider);
+        await queue.enqueueExerciseUnit(
+          exerciseName: newExercise.name,
+          unit: newExercise.unit,
+          customLabel: newExercise.customUnitLabel,
+        );
+        failedSteps.add('unit');
+      }
     }
 
     await refresh();
@@ -716,6 +750,64 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
     final result = await repository.deleteWorkoutDay(
       rowIndex: rowIndex,
       workoutDaysGridId: gridId,
+    );
+    if (result.isErr) return false;
+    await refresh();
+    return true;
+  }
+
+  /// Appends a premade workout template to the sheet-backed
+  /// `PremadeWorkouts` tab, queuing a durable retry on failure — mirrors
+  /// [addWorkoutDayToSheet].
+  Future<bool> addPremadeWorkoutToSheet(PremadeWorkout workout) async {
+    final repository = await ref.read(sheetsRepositoryProvider.future);
+    final queue = ref.read(pendingSyncQueueProvider);
+    final current = state.value;
+
+    if (current == null ||
+        !current.snapshot.classifiedTabs.hasPremadeWorkoutsTab) {
+      final ensured = await repository.ensurePremadeWorkoutsTab();
+      if (ensured.isErr) {
+        await queue.enqueuePremadeWorkout(workout);
+        return false;
+      }
+    }
+
+    final result = await repository.appendPremadeWorkout(workout);
+    if (result.isErr) {
+      await queue.enqueuePremadeWorkout(workout);
+      return false;
+    }
+    await refresh();
+    return true;
+  }
+
+  /// Updates a premade workout's name/exercise list in place on the sheet.
+  /// If [workout] hasn't been confirmed synced yet (no `sheetRowIndex`,
+  /// e.g. it's still a locally-pending add), there's no row to target yet —
+  /// mirrors [updateWorkoutDayOnSheet].
+  Future<bool> updatePremadeWorkoutOnSheet(PremadeWorkout workout) async {
+    if (workout.sheetRowIndex == null) return true;
+    final repository = await ref.read(sheetsRepositoryProvider.future);
+    final result = await repository.updatePremadeWorkout(workout);
+    if (result.isErr) return false;
+    await refresh();
+    return true;
+  }
+
+  /// Deletes a premade workout's row from the sheet — fire-and-forget (not
+  /// queued), mirrors [removeWorkoutDayFromSheet].
+  Future<bool> removePremadeWorkoutFromSheet(PremadeWorkout workout) async {
+    final rowIndex = workout.sheetRowIndex;
+    if (rowIndex == null) return true; // never made it to the sheet yet.
+    final repository = await ref.read(sheetsRepositoryProvider.future);
+    final current = state.value;
+    final gridId = current?.snapshot.gridIdsByTabName[kPremadeWorkoutsTabName];
+    if (gridId == null) return false;
+
+    final result = await repository.deletePremadeWorkout(
+      rowIndex: rowIndex,
+      premadeWorkoutsGridId: gridId,
     );
     if (result.isErr) return false;
     await refresh();
@@ -936,8 +1028,38 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
           week: null,
         );
       },
+      resolveExerciseUnitsTable: () => _resolveExerciseUnitsTable(repository),
     );
     await refresh();
+  }
+
+  /// Re-reads a fresh `Exercises` tab `Exercise`/`Unit` side-table,
+  /// creating the tab first if it doesn't exist yet — needed to replay a
+  /// queued exercise-unit write, since row indices may have shifted since
+  /// it was queued.
+  Future<Result<ExerciseUnitsTable>> _resolveExerciseUnitsTable(
+    SheetsRepository repository,
+  ) async {
+    final snapResult = await repository.loadSnapshot(years: const []);
+    if (snapResult.isErr) {
+      final err = snapResult as Err<SpreadsheetSnapshot>;
+      return Result.err(err.error, err.stackTrace);
+    }
+    var snapshot = (snapResult as Ok<SpreadsheetSnapshot>).value;
+    if (!snapshot.classifiedTabs.hasExercisesTab) {
+      final ensured = await repository.ensureExercisesTab();
+      if (ensured.isErr) {
+        final err = ensured as Err<void>;
+        return Result.err(err.error, err.stackTrace);
+      }
+      final reloaded = await repository.loadSnapshot(years: const []);
+      if (reloaded.isErr) {
+        final err = reloaded as Err<SpreadsheetSnapshot>;
+        return Result.err(err.error, err.stackTrace);
+      }
+      snapshot = (reloaded as Ok<SpreadsheetSnapshot>).value;
+    }
+    return Result.ok(snapshot.exerciseUnitsTable);
   }
 
   Future<Result<YearWriteContext>> _resolveOrCreateYearContext({
@@ -1047,6 +1169,15 @@ final exerciseMuscleInfoProvider = Provider<List<ExerciseMuscleInfo>>((ref) {
 final sheetWorkoutDayDefsProvider = Provider<List<WorkoutDayDef>>((ref) {
   final snapshot = ref.watch(snapshotProvider).value;
   return snapshot?.snapshot.workoutDayDefs ?? const [];
+});
+
+/// Premade workout templates confirmed synced to the sheet-backed
+/// `PremadeWorkouts` tab (see `premadeWorkoutsProvider` in
+/// settings_providers.dart, which layers in any still-pending local ones on
+/// top of this).
+final sheetPremadeWorkoutsProvider = Provider<List<PremadeWorkout>>((ref) {
+  final snapshot = ref.watch(snapshotProvider).value;
+  return snapshot?.snapshot.premadeWorkouts ?? const [];
 });
 
 /// Every exercise known across all loaded years, deduped by name

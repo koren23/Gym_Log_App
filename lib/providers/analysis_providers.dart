@@ -112,6 +112,7 @@ List<HistoryPoint> buildExerciseHistory({
           actualRepsPerSet: loggedRange?.actualReps ?? const [],
           actualWeightsPerSet: loggedRange?.actualWeights ?? const [],
           perSetFeedback: loggedRange?.setFeedback ?? const [],
+          approxRepsPerSet: loggedRange?.approxReps ?? const [],
         ),
       );
     }
@@ -504,39 +505,65 @@ WorkoutDay? workoutDayForGroupLabels(List<String> labels) {
   return null;
 }
 
-/// Whether [entry] belongs to [day]. Two rules are tried and OR'd together:
+/// Resolves the single most-specific [WorkoutDayDef] in [allDays] that
+/// [entry] belongs to.
+///
+/// An explicit tag ([WorkoutVisit.workoutDayId]/[MetaRow.workoutDayId], set
+/// on real visits logged after that field was added) is authoritative —
+/// skip muscle-based inference entirely so a shared muscle group can never
+/// misattribute a real visit to the wrong day. Returns null if the tagged
+/// day no longer exists in [allDays] (e.g. deleted since).
+///
+/// Otherwise, two rules are tried and OR'd together per candidate day:
 ///  - Legacy rule: [entry]'s labels resolve to the exact same legacy
-///    [WorkoutDay] as [day.legacyDay] — matches pre-2026 history exactly as
-///    before.
+///    [WorkoutDay] as the candidate's [WorkoutDayDef.legacyDay].
 ///  - Current rule: every muscle group [entry] trained (resolved via the
-///    current taxonomy) is within [day]'s declared set (subset match) —
-///    avoids e.g. a Push visit's incidental triceps work leaking into an
-///    unrelated "Triceps only" custom day.
-/// A fully custom day (no [WorkoutDayDef.legacyDay]) only ever uses the
-/// current rule. A legacy-linked day (the seeded Push/Pull/Legs) uses both,
-/// so a current-format (2026+) visit is recognized on its real current
-/// muscle groups instead of only when it happens to include an exercise
-/// whose current tag collides textually with a legacy header (e.g.
-/// "biceps"/"triceps") — that incidental collision used to be the only
-/// thing making some current-format visits "count" for these days.
-bool historyEntryBelongsToDay(HistoryEntry entry, WorkoutDayDef day) {
-  // An explicit tag (real visits logged after workoutDayId was added) is
-  // authoritative — skip muscle-based inference entirely so a shared
-  // muscle group can never misattribute a real visit to the wrong day.
+///    current taxonomy) is within the candidate's declared set (subset
+///    match).
+/// Among every day satisfying either rule, the one with the fewest declared
+/// muscle groups wins — so a broader day (e.g. "Upper Body") never "steals"
+/// a visit/entry a narrower day (e.g. "Arms") already accounts for, since a
+/// narrower day's declared groups are themselves always a subset of a
+/// broader day's. Ties broken by [allDays] order.
+WorkoutDayDef? bestMatchingDayForEntry(
+  HistoryEntry entry,
+  List<WorkoutDayDef> allDays,
+) {
   final explicitId = entry.metaRow?.workoutDayId;
-  if (explicitId != null) return explicitId == day.id;
+  if (explicitId != null) {
+    for (final d in allDays) {
+      if (d.id == explicitId) return d;
+    }
+    return null;
+  }
 
   final resolved = <MuscleGroup>{
     for (final label in entry.muscleGroups)
       if (currentMuscleFromSheetHeader(label) case final g?) g,
   };
-  final currentMatch =
-      resolved.isNotEmpty && resolved.every(day.muscleGroups.contains);
+  final legacyMatch = workoutDayForGroupLabels(entry.muscleGroups);
 
-  if (day.legacyDay == null) return currentMatch;
-  return workoutDayForGroupLabels(entry.muscleGroups) == day.legacyDay ||
-      currentMatch;
+  WorkoutDayDef? best;
+  for (final day in allDays) {
+    final currentMatch =
+        resolved.isNotEmpty && resolved.every(day.muscleGroups.contains);
+    final legacyOk = day.legacyDay != null && day.legacyDay == legacyMatch;
+    if (!currentMatch && !legacyOk) continue;
+    if (best == null || day.muscleGroups.length < best.muscleGroups.length) {
+      best = day;
+    }
+  }
+  return best;
 }
+
+/// Whether [entry] belongs to [day], arbitrated against every other day in
+/// [allDays] via [bestMatchingDayForEntry] — see there for the full rule
+/// set.
+bool historyEntryBelongsToDay(
+  HistoryEntry entry,
+  WorkoutDayDef day,
+  List<WorkoutDayDef> allDays,
+) => bestMatchingDayForEntry(entry, allDays)?.id == day.id;
 
 /// The most recent real (app-logged, [HistoryEntry.metaRow]-backed) visit
 /// belonging to [day] — skips synthetic/reconstructed entries (hand-typed
@@ -545,9 +572,11 @@ bool historyEntryBelongsToDay(HistoryEntry entry, WorkoutDayDef day) {
 HistoryEntry? mostRecentRealVisitForDay(
   List<HistoryEntry> historyEntries,
   WorkoutDayDef day,
+  List<WorkoutDayDef> allDays,
 ) {
   for (final entry in historyEntries) {
-    if (entry.metaRow != null && historyEntryBelongsToDay(entry, day)) {
+    if (entry.metaRow != null &&
+        historyEntryBelongsToDay(entry, day, allDays)) {
       return entry;
     }
   }
