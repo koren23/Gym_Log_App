@@ -5,7 +5,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../core/constants/muscle_groups.dart';
 import '../models/app_colors.dart';
 import '../models/pending_suggestion.dart';
-import '../models/workout_program.dart';
 import '../models/workout_day_def.dart';
 import '../models/workout_defaults.dart';
 import '../services/settings/app_settings_service.dart';
@@ -238,85 +237,6 @@ final workoutDayDefsProvider =
       WorkoutDayDefsNotifier.new,
     );
 
-/// All programs: whatever the sheet already confirms plus any
-/// locally-pending one not yet confirmed synced (deduped by [dayId] — at
-/// most one program per day). Simpler than [WorkoutDayDefsNotifier]: no
-/// seeding step, since a fresh sheet legitimately starts with zero
-/// programs.
-class WorkoutProgramsNotifier extends Notifier<List<WorkoutProgram>> {
-  @override
-  List<WorkoutProgram> build() {
-    final sheetPrograms = ref.watch(sheetWorkoutProgramsProvider);
-    final localPending = ref
-        .watch(appSettingsServiceProvider)
-        .customWorkoutPrograms
-        .where((p) => sheetPrograms.every((s) => s.dayId != p.dayId));
-    return [...sheetPrograms, ...localPending];
-  }
-
-  WorkoutProgram? forDay(String dayId) {
-    for (final p in state) {
-      if (p.dayId == dayId) return p;
-    }
-    return null;
-  }
-
-  /// Creates or replaces [dayId]'s program. Instant local UI update; the
-  /// sheet write happens alongside it — an update in place if a program
-  /// already exists for this day (preserving [WorkoutProgram.sheetRowIndex]
-  /// so the same sheet row is reused), otherwise a fresh append.
-  Future<void> setProgramForDay(
-    String dayId,
-    String name,
-    List<ProgramExercise> exercises,
-  ) async {
-    final existing = forDay(dayId);
-    final updated = WorkoutProgram(
-      dayId: dayId,
-      name: name,
-      exercises: exercises,
-      sheetRowIndex: existing?.sheetRowIndex,
-    );
-    state = [
-      for (final p in state) p.dayId == dayId ? updated : p,
-      if (existing == null) updated,
-    ];
-
-    final localCustoms = ref.read(appSettingsServiceProvider).customWorkoutPrograms;
-    if (existing == null || localCustoms.any((p) => p.dayId == dayId)) {
-      await ref.read(appSettingsServiceProvider).setCustomWorkoutPrograms([
-        for (final p in localCustoms) p.dayId == dayId ? updated : p,
-        if (localCustoms.every((p) => p.dayId != dayId)) updated,
-      ]);
-    }
-
-    final notifier = ref.read(snapshotProvider.notifier);
-    if (existing == null) {
-      await notifier.addWorkoutProgramToSheet(updated);
-    } else {
-      await notifier.updateWorkoutProgramOnSheet(updated);
-    }
-  }
-
-  Future<void> removeProgramForDay(String dayId) async {
-    final existing = forDay(dayId);
-    state = state.where((p) => p.dayId != dayId).toList();
-    final localCustoms = ref
-        .read(appSettingsServiceProvider)
-        .customWorkoutPrograms
-        .where((p) => p.dayId != dayId)
-        .toList();
-    await ref.read(appSettingsServiceProvider).setCustomWorkoutPrograms(localCustoms);
-    if (existing != null) {
-      await ref.read(snapshotProvider.notifier).removeWorkoutProgramFromSheet(existing);
-    }
-  }
-}
-
-final workoutProgramsProvider =
-    NotifierProvider<WorkoutProgramsNotifier, List<WorkoutProgram>>(
-      WorkoutProgramsNotifier.new,
-    );
 
 /// Suggestions the user has accepted from a [SuggestionCard] but not yet
 /// consumed — see `AppSettingsService.pendingSuggestions`. Local-only

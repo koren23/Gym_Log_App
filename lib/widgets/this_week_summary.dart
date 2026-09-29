@@ -10,7 +10,6 @@ import '../models/year_sheet_data.dart';
 import '../providers/analysis_providers.dart';
 import '../providers/settings_providers.dart';
 import '../providers/sheet_data_providers.dart';
-import '../screens/program/edit_program_screen.dart';
 import 'simple_line_chart.dart' show approximateWeekLabel;
 
 /// A lightweight "at a glance" card for the home screen: the most recent
@@ -38,7 +37,6 @@ class ThisWeekSummary extends ConsumerWidget {
     final snapshotState = ref.watch(snapshotProvider).value;
     final theme = Theme.of(context);
     final dayDefs = ref.watch(workoutDayDefsProvider);
-    ref.watch(workoutProgramsProvider); // rebuild when a program changes.
 
     if (snapshotState == null) {
       return const SizedBox.shrink();
@@ -158,16 +156,6 @@ class _DaySection extends StatelessWidget {
                       ),
                     ),
                   const Spacer(),
-                  IconButton(
-                    icon: const Icon(Icons.edit_note, size: 18),
-                    tooltip: 'Edit program',
-                    visualDensity: VisualDensity.compact,
-                    onPressed: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => EditProgramScreen(day: day),
-                      ),
-                    ),
-                  ),
                   Icon(
                     expanded ? Icons.expand_less : Icons.expand_more,
                     color: theme.colorScheme.outline,

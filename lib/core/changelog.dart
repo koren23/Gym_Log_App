@@ -16,6 +16,15 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '1.3.1',
+    date: '2026-09-29',
+    changes: [
+      'Removed the Program feature added in 1.3.0 (per-exercise sets/rep '
+          'targets, editable from Home) — reverted to the simpler '
+          'workout-day system from before.',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.3.0',
     date: '2026-09-29',
     changes: [

@@ -9,17 +9,14 @@ import '../../models/exercise.dart';
 import '../../models/exercise_muscle_info.dart';
 import '../../models/rating_relevance.dart';
 import '../../models/set_feedback.dart';
-import '../../models/workout_day_def.dart';
 import '../../models/workout_visit.dart';
 import '../../models/year_sheet_data.dart';
 import '../../providers/analysis_providers.dart';
-import '../../providers/settings_providers.dart';
 import '../../providers/sheet_data_providers.dart';
 import '../../widgets/exercise_tile.dart';
 import '../../widgets/star_rating_input.dart';
 import '../log_workout/add_new_exercise_dialog.dart';
 import '../log_workout/post_save_insight_screen.dart';
-import '../program/edit_program_screen.dart';
 
 class EditVisitScreen extends ConsumerStatefulWidget {
   const EditVisitScreen({super.key, required this.metaRow, this.initialNote});
@@ -436,34 +433,10 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final dayId = widget.metaRow.workoutDayId;
-    WorkoutDayDef? day;
-    if (dayId != null) {
-      for (final d in ref.watch(workoutDayDefsProvider)) {
-        if (d.id == dayId) {
-          day = d;
-          break;
-        }
-      }
-    }
-    final program = day == null
-        ? null
-        : ref.watch(workoutProgramsProvider.notifier).forDay(day.id);
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('Edit workout'),
         actions: [
-          if (program != null && day != null)
-            IconButton(
-              icon: const Icon(Icons.list_alt_outlined),
-              tooltip: 'View program',
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => EditProgramScreen(day: day!),
-                ),
-              ),
-            ),
           IconButton(
             icon: const Icon(Icons.delete_outline),
             onPressed: _saving ? null : _delete,

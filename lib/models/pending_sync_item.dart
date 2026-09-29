@@ -5,10 +5,6 @@ enum PendingSyncPayloadType {
   workoutDay,
   exerciseUnit,
   exerciseMuscle,
-  // Kept as "premadeWorkout" (not renamed to match the "Program" UI
-  // rename) so a still-queued pending item from before the rename doesn't
-  // fail to deserialize (PendingSyncItem.fromJson matches by enum name).
-  premadeWorkout,
 }
 
 class PendingSyncItem {

@@ -11,7 +11,6 @@ import '../models/exercise.dart';
 import '../models/exercise_unit.dart';
 import '../models/pending_suggestion.dart';
 import '../models/set_feedback.dart';
-import '../models/workout_program.dart';
 import '../models/workout_visit.dart';
 import '../providers/sheet_data_providers.dart';
 import '../screens/log_workout/add_new_exercise_dialog.dart';
@@ -278,7 +277,6 @@ class ExerciseTile extends ConsumerWidget {
     required this.onChanged,
     this.onFocusLost,
     this.previousWeight,
-    this.target,
     this.trend = TileTrend.unknown,
   });
 
@@ -296,11 +294,6 @@ class ExerciseTile extends ConsumerWidget {
   /// shown as a subtitle so the user can tell what they lifted last time
   /// before entering today's weights.
   final double? previousWeight;
-
-  /// This exercise's program target (sets + rep range) for the selected
-  /// day, if any — shown alongside "Last time" so both what was actually
-  /// done and what the plan calls for are visible together.
-  final ProgramExercise? target;
 
   /// Recent improving/stuck/steady classification for this exercise, shown
   /// as a colored left-border stripe. [TileTrend.unknown] (new exercise, or
@@ -332,10 +325,6 @@ class ExerciseTile extends ConsumerWidget {
               subtitle: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (target != null)
-                    Text(
-                      'Target: ${target!.sets} sets · ${target!.repRangeLow}-${target!.repRangeHigh} reps',
-                    ),
                   if (previousWeight != null)
                     Text(
                       'Last time: ${formatExerciseValue(draft.exercise.unit, previousWeight!, customLabel: draft.exercise.customUnitLabel)}',

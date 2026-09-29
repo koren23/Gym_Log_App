@@ -6,7 +6,6 @@ import 'package:uuid/uuid.dart';
 import '../../core/utils/result.dart';
 import '../../models/exercise_unit.dart';
 import '../../models/pending_sync_item.dart';
-import '../../models/workout_program.dart';
 import '../../models/rating_relevance.dart';
 import '../../models/workout_day_def.dart';
 import '../../models/workout_visit.dart';
@@ -112,11 +111,6 @@ class PendingSyncQueue {
   }) => _enqueue(
     PendingSyncPayloadType.exerciseMuscle,
     jsonEncode({'exerciseName': exerciseName, 'columnIndex': columnIndex}),
-  );
-
-  Future<void> enqueueWorkoutProgram(WorkoutProgram program) => _enqueue(
-    PendingSyncPayloadType.premadeWorkout,
-    jsonEncode(program.toJson()),
   );
 
   /// Removes any still-queued "add this workout day" item for [id] — used
@@ -272,9 +266,6 @@ class PendingSyncQueue {
           exerciseName: json['exerciseName'] as String,
         );
 
-      case PendingSyncPayloadType.premadeWorkout:
-        final json = jsonDecode(item.serializedPayload) as Map<String, dynamic>;
-        return repository.appendWorkoutProgram(WorkoutProgram.fromJson(json));
     }
   }
 }

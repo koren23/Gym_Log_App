@@ -10,7 +10,6 @@ import '../models/body_weight_entry.dart';
 import '../models/exercise.dart';
 import '../models/exercise_muscle_info.dart';
 import '../models/exercise_unit.dart';
-import '../models/workout_program.dart';
 import '../models/rating_relevance.dart';
 import '../models/workout_day_def.dart';
 import '../models/workout_visit.dart';
@@ -756,63 +755,6 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
     return true;
   }
 
-  /// Appends a program to the sheet-backed program tab, queuing a durable
-  /// retry on failure — mirrors [addWorkoutDayToSheet].
-  Future<bool> addWorkoutProgramToSheet(WorkoutProgram program) async {
-    final repository = await ref.read(sheetsRepositoryProvider.future);
-    final queue = ref.read(pendingSyncQueueProvider);
-    final current = state.value;
-
-    if (current == null ||
-        !current.snapshot.classifiedTabs.hasWorkoutProgramsTab) {
-      final ensured = await repository.ensureWorkoutProgramsTab();
-      if (ensured.isErr) {
-        await queue.enqueueWorkoutProgram(program);
-        return false;
-      }
-    }
-
-    final result = await repository.appendWorkoutProgram(program);
-    if (result.isErr) {
-      await queue.enqueueWorkoutProgram(program);
-      return false;
-    }
-    await refresh();
-    return true;
-  }
-
-  /// Updates a program's name/exercise list in place on the sheet. If
-  /// [program] hasn't been confirmed synced yet (no `sheetRowIndex`, e.g.
-  /// it's still a locally-pending add), there's no row to target yet —
-  /// mirrors [updateWorkoutDayOnSheet].
-  Future<bool> updateWorkoutProgramOnSheet(WorkoutProgram program) async {
-    if (program.sheetRowIndex == null) return true;
-    final repository = await ref.read(sheetsRepositoryProvider.future);
-    final result = await repository.updateWorkoutProgram(program);
-    if (result.isErr) return false;
-    await refresh();
-    return true;
-  }
-
-  /// Deletes a program's row from the sheet — fire-and-forget (not queued),
-  /// mirrors [removeWorkoutDayFromSheet].
-  Future<bool> removeWorkoutProgramFromSheet(WorkoutProgram program) async {
-    final rowIndex = program.sheetRowIndex;
-    if (rowIndex == null) return true; // never made it to the sheet yet.
-    final repository = await ref.read(sheetsRepositoryProvider.future);
-    final current = state.value;
-    final gridId = current?.snapshot.gridIdsByTabName[kWorkoutProgramsTabName];
-    if (gridId == null) return false;
-
-    final result = await repository.deleteWorkoutProgram(
-      rowIndex: rowIndex,
-      workoutProgramsGridId: gridId,
-    );
-    if (result.isErr) return false;
-    await refresh();
-    return true;
-  }
-
   /// Changes a previously logged visit's date, including moving it to a
   /// different ISO week and/or year — re-filing its matrix-cell data
   /// (recomputing/blanking the cell it leaves, writing/merging the cell it
@@ -1168,14 +1110,6 @@ final exerciseMuscleInfoProvider = Provider<List<ExerciseMuscleInfo>>((ref) {
 final sheetWorkoutDayDefsProvider = Provider<List<WorkoutDayDef>>((ref) {
   final snapshot = ref.watch(snapshotProvider).value;
   return snapshot?.snapshot.workoutDayDefs ?? const [];
-});
-
-/// Programs confirmed synced to the sheet-backed program tab (see
-/// `workoutProgramsProvider` in settings_providers.dart, which layers in
-/// any still-pending local ones on top of this).
-final sheetWorkoutProgramsProvider = Provider<List<WorkoutProgram>>((ref) {
-  final snapshot = ref.watch(snapshotProvider).value;
-  return snapshot?.snapshot.workoutPrograms ?? const [];
 });
 
 /// Every exercise known across all loaded years, deduped by name

@@ -7,7 +7,6 @@ import '../../models/body_weight_entry.dart';
 import '../../models/exercise.dart';
 import '../../models/exercise_muscle_info.dart';
 import '../../models/exercise_unit.dart';
-import '../../models/workout_program.dart';
 import '../../models/rating_relevance.dart';
 import '../../models/workout_day_def.dart';
 import '../../models/workout_visit.dart';
@@ -26,7 +25,6 @@ class SpreadsheetSnapshot {
     this.exerciseMuscleInfo = const [],
     this.workoutDayDefs = const [],
     this.exerciseUnitsTable = const ExerciseUnitsTable(),
-    this.workoutPrograms = const [],
   });
 
   final ClassifiedTabs classifiedTabs;
@@ -45,14 +43,10 @@ class SpreadsheetSnapshot {
   /// From the "Exercises" tab's `Exercise`/`Unit` side-table, if present.
   final ExerciseUnitsTable exerciseUnitsTable;
 
-  /// From the sheet-backed workout-program tab, if present.
-  final List<WorkoutProgram> workoutPrograms;
-
   SpreadsheetSnapshot copyWith({
     List<ExerciseMuscleInfo>? exerciseMuscleInfo,
     List<WorkoutDayDef>? workoutDayDefs,
     ExerciseUnitsTable? exerciseUnitsTable,
-    List<WorkoutProgram>? workoutPrograms,
   }) => SpreadsheetSnapshot(
     classifiedTabs: classifiedTabs,
     gridIdsByTabName: gridIdsByTabName,
@@ -61,7 +55,6 @@ class SpreadsheetSnapshot {
     exerciseMuscleInfo: exerciseMuscleInfo ?? this.exerciseMuscleInfo,
     workoutDayDefs: workoutDayDefs ?? this.workoutDayDefs,
     exerciseUnitsTable: exerciseUnitsTable ?? this.exerciseUnitsTable,
-    workoutPrograms: workoutPrograms ?? this.workoutPrograms,
   );
 }
 
@@ -122,16 +115,12 @@ class SheetsRepository {
       if (classified.hasWorkoutDaysTab) {
         rangesToFetch.add("'$kWorkoutDaysTabName'!A1:C500");
       }
-      if (classified.hasWorkoutProgramsTab) {
-        rangesToFetch.add("'$kWorkoutProgramsTabName'!A1:C500");
-      }
 
       final yearData = <int, YearSheetData>{};
       var bodyWeightEntries = <BodyWeightEntry>[];
       var exerciseMuscleInfo = <ExerciseMuscleInfo>[];
       var workoutDayDefs = <WorkoutDayDef>[];
       var exerciseUnitsTable = const ExerciseUnitsTable();
-      var workoutPrograms = <WorkoutProgram>[];
 
       if (rangesToFetch.isNotEmpty) {
         final batch = await _api.spreadsheets.values.batchGet(
@@ -153,16 +142,6 @@ class SheetsRepository {
         if (classified.hasWorkoutDaysTab) {
           final vr = _findValueRangeForTab(valueRanges, kWorkoutDaysTabName);
           workoutDayDefs = _parser.parseWorkoutDaysTab(vr?.values ?? const []);
-        }
-
-        if (classified.hasWorkoutProgramsTab) {
-          final vr = _findValueRangeForTab(
-            valueRanges,
-            kWorkoutProgramsTabName,
-          );
-          workoutPrograms = _parser.parseWorkoutProgramsTab(
-            vr?.values ?? const [],
-          );
         }
 
         // First pass: parse each year using its own section headers, to
@@ -254,7 +233,6 @@ class SheetsRepository {
           exerciseMuscleInfo: exerciseMuscleInfo,
           workoutDayDefs: workoutDayDefs,
           exerciseUnitsTable: exerciseUnitsTable,
-          workoutPrograms: workoutPrograms,
         ),
       );
     } catch (e, st) {
@@ -484,104 +462,6 @@ class SheetsRepository {
               deleteDimension: DeleteDimensionRequest(
                 range: DimensionRange(
                   sheetId: workoutDaysGridId,
-                  dimension: 'ROWS',
-                  startIndex: rowIndex,
-                  endIndex: rowIndex + 1,
-                ),
-              ),
-            ),
-          ],
-        ),
-        _spreadsheetId,
-      );
-      return const Result.ok(null);
-    } catch (e, st) {
-      return Result.err(e, st);
-    }
-  }
-
-  Future<Result<void>> ensureWorkoutProgramsTab() async {
-    try {
-      await _api.spreadsheets.batchUpdate(
-        BatchUpdateSpreadsheetRequest(
-          requests: [
-            Request(
-              addSheet: AddSheetRequest(
-                properties: SheetProperties(title: kWorkoutProgramsTabName),
-              ),
-            ),
-          ],
-        ),
-        _spreadsheetId,
-      );
-      await _api.spreadsheets.values.update(
-        ValueRange(
-          range: "'$kWorkoutProgramsTabName'!A1",
-          values: [kWorkoutProgramsTabColumns],
-        ),
-        _spreadsheetId,
-        "'$kWorkoutProgramsTabName'!A1",
-        valueInputOption: 'USER_ENTERED',
-      );
-      return const Result.ok(null);
-    } catch (e, st) {
-      return Result.err(e, st);
-    }
-  }
-
-  Future<Result<void>> appendWorkoutProgram(WorkoutProgram program) async {
-    try {
-      final row = _writer.buildWorkoutProgramAppendRow(program);
-      await _api.spreadsheets.values.append(
-        row,
-        _spreadsheetId,
-        "'$kWorkoutProgramsTabName'!A1",
-        valueInputOption: 'USER_ENTERED',
-        insertDataOption: 'INSERT_ROWS',
-      );
-      return const Result.ok(null);
-    } catch (e, st) {
-      return Result.err(e, st);
-    }
-  }
-
-  /// Overwrites an existing program row's name + exercises in place (dayId
-  /// column untouched) — safe to call even if a durable retry races with a
-  /// later edit, since it always writes the row's full current desired
-  /// state rather than a delta. Requires [program.sheetRowIndex].
-  Future<Result<void>> updateWorkoutProgram(WorkoutProgram program) async {
-    if (program.sheetRowIndex == null) {
-      return Result.err(StateError('WorkoutProgram has no sheetRowIndex yet.'));
-    }
-    try {
-      final range = _writer.buildWorkoutProgramUpdateRange(program);
-      await _api.spreadsheets.values.update(
-        range,
-        _spreadsheetId,
-        range.range!,
-        valueInputOption: 'USER_ENTERED',
-      );
-      return const Result.ok(null);
-    } catch (e, st) {
-      return Result.err(e, st);
-    }
-  }
-
-  /// Deletes a program's row from the program tab by its known row index —
-  /// fire-and-forget only (not offline-queued), same reasoning as
-  /// [deleteWorkoutDay].
-  Future<Result<void>> deleteWorkoutProgram({
-    required int rowIndex,
-    required int workoutProgramsGridId,
-  }) async {
-    try {
-      await _api.spreadsheets.batchUpdate(
-        BatchUpdateSpreadsheetRequest(
-          requests: [
-            Request(
-              deleteDimension: DeleteDimensionRequest(
-                range: DimensionRange(
-                  sheetId: workoutProgramsGridId,
                   dimension: 'ROWS',
                   startIndex: rowIndex,
                   endIndex: rowIndex + 1,
