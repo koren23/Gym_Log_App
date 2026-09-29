@@ -3,7 +3,7 @@ import 'package:googleapis/sheets/v4.dart';
 import '../../core/constants/muscle_groups.dart';
 import '../../core/constants/sheet_layout.dart';
 import '../../models/exercise.dart';
-import '../../models/premade_workout.dart';
+import '../../models/workout_program.dart';
 import '../../models/rating_relevance.dart';
 import '../../models/set_feedback.dart';
 import '../../models/workout_day_def.dart';
@@ -626,25 +626,35 @@ class SheetWriter {
     );
   }
 
-  /// One row appended to the sheet-backed `PremadeWorkouts` tab.
-  ValueRange buildPremadeWorkoutAppendRow(PremadeWorkout workout) {
+  /// Encodes one program exercise as `name#sets#low-high`.
+  String _encodeProgramExercise(ProgramExercise e) =>
+      '${e.name}#${e.sets}#${e.repRangeLow}-${e.repRangeHigh}';
+
+  /// One row appended to the sheet-backed program tab ([kWorkoutProgramsTabName]).
+  ValueRange buildWorkoutProgramAppendRow(WorkoutProgram program) {
     return ValueRange(
-      range: "'$kPremadeWorkoutsTabName'!A1",
+      range: "'$kWorkoutProgramsTabName'!A1",
       values: [
-        [workout.dayId, workout.name, workout.exerciseNames.join(',')],
+        [
+          program.dayId,
+          program.name,
+          program.exercises.map(_encodeProgramExercise).join(','),
+        ],
       ],
     );
   }
 
-  /// Overwrites an existing `PremadeWorkouts` row's name + exercises columns
-  /// in place ([workout.sheetRowIndex] must be set) — the dayId column is
-  /// untouched.
-  ValueRange buildPremadeWorkoutUpdateRange(PremadeWorkout workout) {
-    final rowIndex = workout.sheetRowIndex!;
+  /// Overwrites an existing program row's name + exercises columns in place
+  /// ([program.sheetRowIndex] must be set) — the dayId column is untouched.
+  ValueRange buildWorkoutProgramUpdateRange(WorkoutProgram program) {
+    final rowIndex = program.sheetRowIndex!;
     return ValueRange(
-      range: "'$kPremadeWorkoutsTabName'!B${rowIndex + 1}:C${rowIndex + 1}",
+      range: "'$kWorkoutProgramsTabName'!B${rowIndex + 1}:C${rowIndex + 1}",
       values: [
-        [workout.name, workout.exerciseNames.join(',')],
+        [
+          program.name,
+          program.exercises.map(_encodeProgramExercise).join(','),
+        ],
       ],
     );
   }

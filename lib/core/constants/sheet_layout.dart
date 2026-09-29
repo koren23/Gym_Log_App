@@ -62,14 +62,18 @@ const String kWorkoutDaysTabName = 'WorkoutDays';
 /// Column order for the WorkoutDays tab.
 const List<String> kWorkoutDaysTabColumns = ['id', 'label', 'muscleGroups'];
 
-/// Fixed name of the sheet-backed premade-workout-templates tab. One row
-/// per [WorkoutDayDef.id] at most (a day has zero or one template).
-const String kPremadeWorkoutsTabName = 'PremadeWorkouts';
+/// Fixed name of the sheet-backed workout-program tab. One row per
+/// [WorkoutDayDef.id] at most (a day has zero or one program). Kept as
+/// `PremadeWorkouts` (the original tab name) even though the feature is now
+/// called "Program" everywhere else, so existing users' already-synced data
+/// isn't orphaned by the app looking for a tab that doesn't exist.
+const String kWorkoutProgramsTabName = 'PremadeWorkouts';
 
-/// Column order for the PremadeWorkouts tab. `exercises` is a comma-joined
-/// ordered list of exercise names, same flat convention as
-/// `WorkoutDays.muscleGroups`.
-const List<String> kPremadeWorkoutsTabColumns = ['dayId', 'name', 'exercises'];
+/// Column order for the [kWorkoutProgramsTabName] tab. `exercises` is a
+/// comma-joined list of `name#sets#low-high` tokens (e.g.
+/// `"Bench Press#3#6-8,Incline DB Press#4#8-10"`) — a bare name with no `#`
+/// is a pre-Program-redesign legacy row, parsed with default sets/rep-range.
+const List<String> kWorkoutProgramsTabColumns = ['dayId', 'name', 'exercises'];
 
 /// Column order for a year's metadata tab. Columns I (ratingRelevance), J
 /// (note), and K (workoutDayId) were added after columns A-H already

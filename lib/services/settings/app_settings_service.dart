@@ -7,7 +7,7 @@ import '../../core/constants/sheet_layout.dart';
 import '../../models/analysis_result.dart';
 import '../../models/app_colors.dart';
 import '../../models/pending_suggestion.dart';
-import '../../models/premade_workout.dart';
+import '../../models/workout_program.dart';
 import '../../models/recent_suggestion_record.dart';
 import '../../models/workout_day_def.dart';
 
@@ -50,7 +50,10 @@ class AppSettingsService {
   static const _kDefaultRepRangeLow = 'default_rep_range_low';
   static const _kDefaultRepRangeHigh = 'default_rep_range_high';
   static const _kCustomWorkoutDays = 'custom_workout_days';
-  static const _kCustomPremadeWorkouts = 'custom_premade_workouts';
+  // Kept as the original prefs key (not renamed to match the "Program" UI
+  // rename) so an already-pending local program from before the rename
+  // isn't silently dropped.
+  static const _kCustomWorkoutPrograms = 'custom_premade_workouts';
 
   static Future<AppSettingsService> create() async {
     final prefs = await SharedPreferences.getInstance();
@@ -291,27 +294,26 @@ class AppSettingsService {
         jsonEncode([for (final d in defs) d.toJson()]),
       );
 
-  /// Premade workout templates pending local storage until confirmed synced
-  /// to the sheet-backed `PremadeWorkouts` tab (see
-  /// `PremadeWorkoutsNotifier`) — an offline staging area, not the source of
-  /// truth once a template is synced.
-  List<PremadeWorkout> get customPremadeWorkouts {
-    final raw = _prefs.getString(_kCustomPremadeWorkouts);
+  /// Programs pending local storage until confirmed synced to the
+  /// sheet-backed program tab (see `WorkoutProgramsNotifier`) — an offline
+  /// staging area, not the source of truth once a program is synced.
+  List<WorkoutProgram> get customWorkoutPrograms {
+    final raw = _prefs.getString(_kCustomWorkoutPrograms);
     if (raw == null) return const [];
     try {
       final list = jsonDecode(raw) as List;
       return [
         for (final e in list)
-          PremadeWorkout.fromJson(e as Map<String, dynamic>),
+          WorkoutProgram.fromJson(e as Map<String, dynamic>),
       ];
     } catch (_) {
       return const [];
     }
   }
 
-  Future<void> setCustomPremadeWorkouts(List<PremadeWorkout> workouts) =>
+  Future<void> setCustomWorkoutPrograms(List<WorkoutProgram> programs) =>
       _prefs.setString(
-        _kCustomPremadeWorkouts,
-        jsonEncode([for (final w in workouts) w.toJson()]),
+        _kCustomWorkoutPrograms,
+        jsonEncode([for (final p in programs) p.toJson()]),
       );
 }

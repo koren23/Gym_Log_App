@@ -18,6 +18,7 @@ import '../../models/exercise_unit.dart';
 import '../../models/history_entry.dart';
 import '../../models/set_feedback.dart';
 import '../../models/workout_day_def.dart';
+import '../../models/workout_program.dart';
 import '../../models/workout_visit.dart';
 import '../../models/year_sheet_data.dart';
 import '../../providers/analysis_providers.dart';
@@ -25,7 +26,7 @@ import '../../providers/settings_providers.dart';
 import '../../providers/sheet_data_providers.dart';
 import '../../widgets/exercise_tile.dart';
 import '../history/edit_visit_screen.dart';
-import '../settings/edit_premade_workout_dialog.dart';
+import '../program/edit_program_screen.dart';
 import 'add_new_exercise_dialog.dart';
 import 'last_workout_insight_screen.dart';
 import 'rating_screen.dart';
@@ -338,23 +339,23 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
     return candidates.first;
   }
 
-  /// Reconstructs the full "usual order" of exercises for [day]. A premade
-  /// template, when one exists for this day, always wins outright — it's
-  /// the user's explicitly-maintained plan, so editing it should change
-  /// what's suggested immediately, not just when history is sparse.
-  /// Otherwise, chases the modal successor chain (the same one-step logic
+  /// Reconstructs the full "usual order" of exercises for [day]. A program,
+  /// when one exists for this day, always wins outright — it's the user's
+  /// explicitly-maintained plan, so editing it should change what's
+  /// suggested immediately, not just when history is sparse. Otherwise,
+  /// chases the modal successor chain (the same one-step logic
   /// [_modeOfNames]-based lookahead used to rely on) repeatedly instead of
   /// just once: starting from the modal starter exercise, repeatedly find
   /// what usually follows the current exercise, stopping on a repeat
   /// (cycle guard) or once no successor pattern exists. Returns an empty
-  /// list if there's no premade and recent history has nothing usable.
+  /// list if there's no program and recent history has nothing usable.
   List<String> _usualOrderFor(
     WorkoutDayDef day,
     List<HistoryEntry> recentVisits,
   ) {
-    final premade = ref.read(premadeWorkoutsProvider.notifier).forDay(day.id);
-    if (premade != null && premade.exerciseNames.isNotEmpty) {
-      return premade.exerciseNames;
+    final program = ref.read(workoutProgramsProvider.notifier).forDay(day.id);
+    if (program != null && program.exerciseNames.isNotEmpty) {
+      return program.exerciseNames;
     }
     if (recentVisits.isEmpty) return const [];
     final order = <String>[];
@@ -439,10 +440,10 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
   ) {
     final recentVisits = _recentVisitsFor(day);
 
-    // _usualOrderFor checks for a premade template first, which — unlike
-    // the history-derived order below — applies even with zero recent
-    // visits, so a brand-new day with a template still gets a real
-    // suggestion instead of falling through to "no history yet".
+    // _usualOrderFor checks for a program first, which — unlike the
+    // history-derived order below — applies even with zero recent visits,
+    // so a brand-new day with a program still gets a real suggestion
+    // instead of falling through to "no history yet".
     final usualOrder = _usualOrderFor(day, recentVisits);
     if (usualOrder.isNotEmpty) {
       final covered = _coveredMuscleGroupsThisSession(
@@ -548,6 +549,15 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
     _saveDraft();
   }
 
+  /// The program's target sets/rep-range for [exerciseName] on the
+  /// currently selected day, if any — the plan to combine with real
+  /// history in [_draftFor], and shown alongside "last time" on the tile.
+  ProgramExercise? _programTargetFor(String exerciseName) {
+    final day = _selectedDay;
+    if (day == null) return null;
+    return ref.read(workoutProgramsProvider.notifier).forDay(day.id)?.exerciseNamed(exerciseName);
+  }
+
   ExerciseDraft _draftFor(Exercise exercise, List<YearSheetData> yearsAscending) =>
       _drafts.putIfAbsent(exercise.name, () {
         final defaults = ref.read(workoutDefaultsProvider);
@@ -555,11 +565,12 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
           yearsAscending: yearsAscending,
           exerciseName: exercise.name,
         );
+        final target = _programTargetFor(exercise.name);
         final draft = ExerciseDraft(
           exercise,
-          setCount: historicalSetCount ?? kDefaultSetCount,
-          repRangeLow: defaults.repRangeLow,
-          repRangeHigh: defaults.repRangeHigh,
+          setCount: historicalSetCount ?? target?.sets ?? kDefaultSetCount,
+          repRangeLow: target?.repRangeLow ?? defaults.repRangeLow,
+          repRangeHigh: target?.repRangeHigh ?? defaults.repRangeHigh,
         );
         _applyPendingSuggestionIfAny(exercise, draft);
         return draft;
@@ -636,7 +647,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
     final day = _selectedDay;
     final groups = day?.muscleGroups ?? const <MuscleGroup>[];
     final dayDefs = ref.watch(workoutDayDefsProvider);
-    ref.watch(premadeWorkoutsProvider); // rebuild when a template changes.
+    ref.watch(workoutProgramsProvider); // rebuild when a program changes.
 
     final selectedCount = _checked.length;
 
@@ -793,16 +804,16 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
                               ),
                               const Spacer(),
                               if (ref
-                                      .read(premadeWorkoutsProvider.notifier)
+                                      .read(workoutProgramsProvider.notifier)
                                       .forDay(day.id) !=
                                   null)
                                 TextButton.icon(
                                   icon: const Icon(Icons.list_alt_outlined),
-                                  label: const Text('View premade'),
+                                  label: const Text('View program'),
                                   onPressed: () => Navigator.of(context).push(
                                     MaterialPageRoute(
                                       builder: (_) =>
-                                          EditPremadeWorkoutScreen(day: day),
+                                          EditProgramScreen(day: day),
                                     ),
                                   ),
                                 ),
@@ -948,14 +959,14 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
       existingNames.add(added.name.toLowerCase());
     }
 
-    // Premade-listed exercises show up in the checklist even before
-    // they've ever been logged, so the template's full plan is visible
-    // right away — not just once each exercise has real history.
+    // Program-listed exercises show up in the checklist even before
+    // they've ever been logged, so the plan is visible right away — not
+    // just once each exercise has real history.
     if (day != null) {
-      final premade = ref
-          .read(premadeWorkoutsProvider.notifier)
+      final program = ref
+          .read(workoutProgramsProvider.notifier)
           .forDay(day.id);
-      for (final name in premade?.exerciseNames ?? const <String>[]) {
+      for (final name in program?.exerciseNames ?? const <String>[]) {
         if (existingNames.contains(name.toLowerCase())) continue;
         final known = yearData?.findExercise(name);
         final exercise =
@@ -1096,6 +1107,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
             key: GlobalObjectKey(exercise.name),
             draft: _draftFor(exercise, yearsAscending),
             previousWeight: _previousWeightFor(exercise.name, yearsAscending),
+            target: _programTargetFor(exercise.name),
             trend: trendByName[exercise.name] ?? TileTrend.unknown,
             selected: _checked.contains(exercise.name),
             onToggle: (v) {

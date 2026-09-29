@@ -19,7 +19,7 @@ import '../../widgets/exercise_tile.dart';
 import '../../widgets/star_rating_input.dart';
 import '../log_workout/add_new_exercise_dialog.dart';
 import '../log_workout/post_save_insight_screen.dart';
-import '../settings/edit_premade_workout_dialog.dart';
+import '../program/edit_program_screen.dart';
 
 class EditVisitScreen extends ConsumerStatefulWidget {
   const EditVisitScreen({super.key, required this.metaRow, this.initialNote});
@@ -446,21 +446,21 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
         }
       }
     }
-    final premade = day == null
+    final program = day == null
         ? null
-        : ref.watch(premadeWorkoutsProvider.notifier).forDay(day.id);
+        : ref.watch(workoutProgramsProvider.notifier).forDay(day.id);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Edit workout'),
         actions: [
-          if (premade != null && day != null)
+          if (program != null && day != null)
             IconButton(
               icon: const Icon(Icons.list_alt_outlined),
-              tooltip: 'View premade workout',
+              tooltip: 'View program',
               onPressed: () => Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (_) => EditPremadeWorkoutScreen(day: day!),
+                  builder: (_) => EditProgramScreen(day: day!),
                 ),
               ),
             ),

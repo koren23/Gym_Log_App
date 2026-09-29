@@ -4,7 +4,7 @@ import '../../models/body_weight_entry.dart';
 import '../../models/exercise.dart';
 import '../../models/exercise_muscle_info.dart';
 import '../../models/exercise_unit.dart';
-import '../../models/premade_workout.dart';
+import '../../models/workout_program.dart';
 import '../../models/rating_relevance.dart';
 import '../../models/set_feedback.dart';
 import '../../models/workout_day_def.dart';
@@ -19,7 +19,7 @@ class ClassifiedTabs {
     required this.hasBodyWeightTab,
     required this.hasExercisesTab,
     required this.hasWorkoutDaysTab,
-    this.hasPremadeWorkoutsTab = false,
+    this.hasWorkoutProgramsTab = false,
   });
 
   /// year -> matrix tab names, sorted so the base `<year>` tab comes first
@@ -32,7 +32,7 @@ class ClassifiedTabs {
   final bool hasBodyWeightTab;
   final bool hasExercisesTab;
   final bool hasWorkoutDaysTab;
-  final bool hasPremadeWorkoutsTab;
+  final bool hasWorkoutProgramsTab;
 
   /// The currently-writable matrix tab name for [year] (last in sorted
   /// order), or null if no tab exists yet for that year.
@@ -52,7 +52,7 @@ class SheetParser {
     var hasBodyWeightTab = false;
     var hasExercisesTab = false;
     var hasWorkoutDaysTab = false;
-    var hasPremadeWorkoutsTab = false;
+    var hasWorkoutProgramsTab = false;
 
     for (final name in tabNames) {
       if (name == kBodyWeightTabName) {
@@ -67,8 +67,8 @@ class SheetParser {
         hasWorkoutDaysTab = true;
         continue;
       }
-      if (name == kPremadeWorkoutsTabName) {
-        hasPremadeWorkoutsTab = true;
+      if (name == kWorkoutProgramsTabName) {
+        hasWorkoutProgramsTab = true;
         continue;
       }
       final metaMatch = kYearMetaTabPattern.firstMatch(name);
@@ -99,7 +99,7 @@ class SheetParser {
       hasBodyWeightTab: hasBodyWeightTab,
       hasExercisesTab: hasExercisesTab,
       hasWorkoutDaysTab: hasWorkoutDaysTab,
-      hasPremadeWorkoutsTab: hasPremadeWorkoutsTab,
+      hasWorkoutProgramsTab: hasWorkoutProgramsTab,
     );
   }
 
@@ -466,30 +466,51 @@ class SheetParser {
     return result;
   }
 
-  /// Parses the sheet-backed `PremadeWorkouts` tab: at most one row per
-  /// workout-day id, columns dayId/name/exercises (comma-joined ordered
-  /// exercise names).
-  List<PremadeWorkout> parsePremadeWorkoutsTab(List<List<Object?>> rows) {
-    final result = <PremadeWorkout>[];
+  /// Parses the sheet-backed program tab ([kWorkoutProgramsTabName]): at
+  /// most one row per workout-day id, columns dayId/name/exercises. Each
+  /// comma-separated token in `exercises` is `name#sets#low-high`; a token
+  /// with no `#` is a pre-redesign legacy row and gets default sets/rep
+  /// range instead.
+  List<WorkoutProgram> parseWorkoutProgramsTab(List<List<Object?>> rows) {
+    final result = <WorkoutProgram>[];
     for (var row = 1; row < rows.length; row++) {
       final r = rows[row];
       if (r.length < 3) continue;
       final dayId = _asString(r[0])?.trim();
       final name = _asString(r[1])?.trim();
-      final exerciseNames = _splitCsv(_asString(r[2]) ?? '');
+      final exercises = _splitCsv(
+        _asString(r[2]) ?? '',
+      ).map(_parseProgramExerciseToken).toList();
       if (dayId == null || dayId.isEmpty || name == null || name.isEmpty) {
         continue;
       }
       result.add(
-        PremadeWorkout(
+        WorkoutProgram(
           dayId: dayId,
           name: name,
-          exerciseNames: exerciseNames,
+          exercises: exercises,
           sheetRowIndex: row,
         ),
       );
     }
     return result;
+  }
+
+  /// Parses one `exercises`-cell token, either the current `name#sets#low-high`
+  /// format or a bare legacy name (no `#`, from before per-exercise
+  /// sets/rep-range existed), which falls back to the model's defaults.
+  ProgramExercise _parseProgramExerciseToken(String token) {
+    final parts = token.split('#');
+    if (parts.length != 3) return ProgramExercise(name: token);
+    final name = parts[0];
+    final sets = int.tryParse(parts[1]);
+    final range = parts[2].split('-');
+    final low = range.length == 2 ? int.tryParse(range[0]) : null;
+    final high = range.length == 2 ? int.tryParse(range[1]) : null;
+    if (sets == null || low == null || high == null) {
+      return ProgramExercise(name: name);
+    }
+    return ProgramExercise(name: name, sets: sets, repRangeLow: low, repRangeHigh: high);
   }
 
   List<BodyWeightEntry> parseBodyWeightTab(List<List<Object?>> rows) {

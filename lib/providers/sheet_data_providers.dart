@@ -10,7 +10,7 @@ import '../models/body_weight_entry.dart';
 import '../models/exercise.dart';
 import '../models/exercise_muscle_info.dart';
 import '../models/exercise_unit.dart';
-import '../models/premade_workout.dart';
+import '../models/workout_program.dart';
 import '../models/rating_relevance.dart';
 import '../models/workout_day_def.dart';
 import '../models/workout_visit.dart';
@@ -756,58 +756,57 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
     return true;
   }
 
-  /// Appends a premade workout template to the sheet-backed
-  /// `PremadeWorkouts` tab, queuing a durable retry on failure — mirrors
-  /// [addWorkoutDayToSheet].
-  Future<bool> addPremadeWorkoutToSheet(PremadeWorkout workout) async {
+  /// Appends a program to the sheet-backed program tab, queuing a durable
+  /// retry on failure — mirrors [addWorkoutDayToSheet].
+  Future<bool> addWorkoutProgramToSheet(WorkoutProgram program) async {
     final repository = await ref.read(sheetsRepositoryProvider.future);
     final queue = ref.read(pendingSyncQueueProvider);
     final current = state.value;
 
     if (current == null ||
-        !current.snapshot.classifiedTabs.hasPremadeWorkoutsTab) {
-      final ensured = await repository.ensurePremadeWorkoutsTab();
+        !current.snapshot.classifiedTabs.hasWorkoutProgramsTab) {
+      final ensured = await repository.ensureWorkoutProgramsTab();
       if (ensured.isErr) {
-        await queue.enqueuePremadeWorkout(workout);
+        await queue.enqueueWorkoutProgram(program);
         return false;
       }
     }
 
-    final result = await repository.appendPremadeWorkout(workout);
+    final result = await repository.appendWorkoutProgram(program);
     if (result.isErr) {
-      await queue.enqueuePremadeWorkout(workout);
+      await queue.enqueueWorkoutProgram(program);
       return false;
     }
     await refresh();
     return true;
   }
 
-  /// Updates a premade workout's name/exercise list in place on the sheet.
-  /// If [workout] hasn't been confirmed synced yet (no `sheetRowIndex`,
-  /// e.g. it's still a locally-pending add), there's no row to target yet —
+  /// Updates a program's name/exercise list in place on the sheet. If
+  /// [program] hasn't been confirmed synced yet (no `sheetRowIndex`, e.g.
+  /// it's still a locally-pending add), there's no row to target yet —
   /// mirrors [updateWorkoutDayOnSheet].
-  Future<bool> updatePremadeWorkoutOnSheet(PremadeWorkout workout) async {
-    if (workout.sheetRowIndex == null) return true;
+  Future<bool> updateWorkoutProgramOnSheet(WorkoutProgram program) async {
+    if (program.sheetRowIndex == null) return true;
     final repository = await ref.read(sheetsRepositoryProvider.future);
-    final result = await repository.updatePremadeWorkout(workout);
+    final result = await repository.updateWorkoutProgram(program);
     if (result.isErr) return false;
     await refresh();
     return true;
   }
 
-  /// Deletes a premade workout's row from the sheet — fire-and-forget (not
-  /// queued), mirrors [removeWorkoutDayFromSheet].
-  Future<bool> removePremadeWorkoutFromSheet(PremadeWorkout workout) async {
-    final rowIndex = workout.sheetRowIndex;
+  /// Deletes a program's row from the sheet — fire-and-forget (not queued),
+  /// mirrors [removeWorkoutDayFromSheet].
+  Future<bool> removeWorkoutProgramFromSheet(WorkoutProgram program) async {
+    final rowIndex = program.sheetRowIndex;
     if (rowIndex == null) return true; // never made it to the sheet yet.
     final repository = await ref.read(sheetsRepositoryProvider.future);
     final current = state.value;
-    final gridId = current?.snapshot.gridIdsByTabName[kPremadeWorkoutsTabName];
+    final gridId = current?.snapshot.gridIdsByTabName[kWorkoutProgramsTabName];
     if (gridId == null) return false;
 
-    final result = await repository.deletePremadeWorkout(
+    final result = await repository.deleteWorkoutProgram(
       rowIndex: rowIndex,
-      premadeWorkoutsGridId: gridId,
+      workoutProgramsGridId: gridId,
     );
     if (result.isErr) return false;
     await refresh();
@@ -1171,13 +1170,12 @@ final sheetWorkoutDayDefsProvider = Provider<List<WorkoutDayDef>>((ref) {
   return snapshot?.snapshot.workoutDayDefs ?? const [];
 });
 
-/// Premade workout templates confirmed synced to the sheet-backed
-/// `PremadeWorkouts` tab (see `premadeWorkoutsProvider` in
-/// settings_providers.dart, which layers in any still-pending local ones on
-/// top of this).
-final sheetPremadeWorkoutsProvider = Provider<List<PremadeWorkout>>((ref) {
+/// Programs confirmed synced to the sheet-backed program tab (see
+/// `workoutProgramsProvider` in settings_providers.dart, which layers in
+/// any still-pending local ones on top of this).
+final sheetWorkoutProgramsProvider = Provider<List<WorkoutProgram>>((ref) {
   final snapshot = ref.watch(snapshotProvider).value;
-  return snapshot?.snapshot.premadeWorkouts ?? const [];
+  return snapshot?.snapshot.workoutPrograms ?? const [];
 });
 
 /// Every exercise known across all loaded years, deduped by name

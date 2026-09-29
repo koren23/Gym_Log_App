@@ -16,6 +16,22 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '1.3.0',
+    date: '2026-09-29',
+    changes: [
+      'Renamed "premade workout" to Program and moved editing to the '
+          'Homepage — every day card in "This week" now has an Edit '
+          'program button, and it\'s gone from Settings.',
+      'A program now sets a target number of sets and a rep range per '
+          'exercise (not just a name list), edited in a screen grouped by '
+          'muscle, matching the log page.',
+      'Logging now shows both "Last time" and the program\'s "Target: N '
+          'sets · X-Y reps" together on each exercise, and the rep-range '
+          'hint/starting set count use the program\'s target when there\'s '
+          'no history yet.',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.2.0',
     date: '2026-09-29',
     changes: [
