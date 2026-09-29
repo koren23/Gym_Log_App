@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/analysis/tile_trend.dart';
+import '../core/constants/muscle_groups.dart';
 import '../core/constants/semantic_colors.dart';
 import '../core/constants/sheet_layout.dart';
 import '../core/utils/exercise_value_format.dart';
@@ -330,13 +331,13 @@ class ExerciseTile extends ConsumerWidget {
                     ),
                   const SizedBox(height: 4),
                   ActionChip(
-                    avatar: const Icon(Icons.straighten, size: 16),
+                    avatar: const Icon(Icons.edit_outlined, size: 16),
                     label: Text(
                       'Unit: ${_unitName(draft.exercise.unit, draft.exercise.customUnitLabel)}',
                     ),
-                    tooltip: 'Change unit (kg / bodyweight / time / custom)',
+                    tooltip: 'Edit exercise (name / muscle / unit / delete)',
                     visualDensity: VisualDensity.compact,
-                    onPressed: () => _editUnit(context, ref),
+                    onPressed: () => _editExercise(context, ref),
                   ),
                 ],
               ),
@@ -366,28 +367,45 @@ class ExerciseTile extends ConsumerWidget {
         ExerciseUnit.custom => customLabel ?? 'custom',
       };
 
-  Future<void> _editUnit(BuildContext context, WidgetRef ref) async {
+  Future<void> _editExercise(BuildContext context, WidgetRef ref) async {
+    final old = draft.exercise;
     final result = await showAddNewExerciseDialog(
       context,
-      muscleGroupOptions: [draft.exercise.muscleGroup],
-      allMuscleInfo: const [],
-      existing: draft.exercise,
+      muscleGroupOptions: kCurrentMuscleGroups,
+      allMuscleInfo: ref.read(exerciseMuscleInfoProvider),
+      existing: old,
     );
     if (result == null) return;
-    draft.exercise = result.exercise;
-    onChanged();
-    final ok = await ref
-        .read(snapshotProvider.notifier)
-        .addExerciseUnit(
-          exerciseName: result.exercise.name,
-          unit: result.exercise.unit,
-          customLabel: result.exercise.customUnitLabel,
+
+    if (result.deleted) {
+      final ok = await ref.read(snapshotProvider.notifier).deleteExercise(old);
+      if (!ok && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              "Couldn't delete the exercise — check your connection and try again.",
+            ),
+          ),
         );
-    if (!ok && context.mounted) {
+      }
+      return;
+    }
+
+    final newExercise = result.exercise!;
+    draft.exercise = newExercise;
+    onChanged();
+    final updateResult = await ref
+        .read(snapshotProvider.notifier)
+        .updateExercise(
+          oldExercise: old,
+          newExercise: newExercise,
+          newMuscleColumnIndex: result.muscleColumnIndex,
+        );
+    if (!updateResult.success && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text(
-            "Couldn't save the unit — check your connection and try again.",
+            "Couldn't save: ${updateResult.failedSteps.join(', ')} — check your connection and try again.",
           ),
         ),
       );

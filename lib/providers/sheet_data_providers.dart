@@ -511,6 +511,154 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
     return true;
   }
 
+  /// Result of [updateExercise]: overall success plus which sub-steps (if
+  /// any) failed, so the caller's SnackBar can name exactly what didn't
+  /// save.
+  ///
+  /// Renames/changes the muscle group/changes the unit of an exercise, and
+  /// makes it stick for future logs (unlike [addExerciseUnit] alone). For a
+  /// muscle change this actually relocates the exercise's row to the new
+  /// muscle's section (grouped-format years) or column (flatV2 years).
+  /// Scoped to the current year only, same as [deleteExercise] — past
+  /// years' historical tabs are untouched (a rename's old rows simply keep
+  /// their old name text). Runs whichever of the three sub-steps actually
+  /// changed, keeps going even if one fails (so e.g. a working unit change
+  /// isn't lost just because the muscle move failed), and always refreshes
+  /// at the end so every `Exercise.sheetRow` is rebuilt fresh regardless of
+  /// partial failure.
+  Future<({bool success, List<String> failedSteps})> updateExercise({
+    required Exercise oldExercise,
+    required Exercise newExercise,
+    int? newMuscleColumnIndex,
+  }) async {
+    final current = state.value;
+    if (current == null) return (success: false, failedSteps: ['load']);
+
+    final nameChanged = oldExercise.name != newExercise.name;
+    final muscleChanged = oldExercise.muscleGroup != newExercise.muscleGroup;
+    final unitChanged =
+        oldExercise.unit != newExercise.unit ||
+        oldExercise.customUnitLabel != newExercise.customUnitLabel;
+    if (!nameChanged && !muscleChanged && !unitChanged) {
+      return (success: true, failedSteps: const <String>[]);
+    }
+
+    final repository = await ref.read(sheetsRepositoryProvider.future);
+    final failedSteps = <String>[];
+    final currentYear = isoWeekYear(DateTime.now());
+    final yearData = current.snapshot.yearData[currentYear];
+
+    ExerciseMuscleInfo? muscleEntryFor(String name) {
+      for (final info in current.snapshot.exerciseMuscleInfo) {
+        if (info.exerciseName.toLowerCase() == name.toLowerCase()) {
+          return info;
+        }
+      }
+      return null;
+    }
+
+    if (nameChanged) {
+      if (yearData != null && oldExercise.sheetRow != null) {
+        final r = await repository.writeMatrixCell(
+          matrixTabName: yearData.tabName,
+          rowIndex: oldExercise.sheetRow!,
+          columnIndex: 0,
+          value: newExercise.name,
+        );
+        if (r.isErr) failedSteps.add("rename (this year's sheet)");
+      }
+      final r2 = await repository.renameExerciseInExercisesTab(
+        oldName: oldExercise.name,
+        newName: newExercise.name,
+        currentTable: current.snapshot.exerciseUnitsTable,
+        muscleColumnEntry: muscleEntryFor(oldExercise.name),
+      );
+      if (r2.isErr) failedSteps.add('rename (Exercises tab)');
+    }
+
+    if (muscleChanged && yearData != null) {
+      if (yearData.format == MatrixTabFormat.flatV2) {
+        final oldEntry = muscleEntryFor(oldExercise.name);
+        if (oldEntry != null && newMuscleColumnIndex != null) {
+          final r = await repository.moveExerciseMuscleColumn(
+            oldColumnIndex: oldEntry.columnIndex,
+            oldRowIndex: oldEntry.rowIndex,
+            newColumnIndex: newMuscleColumnIndex,
+            exerciseName: newExercise.name,
+          );
+          if (r.isErr) failedSteps.add('muscle');
+        }
+      } else if (oldExercise.sheetRow != null) {
+        final gridId = current.snapshot.gridIdsByTabName[yearData.tabName];
+        if (gridId != null) {
+          final r = await repository.moveExerciseRowToMuscleSection(
+            sheetGridId: gridId,
+            yearData: yearData,
+            currentRow: oldExercise.sheetRow!,
+            newGroup: newExercise.muscleGroup,
+          );
+          if (r.isErr) failedSteps.add('muscle');
+        }
+      }
+    }
+
+    if (unitChanged) {
+      var ok = true;
+      if (!current.snapshot.classifiedTabs.hasExercisesTab) {
+        final ensured = await repository.ensureExercisesTab();
+        ok = ensured.isOk;
+      }
+      if (ok) {
+        final r = await repository.setExerciseUnit(
+          exerciseName: newExercise.name,
+          unit: newExercise.unit,
+          customLabel: newExercise.customUnitLabel,
+          currentTable: current.snapshot.exerciseUnitsTable,
+        );
+        ok = r.isOk;
+      }
+      if (!ok) failedSteps.add('unit');
+    }
+
+    await refresh();
+    return (success: failedSteps.isEmpty, failedSteps: failedSteps);
+  }
+
+  /// Deletes an exercise: removes its row from the current year's matrix
+  /// tab and clears (never row-deletes) its cells in the "Exercises" tab.
+  /// Scope is deliberately current-year-only, same as [updateExercise] —
+  /// past years keep their historical row.
+  Future<bool> deleteExercise(Exercise exercise) async {
+    final repository = await ref.read(sheetsRepositoryProvider.future);
+    final current = state.value;
+    if (current == null) return false;
+
+    final currentYear = isoWeekYear(DateTime.now());
+    final yearData = current.snapshot.yearData[currentYear];
+    final matrixGridId = yearData == null
+        ? null
+        : current.snapshot.gridIdsByTabName[yearData.tabName];
+
+    ExerciseMuscleInfo? muscleEntry;
+    for (final info in current.snapshot.exerciseMuscleInfo) {
+      if (info.exerciseName.toLowerCase() == exercise.name.toLowerCase()) {
+        muscleEntry = info;
+        break;
+      }
+    }
+
+    final result = await repository.deleteExercise(
+      yearData: yearData,
+      matrixGridId: matrixGridId,
+      exercise: exercise,
+      exerciseUnitsTable: current.snapshot.exerciseUnitsTable,
+      muscleColumnEntry: muscleEntry,
+    );
+    if (result.isErr) return false;
+    await refresh();
+    return true;
+  }
+
   /// Appends a custom workout day to the sheet-backed `WorkoutDays` tab,
   /// queuing a durable retry on failure (safe to replay later since an
   /// append doesn't depend on current row positions).

@@ -5,16 +5,23 @@ import '../../core/utils/text.dart';
 import '../../models/exercise.dart';
 import '../../models/exercise_muscle_info.dart';
 import '../../models/exercise_unit.dart';
+import '../../widgets/delete_exercise_confirmation.dart';
 
-/// Result of the add-exercise dialog: the new/edited [Exercise] plus, if an
-/// existing "Exercises" tab column for its muscle is known, the column
-/// index it should be appended to (null when editing, since an existing
-/// exercise's muscle-column membership isn't changed by this dialog).
-typedef NewExerciseResult = ({Exercise exercise, int? muscleColumnIndex});
+/// Result of the add-exercise dialog: either an add/edit ([exercise] set) —
+/// carrying the target "Exercises" tab muscle-column index, if known, for
+/// wherever [exercise]'s current muscle group should live — or a delete
+/// ([deleted] true, [exercise] null). Cancel resolves the whole future to
+/// `null` instead.
+typedef NewExerciseResult = ({
+  Exercise? exercise,
+  int? muscleColumnIndex,
+  bool deleted,
+});
 
 /// Shows the add-exercise dialog, or — when [existing] is given — the same
-/// dialog pre-filled for editing that exercise's unit (name/muscle are
-/// locked; only unit/custom-label can change).
+/// dialog pre-filled for editing that exercise's name, muscle, and unit,
+/// plus a "Delete exercise" action (gated behind
+/// [showDeleteExerciseConfirmation]).
 Future<NewExerciseResult?> showAddNewExerciseDialog(
   BuildContext context, {
   required List<MuscleGroup> muscleGroupOptions,
@@ -47,7 +54,6 @@ Future<NewExerciseResult?> showAddNewExerciseDialog(
               TextField(
                 controller: controller,
                 autofocus: !isEditing,
-                enabled: !isEditing,
                 decoration: const InputDecoration(labelText: 'Exercise name'),
                 onChanged: (_) => setState(() {}),
               ),
@@ -62,9 +68,7 @@ Future<NewExerciseResult?> showAddNewExerciseDialog(
                       child: Text(titleCase(group.sheetHeader)),
                     ),
                 ],
-                onChanged: isEditing
-                    ? null
-                    : (v) => setState(() => selectedGroup = v!),
+                onChanged: (v) => setState(() => selectedGroup = v!),
               ),
               const SizedBox(height: 16),
               SegmentedButton<ExerciseUnit>(
@@ -97,6 +101,26 @@ Future<NewExerciseResult?> showAddNewExerciseDialog(
             ],
           ),
           actions: [
+            if (isEditing)
+              TextButton(
+                style: TextButton.styleFrom(
+                  foregroundColor: Theme.of(context).colorScheme.error,
+                ),
+                onPressed: () async {
+                  final confirmed = await showDeleteExerciseConfirmation(
+                    context,
+                    existing.name,
+                  );
+                  if (confirmed && context.mounted) {
+                    Navigator.of(context).pop((
+                      exercise: null,
+                      muscleColumnIndex: null,
+                      deleted: true,
+                    ));
+                  }
+                },
+                child: const Text('Delete'),
+              ),
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
               child: const Text('Cancel'),
@@ -111,12 +135,10 @@ Future<NewExerciseResult?> showAddNewExerciseDialog(
                               ? customLabelController.text.trim()
                               : null;
                       int? columnIndex;
-                      if (!isEditing) {
-                        for (final info in allMuscleInfo) {
-                          if (info.muscleGroup == selectedGroup) {
-                            columnIndex = info.columnIndex;
-                            break;
-                          }
+                      for (final info in allMuscleInfo) {
+                        if (info.muscleGroup == selectedGroup) {
+                          columnIndex = info.columnIndex;
+                          break;
                         }
                       }
                       Navigator.of(context).pop((
@@ -127,6 +149,7 @@ Future<NewExerciseResult?> showAddNewExerciseDialog(
                           customUnitLabel: customLabel,
                         ),
                         muscleColumnIndex: columnIndex,
+                        deleted: false,
                       ));
                     },
               child: Text(isEditing ? 'Save' : 'Add'),

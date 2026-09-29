@@ -7,6 +7,7 @@ import '../../providers/settings_providers.dart';
 import '../../providers/sheet_data_providers.dart';
 import 'add_workout_day_dialog.dart';
 import 'algorithms_info_screen.dart';
+import 'changelog_screen.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -161,6 +162,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             leading: const Icon(Icons.info_outline),
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const AlgorithmsInfoScreen()),
+            ),
+          ),
+          ListTile(
+            title: const Text("What's new"),
+            subtitle: const Text(
+              'Current app version and past release notes',
+            ),
+            leading: const Icon(Icons.new_releases_outlined),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const ChangelogScreen()),
             ),
           ),
           const Divider(),

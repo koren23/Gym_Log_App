@@ -920,11 +920,13 @@ void main() {
             exerciseName: 'Leg press',
             muscleGroup: MuscleGroup.quads,
             columnIndex: 0,
+            rowIndex: 1,
           ),
           const ExerciseMuscleInfo(
             exerciseName: 'Hack squat',
             muscleGroup: MuscleGroup.quads,
             columnIndex: 0,
+            rowIndex: 2,
           ),
         ];
 
@@ -985,11 +987,13 @@ void main() {
             exerciseName: 'Leg press',
             muscleGroup: MuscleGroup.quads,
             columnIndex: 0,
+            rowIndex: 1,
           ),
           const ExerciseMuscleInfo(
             exerciseName: 'Hack squat',
             muscleGroup: MuscleGroup.quads,
             columnIndex: 0,
+            rowIndex: 2,
           ),
         ];
 

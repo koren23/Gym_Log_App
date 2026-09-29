@@ -8,6 +8,7 @@ class ExerciseMuscleInfo {
     required this.exerciseName,
     required this.muscleGroup,
     required this.columnIndex,
+    required this.rowIndex,
   });
 
   final String exerciseName;
@@ -16,4 +17,9 @@ class ExerciseMuscleInfo {
   /// 0-based column index of this muscle's column in the "Exercises" tab —
   /// needed to append a newly-added exercise to the right column.
   final int columnIndex;
+
+  /// 0-based row index of this entry within the "Exercises" tab — needed to
+  /// overwrite or clear this exact cell (e.g. renaming or deleting an
+  /// exercise) without disturbing other muscle columns' rows.
+  final int rowIndex;
 }

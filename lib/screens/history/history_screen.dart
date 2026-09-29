@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../../core/constants/muscle_groups.dart';
 import '../../core/utils/text.dart';
 import '../../models/history_entry.dart';
+import '../../models/workout_day_def.dart';
 import '../../models/year_sheet_data.dart';
 import '../../providers/analysis_providers.dart';
 import '../../providers/settings_providers.dart';
@@ -36,9 +37,10 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
       return const Center(child: Text('No logged workouts yet.'));
     }
 
+    final workoutDayDefs = ref.watch(workoutDayDefsProvider);
     final entries = buildHistoryEntries(
       yearsAscending,
-      workoutDays: ref.watch(workoutDayDefsProvider),
+      workoutDays: workoutDayDefs,
     ); // most-recent first
     final byDate = <DateTime, List<HistoryEntry>>{};
     for (final e in entries) {
@@ -96,6 +98,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                       date: _selectedDate!,
                       entries: selectedEntries,
                       yearDataByYear: yearDataByYear,
+                      workoutDayDefs: workoutDayDefs,
                     ),
             ),
           ),
@@ -252,11 +255,13 @@ class _DayDetail extends StatelessWidget {
     required this.date,
     required this.entries,
     required this.yearDataByYear,
+    required this.workoutDayDefs,
   });
 
   final DateTime date;
   final List<HistoryEntry> entries;
   final Map<int, YearSheetData> yearDataByYear;
+  final List<WorkoutDayDef> workoutDayDefs;
 
   @override
   Widget build(BuildContext context) {
@@ -288,6 +293,7 @@ class _DayDetail extends StatelessWidget {
               _EntryDetail(
                 entry: entry,
                 yearData: yearDataByYear[entry.isoYear],
+                workoutDayDefs: workoutDayDefs,
               ),
               const SizedBox(height: 12),
             ],
@@ -298,18 +304,34 @@ class _DayDetail extends StatelessWidget {
 }
 
 class _EntryDetail extends StatelessWidget {
-  const _EntryDetail({required this.entry, required this.yearData});
+  const _EntryDetail({
+    required this.entry,
+    required this.yearData,
+    required this.workoutDayDefs,
+  });
 
   final HistoryEntry entry;
   final YearSheetData? yearData;
+  final List<WorkoutDayDef> workoutDayDefs;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final explicitId = entry.metaRow?.workoutDayId;
+    WorkoutDayDef? matchedDay;
+    if (explicitId != null) {
+      for (final d in workoutDayDefs) {
+        if (d.id == explicitId) {
+          matchedDay = d;
+          break;
+        }
+      }
+    }
     final day = workoutDayForGroupLabels(entry.muscleGroups);
     final note =
         entry.metaRow?.note ?? yearData?.weekNotes[entry.isoWeek];
-    final dayLabel = day?.label ??
+    final dayLabel = matchedDay?.label ??
+        day?.label ??
         (entry.muscleGroups.isEmpty
             ? null
             : entry.muscleGroups.map(titleCase).join(', '));

@@ -325,43 +325,115 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
     return candidates.first;
   }
 
-  /// Tiered "what should I log next for [day]" recommendation:
-  ///  1. Nothing completed yet this session -> the exercise usually
-  ///     started with.
-  ///  2. Otherwise -> whatever usually follows the last *completed*
-  ///     exercise, if that pattern exists.
-  ///  3. Otherwise -> any other exercise commonly done for this day that
-  ///     isn't checked yet.
-  /// Returns null if recent history has nothing usable (caller falls back
-  /// to the first not-yet-checked exercise in that case).
-  String? _suggestedNextExerciseName(WorkoutDayDef day) {
-    final recentVisits = _recentVisitsFor(day);
-    if (recentVisits.isEmpty) return null;
+  /// Reconstructs the full "usual order" of exercises for [day] by chasing
+  /// the modal successor chain (the same one-step logic [_modeOfNames]-based
+  /// lookahead used to rely on) repeatedly instead of just once: starting
+  /// from the modal starter exercise, repeatedly find what usually follows
+  /// the current exercise, stopping on a repeat (cycle guard) or once no
+  /// successor pattern exists. Returns an empty list if recent history has
+  /// nothing usable.
+  List<String> _usualOrderFor(
+    WorkoutDayDef day,
+    List<HistoryEntry> recentVisits,
+  ) {
+    if (recentVisits.isEmpty) return const [];
+    final order = <String>[];
+    final used = <String>{};
 
-    final completedNames = _checked
-        .where(_completedSnapshot.contains)
-        .toList();
-
-    if (completedNames.isEmpty) {
-      final starters = [
-        for (final v in recentVisits)
-          if (v.exerciseNames.isNotEmpty) v.exerciseNames.first,
-      ];
-      final starter = _modeOfNames(starters, recentVisits);
-      if (starter != null && !_checked.contains(starter)) return starter;
-    }
-
-    if (completedNames.isNotEmpty) {
-      final lastDone = completedNames.last;
+    final starters = [
+      for (final v in recentVisits)
+        if (v.exerciseNames.isNotEmpty) v.exerciseNames.first,
+    ];
+    String? current = _modeOfNames(starters, recentVisits);
+    while (current != null && used.add(current)) {
+      order.add(current);
       final successors = <String>[];
       for (final v in recentVisits) {
-        final idx = v.exerciseNames.indexOf(lastDone);
+        final idx = v.exerciseNames.indexOf(current);
         if (idx != -1 && idx + 1 < v.exerciseNames.length) {
           successors.add(v.exerciseNames[idx + 1]);
         }
       }
-      final successor = _modeOfNames(successors, recentVisits);
-      if (successor != null && !_checked.contains(successor)) return successor;
+      current = _modeOfNames(
+        successors.where((n) => !used.contains(n)).toList(),
+        recentVisits,
+      );
+    }
+    return order;
+  }
+
+  /// The muscle group [name] trains, preferring the "Exercises" reference
+  /// tab's per-exercise mapping (when it exists) and falling back to the
+  /// exercise's own [Exercise.muscleGroup] otherwise — the exact precedence
+  /// [_fallbackFirstUnchecked] already uses, needed because
+  /// [muscleByName] is empty whenever the optional Exercises tab doesn't
+  /// exist (the common case for legacy/grouped years, where muscle group is
+  /// already authoritative from section headers).
+  MuscleGroup? _muscleGroupOf(
+    String name,
+    List<Exercise> availableExercises,
+    Map<String, ExerciseMuscleInfo> muscleByName,
+  ) {
+    final exercise = _findByName(availableExercises, name);
+    if (exercise == null) return null;
+    return muscleByName[name.toLowerCase()]?.muscleGroup ??
+        exercise.muscleGroup;
+  }
+
+  /// Muscle groups already trained this session by a *completed* exercise —
+  /// used so a substituted exercise still "counts" for its muscle group,
+  /// even if it isn't the usual exercise for that slot.
+  Set<MuscleGroup> _coveredMuscleGroupsThisSession(
+    List<Exercise> availableExercises,
+    Map<String, ExerciseMuscleInfo> muscleByName,
+  ) {
+    final completedNames = _checked.where(_completedSnapshot.contains);
+    final covered = <MuscleGroup>{};
+    for (final name in completedNames) {
+      final group = _muscleGroupOf(name, availableExercises, muscleByName);
+      if (group != null) covered.add(group);
+    }
+    return covered;
+  }
+
+  /// Tiered "what should I log next for [day]" recommendation:
+  ///  1. Reconstruct the full usual order for the day, then walk it in
+  ///     order for the first not-yet-checked exercise whose muscle group
+  ///     hasn't already been covered this session by something else
+  ///     (skips a muscle you already trained via a substitute, and — since
+  ///     the walk is over the *full* order rather than "whatever follows
+  ///     the last thing done" — correctly recommends whatever you skipped
+  ///     if you did your usual exercises out of order).
+  ///  2. If every remaining exercise in the usual order is already
+  ///     muscle-covered, suggest the first remaining one anyway rather than
+  ///     suggesting nothing.
+  ///  3. If there's no usual order at all (or everything in it is already
+  ///     checked off), fall back to the most commonly done not-yet-checked
+  ///     exercise for this day.
+  /// Returns null if recent history has nothing usable (caller falls back
+  /// to the first not-yet-checked exercise in that case).
+  String? _suggestedNextExerciseName(
+    WorkoutDayDef day,
+    List<Exercise> availableExercises,
+    Map<String, ExerciseMuscleInfo> muscleByName,
+  ) {
+    final recentVisits = _recentVisitsFor(day);
+    if (recentVisits.isEmpty) return null;
+
+    final usualOrder = _usualOrderFor(day, recentVisits);
+    if (usualOrder.isNotEmpty) {
+      final covered = _coveredMuscleGroupsThisSession(
+        availableExercises,
+        muscleByName,
+      );
+      final remaining = usualOrder
+          .where((n) => !_checked.contains(n))
+          .toList();
+      for (final name in remaining) {
+        final group = _muscleGroupOf(name, availableExercises, muscleByName);
+        if (group == null || !covered.contains(group)) return name;
+      }
+      if (remaining.isNotEmpty) return remaining.first;
     }
 
     final allNames = [
@@ -418,7 +490,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
       return pinned;
     }
     final fresh =
-        _suggestedNextExerciseName(day) ??
+        _suggestedNextExerciseName(day, availableExercises, muscleByName) ??
         _fallbackFirstUnchecked(availableExercises, muscleByName);
     _pinnedSuggestionName = fresh;
     return fresh;
@@ -629,18 +701,21 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
                                     muscleGroupOptions: day.muscleGroups,
                                     allMuscleInfo: muscleByName.values.toList(),
                                   );
-                                  if (result == null) return;
+                                  // This call site never passes `existing:`,
+                                  // so the dialog can't return a delete here.
+                                  final newExercise = result?.exercise;
+                                  if (newExercise == null) return;
                                   setState(
-                                    () => _addedExercises.add(result.exercise),
+                                    () => _addedExercises.add(newExercise),
                                   );
                                   _saveDraft();
 
-                                  final columnIndex = result.muscleColumnIndex;
+                                  final columnIndex = result!.muscleColumnIndex;
                                   if (columnIndex != null) {
                                     final ok = await ref
                                         .read(snapshotProvider.notifier)
                                         .addExerciseMuscle(
-                                          exerciseName: result.exercise.name,
+                                          exerciseName: newExercise.name,
                                           columnIndex: columnIndex,
                                         );
                                     if (!ok && context.mounted) {
@@ -658,10 +733,9 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
                                   await ref
                                       .read(snapshotProvider.notifier)
                                       .addExerciseUnit(
-                                        exerciseName: result.exercise.name,
-                                        unit: result.exercise.unit,
-                                        customLabel:
-                                            result.exercise.customUnitLabel,
+                                        exerciseName: newExercise.name,
+                                        unit: newExercise.unit,
+                                        customLabel: newExercise.customUnitLabel,
                                       );
                                 },
                               ),

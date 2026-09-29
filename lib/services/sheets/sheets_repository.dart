@@ -4,6 +4,7 @@ import '../../core/constants/muscle_groups.dart';
 import '../../core/constants/sheet_layout.dart';
 import '../../core/utils/result.dart';
 import '../../models/body_weight_entry.dart';
+import '../../models/exercise.dart';
 import '../../models/exercise_muscle_info.dart';
 import '../../models/exercise_unit.dart';
 import '../../models/rating_relevance.dart';
@@ -945,6 +946,247 @@ class SheetsRepository {
       i = (i ~/ 26) - 1;
     }
     return letters;
+  }
+
+  /// Renames an exercise's cells in the "Exercises" reference tab: its row
+  /// in the flat Exercise/Unit side-table and/or its muscle-column cell,
+  /// whichever exist — plain cell overwrites, safely batched together since
+  /// neither is a structural change. The current year's matrix-tab name
+  /// cell is handled separately via [writeMatrixCell] (a plain overwrite
+  /// there too).
+  Future<Result<void>> renameExerciseInExercisesTab({
+    required String oldName,
+    required String newName,
+    required ExerciseUnitsTable currentTable,
+    ExerciseMuscleInfo? muscleColumnEntry,
+  }) async {
+    try {
+      final ranges = <ValueRange>[];
+      final existingUnitRow = currentTable.assignments[oldName.toLowerCase()];
+      if (existingUnitRow != null && currentTable.exerciseColumnIndex != null) {
+        ranges.add(
+          ValueRange(
+            range:
+                "'$kExercisesTabName'!${_columnLetter(currentTable.exerciseColumnIndex!)}${existingUnitRow.rowIndex + 1}",
+            values: [
+              [newName],
+            ],
+          ),
+        );
+      }
+      if (muscleColumnEntry != null) {
+        ranges.add(
+          ValueRange(
+            range:
+                "'$kExercisesTabName'!${_columnLetter(muscleColumnEntry.columnIndex)}${muscleColumnEntry.rowIndex + 1}",
+            values: [
+              [newName],
+            ],
+          ),
+        );
+      }
+      if (ranges.isNotEmpty) {
+        await _api.spreadsheets.values.batchUpdate(
+          BatchUpdateValuesRequest(
+            valueInputOption: 'USER_ENTERED',
+            data: ranges,
+          ),
+          _spreadsheetId,
+        );
+      }
+      return const Result.ok(null);
+    } catch (e, st) {
+      return Result.err(e, st);
+    }
+  }
+
+  /// Moves an exercise from one muscle column to another within the
+  /// "Exercises" tab (used for a [MatrixTabFormat.flatV2] year's muscle
+  /// change): clears the old cell — never a structural row delete, since
+  /// this tab's columns are independent and a row delete would corrupt
+  /// every other muscle's column at that row — then appends to the new
+  /// column via [appendExerciseToMuscleColumn].
+  Future<Result<void>> moveExerciseMuscleColumn({
+    required int oldColumnIndex,
+    required int oldRowIndex,
+    required int newColumnIndex,
+    required String exerciseName,
+  }) async {
+    try {
+      await _api.spreadsheets.values.update(
+        ValueRange(
+          values: [
+            [''],
+          ],
+        ),
+        _spreadsheetId,
+        "'$kExercisesTabName'!${_columnLetter(oldColumnIndex)}${oldRowIndex + 1}",
+        valueInputOption: 'USER_ENTERED',
+      );
+      return appendExerciseToMuscleColumn(
+        columnIndex: newColumnIndex,
+        exerciseName: exerciseName,
+      );
+    } catch (e, st) {
+      return Result.err(e, st);
+    }
+  }
+
+  /// Moves an exercise's row from its current muscle-group section to
+  /// [newGroup]'s section within [yearData]'s grouped-format matrix tab
+  /// (used for a legacyGrouped/currentGrouped year's muscle change),
+  /// preserving every week's logged data already on that row via
+  /// [MoveDimensionRequest] rather than delete+recreate. Creates a new
+  /// section (header + the moved row, appended at the tab's end) if
+  /// [newGroup] has no section yet. [yearData] must be freshly parsed —
+  /// row indices must be exact.
+  Future<Result<void>> moveExerciseRowToMuscleSection({
+    required int sheetGridId,
+    required YearSheetData yearData,
+    required int currentRow,
+    required MuscleGroup newGroup,
+  }) async {
+    try {
+      final requests = <Request>[];
+      int destinationIndex;
+      NewSectionHeader? newHeader;
+
+      if (yearData.sectionHeaderRows.containsKey(newGroup)) {
+        destinationIndex = lastRowForGroup(yearData, newGroup) + 1;
+      } else {
+        final headerRow = endOfGroupedTabRow(yearData) + 1;
+        requests.add(
+          Request(
+            insertDimension: InsertDimensionRequest(
+              range: DimensionRange(
+                sheetId: sheetGridId,
+                dimension: 'ROWS',
+                startIndex: headerRow,
+                endIndex: headerRow + 1,
+              ),
+              inheritFromBefore: true,
+            ),
+          ),
+        );
+        newHeader = (row: headerRow, group: newGroup);
+        destinationIndex = headerRow + 1;
+      }
+
+      requests.add(
+        Request(
+          moveDimension: MoveDimensionRequest(
+            source: DimensionRange(
+              sheetId: sheetGridId,
+              dimension: 'ROWS',
+              startIndex: currentRow,
+              endIndex: currentRow + 1,
+            ),
+            destinationIndex: destinationIndex,
+          ),
+        ),
+      );
+
+      await _api.spreadsheets.batchUpdate(
+        BatchUpdateSpreadsheetRequest(requests: requests),
+        _spreadsheetId,
+      );
+
+      if (newHeader != null) {
+        final header = newHeader;
+        await _api.spreadsheets.values.update(
+          ValueRange(
+            values: [
+              [header.group.sheetHeader],
+            ],
+          ),
+          _spreadsheetId,
+          "'${yearData.tabName}'!A${header.row + 1}",
+          valueInputOption: 'USER_ENTERED',
+        );
+      }
+      return const Result.ok(null);
+    } catch (e, st) {
+      return Result.err(e, st);
+    }
+  }
+
+  /// Deletes an exercise: removes its row from the current year's matrix
+  /// tab (scope is deliberately current-year-only — past years keep their
+  /// historical row, same as a rename) and clears — never row-deletes —
+  /// its Exercise/Unit row and muscle-column cell in the "Exercises" tab,
+  /// since that tab's columns are independent and a row delete there would
+  /// corrupt every other muscle's column at that row.
+  Future<Result<void>> deleteExercise({
+    required YearSheetData? yearData,
+    required int? matrixGridId,
+    required Exercise exercise,
+    required ExerciseUnitsTable exerciseUnitsTable,
+    ExerciseMuscleInfo? muscleColumnEntry,
+  }) async {
+    try {
+      if (yearData != null &&
+          exercise.sheetRow != null &&
+          matrixGridId != null) {
+        await _api.spreadsheets.batchUpdate(
+          BatchUpdateSpreadsheetRequest(
+            requests: [
+              Request(
+                deleteDimension: DeleteDimensionRequest(
+                  range: DimensionRange(
+                    sheetId: matrixGridId,
+                    dimension: 'ROWS',
+                    startIndex: exercise.sheetRow!,
+                    endIndex: exercise.sheetRow! + 1,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          _spreadsheetId,
+        );
+      }
+
+      final clearRanges = <ValueRange>[];
+      final unitRow =
+          exerciseUnitsTable.assignments[exercise.name.toLowerCase()];
+      if (unitRow != null &&
+          exerciseUnitsTable.exerciseColumnIndex != null &&
+          exerciseUnitsTable.unitColumnIndex != null) {
+        clearRanges.add(
+          ValueRange(
+            range:
+                "'$kExercisesTabName'!${_columnLetter(exerciseUnitsTable.exerciseColumnIndex!)}${unitRow.rowIndex + 1}:"
+                "${_columnLetter(exerciseUnitsTable.unitColumnIndex!)}${unitRow.rowIndex + 1}",
+            values: [
+              ['', ''],
+            ],
+          ),
+        );
+      }
+      if (muscleColumnEntry != null) {
+        clearRanges.add(
+          ValueRange(
+            range:
+                "'$kExercisesTabName'!${_columnLetter(muscleColumnEntry.columnIndex)}${muscleColumnEntry.rowIndex + 1}",
+            values: [
+              [''],
+            ],
+          ),
+        );
+      }
+      if (clearRanges.isNotEmpty) {
+        await _api.spreadsheets.values.batchUpdate(
+          BatchUpdateValuesRequest(
+            valueInputOption: 'USER_ENTERED',
+            data: clearRanges,
+          ),
+          _spreadsheetId,
+        );
+      }
+      return const Result.ok(null);
+    } catch (e, st) {
+      return Result.err(e, st);
+    }
   }
 
   Future<Result<void>> appendBodyWeight({

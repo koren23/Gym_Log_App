@@ -361,6 +361,7 @@ class SheetParser {
             exerciseName: name,
             muscleGroup: entry.value,
             columnIndex: col,
+            rowIndex: row,
           ),
         );
       }

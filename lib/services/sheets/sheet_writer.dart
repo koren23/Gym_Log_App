@@ -28,6 +28,30 @@ String formatDateOnly(DateTime date) =>
     '${date.month.toString().padLeft(2, '0')}-'
     '${date.day.toString().padLeft(2, '0')}';
 
+/// The last used row for [group]'s section in [yearData] — its last
+/// exercise's row, or its header row if it has no exercises yet. Only
+/// meaningful for a grouped-format tab ([MatrixTabFormat.legacyGrouped]/
+/// [MatrixTabFormat.currentGrouped]), where [group] must already have a
+/// section (i.e. be a key of [YearSheetData.sectionHeaderRows]).
+int lastRowForGroup(YearSheetData yearData, MuscleGroup group) {
+  final exercises = yearData.muscleGroupSections[group] ?? const [];
+  return exercises.isEmpty
+      ? yearData.sectionHeaderRows[group]!
+      : exercises.map((e) => e.sheetRow!).reduce((a, b) => a > b ? a : b);
+}
+
+/// The last used row anywhere in [yearData]'s grouped-format tab — the
+/// highest [lastRowForGroup] across every existing section. Used to decide
+/// where to append a brand-new section for a muscle group that doesn't have
+/// one yet. Returns 0 if the tab has no sections at all.
+int endOfGroupedTabRow(YearSheetData yearData) {
+  final groups = yearData.sectionHeaderRows.keys;
+  if (groups.isEmpty) return 0;
+  return groups
+      .map((g) => lastRowForGroup(yearData, g))
+      .reduce((a, b) => a > b ? a : b);
+}
+
 /// A resolved row assignment for one exercise in a visit: either an
 /// existing row, or a freshly planned insertion point.
 class ResolvedExerciseRow {
@@ -152,14 +176,9 @@ class SheetWriter {
     // Working copy of "row to insert the next new exercise for group G
     // after" — starts at (last known exercise row in G) or (G's header
     // row) and is bumped as insertions are planned within this batch.
-    final insertAfterRow = <MuscleGroup, int>{};
-    for (final group in orderedGroups) {
-      final exercises = yearData.muscleGroupSections[group] ?? const [];
-      final lastRow = exercises.isEmpty
-          ? yearData.sectionHeaderRows[group]!
-          : exercises.map((e) => e.sheetRow!).reduce((a, b) => a > b ? a : b);
-      insertAfterRow[group] = lastRow;
-    }
+    final insertAfterRow = <MuscleGroup, int>{
+      for (final group in orderedGroups) group: lastRowForGroup(yearData, group),
+    };
 
     final newSectionHeaders = <NewSectionHeader>[];
 
