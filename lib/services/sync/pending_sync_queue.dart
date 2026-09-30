@@ -125,6 +125,21 @@ class PendingSyncQueue {
     await _saveAll(items);
   }
 
+  /// Removes any still-queued "add unit"/"add muscle" item for
+  /// [exerciseName] — used when the user deletes an exercise before its
+  /// initial creation ever synced, so a later retry can't resurrect it.
+  Future<void> cancelPendingExercise(String exerciseName) async {
+    final items = getAll().where((item) {
+      if (item.payloadType != PendingSyncPayloadType.exerciseUnit &&
+          item.payloadType != PendingSyncPayloadType.exerciseMuscle) {
+        return true;
+      }
+      final json = jsonDecode(item.serializedPayload) as Map<String, dynamic>;
+      return json['exerciseName'] != exerciseName;
+    }).toList();
+    await _saveAll(items);
+  }
+
   Future<void> _enqueue(PendingSyncPayloadType type, String payload) async {
     final items = getAll()
       ..add(

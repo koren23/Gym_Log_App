@@ -6,6 +6,7 @@ import '../../core/utils/result.dart';
 import '../../models/body_weight_entry.dart';
 import '../../models/exercise.dart';
 import '../../models/exercise_muscle_info.dart';
+import '../../models/exercise_note.dart';
 import '../../models/exercise_unit.dart';
 import '../../models/rating_relevance.dart';
 import '../../models/workout_day_def.dart';
@@ -25,6 +26,7 @@ class SpreadsheetSnapshot {
     this.exerciseMuscleInfo = const [],
     this.workoutDayDefs = const [],
     this.exerciseUnitsTable = const ExerciseUnitsTable(),
+    this.notes = const [],
   });
 
   final ClassifiedTabs classifiedTabs;
@@ -43,10 +45,15 @@ class SpreadsheetSnapshot {
   /// From the "Exercises" tab's `Exercise`/`Unit` side-table, if present.
   final ExerciseUnitsTable exerciseUnitsTable;
 
+  /// From the `Notes` tab, if present — per-exercise/per-set free-text
+  /// notes, one row each.
+  final List<ExerciseNote> notes;
+
   SpreadsheetSnapshot copyWith({
     List<ExerciseMuscleInfo>? exerciseMuscleInfo,
     List<WorkoutDayDef>? workoutDayDefs,
     ExerciseUnitsTable? exerciseUnitsTable,
+    List<ExerciseNote>? notes,
   }) => SpreadsheetSnapshot(
     classifiedTabs: classifiedTabs,
     gridIdsByTabName: gridIdsByTabName,
@@ -55,6 +62,7 @@ class SpreadsheetSnapshot {
     exerciseMuscleInfo: exerciseMuscleInfo ?? this.exerciseMuscleInfo,
     workoutDayDefs: workoutDayDefs ?? this.workoutDayDefs,
     exerciseUnitsTable: exerciseUnitsTable ?? this.exerciseUnitsTable,
+    notes: notes ?? this.notes,
   );
 }
 
@@ -115,12 +123,16 @@ class SheetsRepository {
       if (classified.hasWorkoutDaysTab) {
         rangesToFetch.add("'$kWorkoutDaysTabName'!A1:C500");
       }
+      if (classified.hasNotesTab) {
+        rangesToFetch.add("'$kNotesTabName'!A1:D5000");
+      }
 
       final yearData = <int, YearSheetData>{};
       var bodyWeightEntries = <BodyWeightEntry>[];
       var exerciseMuscleInfo = <ExerciseMuscleInfo>[];
       var workoutDayDefs = <WorkoutDayDef>[];
       var exerciseUnitsTable = const ExerciseUnitsTable();
+      var notes = <ExerciseNote>[];
 
       if (rangesToFetch.isNotEmpty) {
         final batch = await _api.spreadsheets.values.batchGet(
@@ -222,6 +234,11 @@ class SheetsRepository {
             vr?.values ?? const [],
           );
         }
+
+        if (classified.hasNotesTab) {
+          final vr = _findValueRangeForTab(valueRanges, kNotesTabName);
+          notes = _parser.parseNotesTab(vr?.values ?? const []);
+        }
       }
 
       return Result.ok(
@@ -233,6 +250,7 @@ class SheetsRepository {
           exerciseMuscleInfo: exerciseMuscleInfo,
           workoutDayDefs: workoutDayDefs,
           exerciseUnitsTable: exerciseUnitsTable,
+          notes: notes,
         ),
       );
     } catch (e, st) {
@@ -347,6 +365,32 @@ class SheetsRepository {
         ),
         _spreadsheetId,
         "'$kBodyWeightTabName'!A1",
+        valueInputOption: 'USER_ENTERED',
+      );
+      return const Result.ok(null);
+    } catch (e, st) {
+      return Result.err(e, st);
+    }
+  }
+
+  Future<Result<void>> ensureNotesTab() async {
+    try {
+      await _api.spreadsheets.batchUpdate(
+        BatchUpdateSpreadsheetRequest(
+          requests: [
+            Request(
+              addSheet: AddSheetRequest(
+                properties: SheetProperties(title: kNotesTabName),
+              ),
+            ),
+          ],
+        ),
+        _spreadsheetId,
+      );
+      await _api.spreadsheets.values.update(
+        ValueRange(range: "'$kNotesTabName'!A1", values: [kNotesTabColumns]),
+        _spreadsheetId,
+        "'$kNotesTabName'!A1",
         valueInputOption: 'USER_ENTERED',
       );
       return const Result.ok(null);
@@ -1294,6 +1338,60 @@ class SheetsRepository {
         ),
         _spreadsheetId,
       );
+      return const Result.ok(null);
+    } catch (e, st) {
+      return Result.err(e, st);
+    }
+  }
+
+  /// Replaces every note belonging to [visitId] in one call: deletes
+  /// [staleRowIndexes] (that visit's previously-written note rows — pass the
+  /// rows already known from the loaded snapshot) and appends [newNotes]
+  /// (the current, non-empty set). Used both when first logging a visit and
+  /// when editing one later, so notes never need per-row diffing — the
+  /// caller always just sends "here's the complete current set of notes for
+  /// this visit".
+  Future<Result<void>> replaceNotesForVisit({
+    required String visitId,
+    required List<int> staleRowIndexes,
+    required int? notesGridId,
+    required List<ExerciseNote> newNotes,
+  }) async {
+    try {
+      if (staleRowIndexes.isNotEmpty && notesGridId != null) {
+        // Descending order: each deleteDimension shifts every row below it,
+        // so deleting highest-index-first keeps the remaining indices valid
+        // for the next request in this same batch.
+        final sorted = [...staleRowIndexes]..sort((a, b) => b.compareTo(a));
+        await _api.spreadsheets.batchUpdate(
+          BatchUpdateSpreadsheetRequest(
+            requests: [
+              for (final row in sorted)
+                Request(
+                  deleteDimension: DeleteDimensionRequest(
+                    range: DimensionRange(
+                      sheetId: notesGridId,
+                      dimension: 'ROWS',
+                      startIndex: row,
+                      endIndex: row + 1,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          _spreadsheetId,
+        );
+      }
+      if (newNotes.isNotEmpty) {
+        final rows = _writer.buildNotesAppendRows(newNotes);
+        await _api.spreadsheets.values.append(
+          rows,
+          _spreadsheetId,
+          "'$kNotesTabName'!A1",
+          valueInputOption: 'USER_ENTERED',
+          insertDataOption: 'INSERT_ROWS',
+        );
+      }
       return const Result.ok(null);
     } catch (e, st) {
       return Result.err(e, st);

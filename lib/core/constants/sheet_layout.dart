@@ -83,6 +83,20 @@ const List<String> kMetaTabColumns = [
 /// Column order for the BodyWeight tab.
 const List<String> kBodyWeightTabColumns = ['date', 'weightKg'];
 
+/// Fixed name of the per-exercise/per-set notes tab — one row per note, kept
+/// separate from the meta tab's dense `exercises` cell (column F) so free
+/// text never has to be escaped against that cell's delimiter scheme.
+const String kNotesTabName = 'Notes';
+
+/// Column order for the Notes tab. [setIndex] is blank for an
+/// exercise-level note (as opposed to a note on one specific set).
+const List<String> kNotesTabColumns = [
+  'visitId',
+  'exerciseName',
+  'setIndex',
+  'text',
+];
+
 /// Default set/rep scheme offered when logging a new exercise entry with no
 /// usable history of its own.
 const int kDefaultSetCount = 3;

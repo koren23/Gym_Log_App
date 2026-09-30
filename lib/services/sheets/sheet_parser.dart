@@ -3,6 +3,7 @@ import '../../core/constants/sheet_layout.dart';
 import '../../models/body_weight_entry.dart';
 import '../../models/exercise.dart';
 import '../../models/exercise_muscle_info.dart';
+import '../../models/exercise_note.dart';
 import '../../models/exercise_unit.dart';
 import '../../models/rating_relevance.dart';
 import '../../models/set_feedback.dart';
@@ -18,6 +19,7 @@ class ClassifiedTabs {
     required this.hasBodyWeightTab,
     required this.hasExercisesTab,
     required this.hasWorkoutDaysTab,
+    required this.hasNotesTab,
   });
 
   /// year -> matrix tab names, sorted so the base `<year>` tab comes first
@@ -30,6 +32,7 @@ class ClassifiedTabs {
   final bool hasBodyWeightTab;
   final bool hasExercisesTab;
   final bool hasWorkoutDaysTab;
+  final bool hasNotesTab;
 
   /// The currently-writable matrix tab name for [year] (last in sorted
   /// order), or null if no tab exists yet for that year.
@@ -49,6 +52,7 @@ class SheetParser {
     var hasBodyWeightTab = false;
     var hasExercisesTab = false;
     var hasWorkoutDaysTab = false;
+    var hasNotesTab = false;
 
     for (final name in tabNames) {
       if (name == kBodyWeightTabName) {
@@ -61,6 +65,10 @@ class SheetParser {
       }
       if (name == kWorkoutDaysTabName) {
         hasWorkoutDaysTab = true;
+        continue;
+      }
+      if (name == kNotesTabName) {
+        hasNotesTab = true;
         continue;
       }
       final metaMatch = kYearMetaTabPattern.firstMatch(name);
@@ -91,6 +99,7 @@ class SheetParser {
       hasBodyWeightTab: hasBodyWeightTab,
       hasExercisesTab: hasExercisesTab,
       hasWorkoutDaysTab: hasWorkoutDaysTab,
+      hasNotesTab: hasNotesTab,
     );
   }
 
@@ -466,6 +475,33 @@ class SheetParser {
       final weight = _asDouble(r[1]);
       if (date == null || weight == null) continue;
       result.add(BodyWeightEntry(date: date, weightKg: weight, rowIndex: row));
+    }
+    return result;
+  }
+
+  /// Parses the `Notes` tab: one row per note (`visitId, exerciseName,
+  /// setIndex, text`), `setIndex` blank for an exercise-level note. Every
+  /// cell here holds exactly one free-text value, so unlike the meta tab's
+  /// `exercises` cell, no delimiter/escaping scheme is needed.
+  List<ExerciseNote> parseNotesTab(List<List<Object?>> rows) {
+    final result = <ExerciseNote>[];
+    for (var row = 1; row < rows.length; row++) {
+      final r = rows[row];
+      if (r.length < 4) continue;
+      final visitId = _asString(r[0]) ?? '';
+      final exerciseName = _asString(r[1]) ?? '';
+      final text = _asString(r[3]) ?? '';
+      if (visitId.isEmpty || exerciseName.isEmpty || text.isEmpty) continue;
+      final setIndexRaw = _asString(r[2]) ?? '';
+      result.add(
+        ExerciseNote(
+          visitId: visitId,
+          exerciseName: exerciseName,
+          setIndex: setIndexRaw.isEmpty ? null : int.tryParse(setIndexRaw),
+          text: text,
+          rowIndex: row,
+        ),
+      );
     }
     return result;
   }

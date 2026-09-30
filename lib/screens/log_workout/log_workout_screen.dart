@@ -14,8 +14,10 @@ import '../../core/utils/text.dart';
 import '../../models/analysis_result.dart';
 import '../../models/exercise.dart';
 import '../../models/exercise_muscle_info.dart';
+import '../../models/exercise_note.dart';
 import '../../models/exercise_unit.dart';
 import '../../models/history_entry.dart';
+import '../../models/rating_relevance.dart';
 import '../../models/set_feedback.dart';
 import '../../models/workout_day_def.dart';
 import '../../models/workout_visit.dart';
@@ -179,7 +181,9 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
           setFeedback: (data['setFeedback'] as List?)
               ?.map((f) => setFeedbackFromJson(f as String?))
               .toList(),
+          setNotes: (data['setNotes'] as List?)?.cast<String?>(),
         );
+        draft.note = data['note'] as String?;
         _drafts[entry.key] = draft;
       }
     } catch (_) {
@@ -206,6 +210,8 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
           'setReps': entry.value.setReps,
           'setApproxReps': entry.value.setApproxReps,
           'setFeedback': [for (final f in entry.value.setFeedback) f.name],
+          'note': entry.value.note,
+          'setNotes': entry.value.setNotes,
         },
     },
   };
@@ -226,6 +232,20 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
     } else {
       service.setWorkoutDraft(jsonEncode(_draftToJson()));
     }
+  }
+
+  /// Drops a just-deleted exercise from every bit of local/persisted draft
+  /// state so it stops reappearing — a brand-new, never-yet-logged exercise
+  /// only exists in [_addedExercises]/[_drafts]/[_checked] until a visit is
+  /// published, so deleting it sheet-side alone (which [ExerciseTile]
+  /// already did before calling this) isn't enough to make it disappear.
+  void _removeAddedExercise(String name) {
+    setState(() {
+      _checked.remove(name);
+      _addedExercises.removeWhere((e) => e.name == name);
+      _drafts.remove(name)?.dispose();
+    });
+    _saveDraft();
   }
 
   Future<void> _confirmClear() async {
@@ -595,7 +615,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
     final history = buildExerciseHistory(
       yearsAscending: yearsAscending,
       exerciseName: exerciseName,
-    );
+    ).where((h) => h.ratingRelevance != RatingRelevance.unrelated).toList();
     return history.isEmpty ? null : history.last.avgWeight;
   }
 
@@ -1063,6 +1083,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
               _scheduleSaveDraft();
             },
             onFocusLost: _handleFieldBlur,
+            onDeleted: () => _removeAddedExercise(exercise.name),
           ),
       ],
     );
@@ -1126,6 +1147,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
     }
 
     final entries = <ExerciseEntry>[];
+    final exerciseNotes = <ExerciseNote>[];
     for (final name in _checked) {
       final draft = _drafts[name];
       final entry = draft?.toEntry();
@@ -1141,8 +1163,30 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
 
     final date = _selectedDate;
     final note = _noteController.text.trim();
+    final visitId = const Uuid().v4();
+    for (final name in _checked) {
+      final draft = _drafts[name];
+      if (draft == null) continue;
+      if (draft.note != null && draft.note!.isNotEmpty) {
+        exerciseNotes.add(
+          ExerciseNote(visitId: visitId, exerciseName: name, text: draft.note!),
+        );
+      }
+      for (var i = 0; i < draft.setNotes.length; i++) {
+        final text = draft.setNotes[i];
+        if (text == null || text.isEmpty) continue;
+        exerciseNotes.add(
+          ExerciseNote(
+            visitId: visitId,
+            exerciseName: name,
+            setIndex: i,
+            text: text,
+          ),
+        );
+      }
+    }
     final visit = WorkoutVisit(
-      visitId: const Uuid().v4(),
+      visitId: visitId,
       date: date,
       isoWeek: isoWeekNumber(date),
       isoYear: isoWeekYear(date),
@@ -1151,9 +1195,11 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
       workoutDayId: _selectedDay?.id,
     );
 
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => RatingScreen(visit: visit)));
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => RatingScreen(visit: visit, notes: exerciseNotes),
+      ),
+    );
   }
 }
 

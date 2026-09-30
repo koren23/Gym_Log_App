@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../core/utils/exercise_value_format.dart';
 import '../models/exercise_unit.dart';
 import '../models/history_entry.dart';
+import '../models/rating_relevance.dart';
 import '../models/workout_day_def.dart';
 import '../models/year_sheet_data.dart';
 import '../providers/analysis_providers.dart';
@@ -90,13 +91,18 @@ class ThisWeekSummary extends ConsumerWidget {
   }
 
   /// The most recent entry belonging to [day] — see
-  /// [bestMatchingDayForEntry] for the matching rule.
+  /// [bestMatchingDayForEntry] for the matching rule. Skips a visit marked
+  /// "not 100%" the same way suggestion logic does, so an off-day session
+  /// doesn't get shown as the representative "last workout".
   HistoryEntry? _latestEntryForDay(
     List<HistoryEntry> entries,
     WorkoutDayDef day,
     List<WorkoutDayDef> allDays,
   ) {
     for (final entry in entries) {
+      if (entry.metaRow?.ratingRelevance == RatingRelevance.unrelated) {
+        continue;
+      }
       if (historyEntryBelongsToDay(entry, day, allDays)) return entry;
     }
     return null;

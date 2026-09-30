@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../models/exercise_note.dart';
 import '../../models/rating_relevance.dart';
 import '../../models/workout_visit.dart';
 import '../../providers/settings_providers.dart';
@@ -9,9 +10,13 @@ import '../../widgets/star_rating_input.dart';
 import 'post_save_insight_screen.dart';
 
 class RatingScreen extends ConsumerStatefulWidget {
-  const RatingScreen({super.key, required this.visit});
+  const RatingScreen({super.key, required this.visit, this.notes = const []});
 
   final WorkoutVisit visit;
+
+  /// Per-exercise/per-set notes collected while logging, saved to the
+  /// separate `Notes` tab right after [visit] itself is successfully saved.
+  final List<ExerciseNote> notes;
 
   @override
   ConsumerState<RatingScreen> createState() => _RatingScreenState();
@@ -31,6 +36,15 @@ class _RatingScreenState extends ConsumerState<RatingScreen> {
     final (outcome, _) = await ref
         .read(snapshotProvider.notifier)
         .logVisit(ratedVisit);
+
+    var notesFailed = false;
+    if (widget.notes.isNotEmpty) {
+      final notesOk = await ref
+          .read(snapshotProvider.notifier)
+          .saveNotesForVisit(ratedVisit.visitId, widget.notes);
+      notesFailed = !notesOk;
+    }
+
     // The visit is now either synced or safely queued for retry — either
     // way the log-workout draft it came from is no longer needed.
     await ref.read(appSettingsServiceProvider).clearWorkoutDraft();
@@ -42,6 +56,14 @@ class _RatingScreenState extends ConsumerState<RatingScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Saved locally — will sync when back online.'),
+        ),
+      );
+    } else if (notesFailed) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            "Workout saved, but the notes couldn't be saved — check your connection.",
+          ),
         ),
       );
     }

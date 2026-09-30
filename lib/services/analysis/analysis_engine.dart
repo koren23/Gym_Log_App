@@ -67,9 +67,15 @@ class HistoryPoint {
   final List<double> actualWeightsPerSet;
   final List<SetFeedback> perSetFeedback;
 
-  /// Which sets in [actualRepsPerSet] were marked "~" (approximate, ±1 rep
-  /// tolerance) — parallel to [actualRepsPerSet]. Empty for visits logged
-  /// before this was tracked, or with no set marked approximate.
+  /// Which sets in [actualRepsPerSet] were marked "~" (approximate) —
+  /// parallel to [actualRepsPerSet]. Empty for visits logged before this was
+  /// tracked, or with no set marked approximate.
+  ///
+  /// Treated as a one-directional +1 benefit of the doubt wherever it's
+  /// consulted (see `_findWeakSet`/`_allSetsTopOfRangeStreak` below): the
+  /// true rep count could have been one higher than what was typed, so +1
+  /// only ever helps a set look better, never worse. A -1 adjustment isn't
+  /// applied anywhere, since that would only ever count against the user.
   final List<bool> approxRepsPerSet;
 }
 

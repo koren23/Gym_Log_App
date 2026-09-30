@@ -17,6 +17,52 @@ class SettingsScreen extends ConsumerStatefulWidget {
 }
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+  bool _backfilling = false;
+
+  Future<void> _confirmBackfillExerciseInfo() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Fill in missing exercise info?'),
+        content: const Text(
+          "This writes to your sheet's Exercises tab: any exercise missing "
+          "a unit gets kg, and any exercise missing a muscle-group entry "
+          "gets added to its muscle's column (based on where it already "
+          "appears in your logs). Nothing already set is changed.",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Fill in'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _backfilling = true);
+    final result = await ref
+        .read(snapshotProvider.notifier)
+        .backfillMissingExerciseInfo();
+    if (!mounted) return;
+    setState(() => _backfilling = false);
+
+    final message = result.unitsFilled == 0 && result.musclesFilled == 0
+        ? 'Nothing was missing — every exercise already had a unit and '
+              'muscle group.'
+        : 'Filled in ${result.unitsFilled} unit '
+              '${result.unitsFilled == 1 ? 'entry' : 'entries'} and '
+              '${result.musclesFilled} muscle-group '
+              '${result.musclesFilled == 1 ? 'entry' : 'entries'}.';
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authStateProvider);
@@ -61,6 +107,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       overflow: TextOverflow.ellipsis,
                     ),
             ),
+          ListTile(
+            title: const Text('Fill in missing exercise info'),
+            subtitle: const Text(
+              'One-time: adds a unit (default kg) and/or muscle-group entry '
+              'in the Exercises tab for any exercise that\'s missing one, '
+              'without touching anything already set.',
+            ),
+            trailing: _backfilling
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : IconButton(
+                    icon: const Icon(Icons.auto_fix_high),
+                    tooltip: 'Fill in missing exercise info',
+                    onPressed: _confirmBackfillExerciseInfo,
+                  ),
+          ),
           const Divider(),
           const Padding(
             padding: EdgeInsets.fromLTRB(16, 8, 16, 4),

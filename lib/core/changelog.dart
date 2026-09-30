@@ -16,6 +16,27 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '1.4.0',
+    date: '2026-09-30',
+    changes: [
+      'Fixed a newly-created exercise reappearing on the log page after '
+          'being deleted.',
+      'Added a Settings action to fill in any exercise missing a unit or '
+          'muscle group in the Exercises sheet, without touching entries '
+          'that are already set.',
+      'You can now add a free-text note to a specific exercise, or to a '
+          'specific set, while logging or editing a workout — shown in '
+          'History alongside that exercise.',
+      'Fixed "Feeling sick / not 100%?" not actually excluding that '
+          'workout from Home\'s "last workout" card or the next session\'s '
+          '"Last time" weight hint.',
+      'History/Calendar now shows a "Not 100%" label on a workout marked '
+          'that way.',
+      'Fixed the "not 100%" checkbox sometimes showing unchecked again '
+          'right after saving it, when reopening the same workout to edit.',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.2.0',
     date: '2026-09-29',
     changes: [

@@ -3,6 +3,7 @@ import 'package:googleapis/sheets/v4.dart';
 import '../../core/constants/muscle_groups.dart';
 import '../../core/constants/sheet_layout.dart';
 import '../../models/exercise.dart';
+import '../../models/exercise_note.dart';
 import '../../models/rating_relevance.dart';
 import '../../models/set_feedback.dart';
 import '../../models/workout_day_def.dart';
@@ -599,6 +600,18 @@ class SheetWriter {
       range: "'$kBodyWeightTabName'!A1",
       values: [
         [formatDateOnly(date), weightKg],
+      ],
+    );
+  }
+
+  /// One row per note appended to the `Notes` tab — see [ExerciseNote] and
+  /// `kNotesTabColumns`.
+  ValueRange buildNotesAppendRows(List<ExerciseNote> notes) {
+    return ValueRange(
+      range: "'$kNotesTabName'!A1",
+      values: [
+        for (final n in notes)
+          [n.visitId, n.exerciseName, n.setIndex?.toString() ?? '', n.text],
       ],
     );
   }

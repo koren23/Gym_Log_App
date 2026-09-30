@@ -7,6 +7,7 @@ import '../../core/utils/iso_week.dart';
 import '../../core/utils/text.dart';
 import '../../models/exercise.dart';
 import '../../models/exercise_muscle_info.dart';
+import '../../models/exercise_note.dart';
 import '../../models/rating_relevance.dart';
 import '../../models/set_feedback.dart';
 import '../../models/workout_visit.dart';
@@ -104,6 +105,22 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
       }
 
       _drafts[logged.exerciseName] = draft;
+    }
+
+    final existingNotes = ref
+        .read(snapshotProvider)
+        .value
+        ?.snapshot
+        .notes
+        .where((n) => n.visitId == widget.metaRow.visitId);
+    for (final n in existingNotes ?? const <ExerciseNote>[]) {
+      final draft = _drafts[n.exerciseName];
+      if (draft == null) continue;
+      if (n.setIndex == null) {
+        draft.note = n.text;
+      } else if (n.setIndex! < draft.setNotes.length) {
+        draft.setNotes[n.setIndex!] = n.text;
+      }
     }
   }
 
@@ -220,7 +237,9 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
     final history = buildExerciseHistory(
       yearsAscending: yearsAscending,
       exerciseName: exerciseName,
-    ).where((h) => h.date.isBefore(widget.metaRow.date)).toList();
+    ).where((h) => h.date.isBefore(widget.metaRow.date))
+        .where((h) => h.ratingRelevance != RatingRelevance.unrelated)
+        .toList();
     return history.isEmpty ? null : history.last.avgWeight;
   }
 
@@ -357,10 +376,41 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
       noteOk = await notifier.saveVisitNote(metaRow, newNote);
     }
 
+    final exerciseNotes = <ExerciseNote>[];
+    for (final name in _exerciseOrder) {
+      final draft = _drafts[name];
+      if (draft == null) continue;
+      if (draft.note != null && draft.note!.isNotEmpty) {
+        exerciseNotes.add(
+          ExerciseNote(
+            visitId: metaRow.visitId,
+            exerciseName: name,
+            text: draft.note!,
+          ),
+        );
+      }
+      for (var i = 0; i < draft.setNotes.length; i++) {
+        final text = draft.setNotes[i];
+        if (text == null || text.isEmpty) continue;
+        exerciseNotes.add(
+          ExerciseNote(
+            visitId: metaRow.visitId,
+            exerciseName: name,
+            setIndex: i,
+            text: text,
+          ),
+        );
+      }
+    }
+    final notesOk = await notifier.saveNotesForVisit(
+      metaRow.visitId,
+      exerciseNotes,
+    );
+
     if (!mounted) return;
     setState(() => _saving = false);
 
-    if (!(weightsOk && setsOk && ratingOk && noteOk)) {
+    if (!(weightsOk && setsOk && ratingOk && noteOk && notesOk)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Some changes failed to save — check your connection.'),
@@ -557,6 +607,33 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
                               icon: const Icon(Icons.edit_outlined),
                               tooltip: 'Edit exercise (name / muscle / unit / delete)',
                               onPressed: () => _editExercise(_exerciseOrder[i]),
+                            ),
+                            Builder(
+                              builder: (context) {
+                                final draft = _drafts[_exerciseOrder[i]]!;
+                                final hasNote =
+                                    draft.note != null && draft.note!.isNotEmpty;
+                                return IconButton(
+                                  icon: Icon(
+                                    hasNote
+                                        ? Icons.sticky_note_2
+                                        : Icons.note_add_outlined,
+                                  ),
+                                  tooltip: 'Note on this exercise',
+                                  onPressed: () async {
+                                    final result = await showEditNoteDialog(
+                                      context,
+                                      title: 'Note on ${_exerciseOrder[i]}',
+                                      initialText: draft.note,
+                                    );
+                                    if (result == null) return;
+                                    setState(() {
+                                      draft.note =
+                                          result.isEmpty ? null : result;
+                                    });
+                                  },
+                                );
+                              },
                             ),
                             IconButton(
                               icon: const Icon(Icons.remove_circle_outline),

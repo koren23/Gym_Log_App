@@ -9,6 +9,7 @@ import '../core/utils/result.dart';
 import '../models/body_weight_entry.dart';
 import '../models/exercise.dart';
 import '../models/exercise_muscle_info.dart';
+import '../models/exercise_note.dart';
 import '../models/exercise_unit.dart';
 import '../models/rating_relevance.dart';
 import '../models/workout_day_def.dart';
@@ -159,6 +160,40 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
     return (SaveOutcome.synced, metaRowIndex);
   }
 
+  /// Replaces every per-exercise/per-set note for [visitId] with [notes] —
+  /// called after a successful [logVisit] (fresh visit) or whenever an
+  /// existing visit's notes are edited. Best-effort: the visit's core data
+  /// (weights/reps/rating) is already saved by the time this runs, so a
+  /// failure here doesn't undo that, matching how the visit-level note's
+  /// header-row mirror is treated in [logVisit].
+  Future<bool> saveNotesForVisit(String visitId, List<ExerciseNote> notes) async {
+    final current = state.value;
+    if (current == null) return false;
+    final repository = await ref.read(sheetsRepositoryProvider.future);
+
+    if (!current.snapshot.classifiedTabs.hasNotesTab) {
+      if (notes.isEmpty) return true;
+      final ensured = await repository.ensureNotesTab();
+      if (ensured.isErr) return false;
+    }
+
+    final staleRowIndexes = [
+      for (final n in current.snapshot.notes)
+        if (n.visitId == visitId && n.rowIndex != null) n.rowIndex!,
+    ];
+    if (staleRowIndexes.isEmpty && notes.isEmpty) return true;
+
+    final result = await repository.replaceNotesForVisit(
+      visitId: visitId,
+      staleRowIndexes: staleRowIndexes,
+      notesGridId: current.snapshot.gridIdsByTabName[kNotesTabName],
+      newNotes: notes,
+    );
+    if (result.isErr) return false;
+    await refresh();
+    return true;
+  }
+
   Future<SaveOutcome> saveRating({
     required int isoYear,
     required int metaRowIndex,
@@ -210,6 +245,12 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
         return SaveOutcome.queuedOffline;
       }
     }
+    // Unlike logVisit/deleteExercise/etc., this used to skip refresh() —
+    // the write reached the sheet but the in-memory MetaRow.ratingRelevance
+    // stayed stale, so reopening the same visit for edit right after saving
+    // would show the "not 100%" checkbox as unchecked again until some
+    // other action happened to trigger a reload.
+    await refresh();
     return SaveOutcome.synced;
   }
 
@@ -536,6 +577,68 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
     return true;
   }
 
+  /// One-time Settings action: fills in a missing unit and/or missing
+  /// muscle-column entry in the "Exercises" reference tab for every exercise
+  /// that's ever appeared in logged history, without touching anything
+  /// that's already set. Units default to `kg` (matching [setExerciseUnit]'s
+  /// existing backfill semantics); muscles are inferred from each exercise's
+  /// own [Exercise.muscleGroup] (known from where it lives in the matrix
+  /// tab), skipping any muscle group that has no known column yet (i.e. one
+  /// with zero exercises currently listed in the reference tab).
+  Future<({int unitsFilled, int musclesFilled})> backfillMissingExerciseInfo() async {
+    final current = state.value;
+    if (current == null) return (unitsFilled: 0, musclesFilled: 0);
+    final repository = await ref.read(sheetsRepositoryProvider.future);
+
+    final knownExercises = <String, Exercise>{};
+    for (final y in current.snapshot.yearData.values) {
+      for (final e in y.allExercises) {
+        knownExercises[e.name.toLowerCase()] = e;
+      }
+    }
+
+    var unitsFilled = 0;
+    final table = current.snapshot.exerciseUnitsTable;
+    final missingUnitNames = [
+      for (final e in knownExercises.values)
+        if (!table.assignments.containsKey(e.name.toLowerCase())) e.name,
+    ];
+    if (missingUnitNames.isNotEmpty) {
+      final result = await repository.setExerciseUnit(
+        exerciseName: missingUnitNames.first,
+        unit: ExerciseUnit.kg,
+        currentTable: table,
+        backfillNames: missingUnitNames.skip(1).toList(),
+      );
+      if (result.isOk) unitsFilled = missingUnitNames.length;
+    }
+
+    var musclesFilled = 0;
+    final knownMuscleNames = {
+      for (final info in current.snapshot.exerciseMuscleInfo)
+        info.exerciseName.toLowerCase(),
+    };
+    final columnByMuscle = <MuscleGroup, int>{};
+    for (final info in current.snapshot.exerciseMuscleInfo) {
+      columnByMuscle.putIfAbsent(info.muscleGroup, () => info.columnIndex);
+    }
+    for (final e in knownExercises.values) {
+      if (knownMuscleNames.contains(e.name.toLowerCase())) continue;
+      final columnIndex = columnByMuscle[e.muscleGroup];
+      if (columnIndex == null) continue;
+      final result = await repository.appendExerciseToMuscleColumn(
+        columnIndex: columnIndex,
+        exerciseName: e.name,
+      );
+      if (result.isOk) musclesFilled++;
+    }
+
+    if (unitsFilled > 0 || musclesFilled > 0) {
+      await refresh();
+    }
+    return (unitsFilled: unitsFilled, musclesFilled: musclesFilled);
+  }
+
   /// Result of [updateExercise]: overall success plus which sub-steps (if
   /// any) failed, so the caller's SnackBar can name exactly what didn't
   /// save.
@@ -688,6 +791,8 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
       muscleColumnEntry: muscleEntry,
     );
     if (result.isErr) return false;
+    final queue = ref.read(pendingSyncQueueProvider);
+    await queue.cancelPendingExercise(exercise.name);
     await refresh();
     return true;
   }
@@ -1102,6 +1207,12 @@ final currentYearDataProvider = Provider<YearSheetData?>((ref) {
 final exerciseMuscleInfoProvider = Provider<List<ExerciseMuscleInfo>>((ref) {
   final snapshot = ref.watch(snapshotProvider).value;
   return snapshot?.snapshot.exerciseMuscleInfo ?? const [];
+});
+
+/// Every per-exercise/per-set note from the `Notes` tab, if present.
+final notesProvider = Provider<List<ExerciseNote>>((ref) {
+  final snapshot = ref.watch(snapshotProvider).value;
+  return snapshot?.snapshot.notes ?? const [];
 });
 
 /// Workout days confirmed synced to the sheet-backed `WorkoutDays` tab (see

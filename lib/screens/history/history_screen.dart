@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../../core/constants/muscle_groups.dart';
 import '../../core/utils/text.dart';
 import '../../models/history_entry.dart';
+import '../../models/rating_relevance.dart';
 import '../../models/workout_day_def.dart';
 import '../../models/year_sheet_data.dart';
 import '../../providers/analysis_providers.dart';
@@ -303,7 +304,7 @@ class _DayDetail extends StatelessWidget {
   }
 }
 
-class _EntryDetail extends StatelessWidget {
+class _EntryDetail extends ConsumerWidget {
   const _EntryDetail({
     required this.entry,
     required this.yearData,
@@ -315,7 +316,7 @@ class _EntryDetail extends StatelessWidget {
   final List<WorkoutDayDef> workoutDayDefs;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     // bestMatchingDayForEntry already tries the explicit workoutDayId first
     // (authoritative when present) and otherwise arbitrates among every
@@ -328,6 +329,16 @@ class _EntryDetail extends StatelessWidget {
     final legacyDay = workoutDayForGroupLabels(entry.muscleGroups);
     final note =
         entry.metaRow?.note ?? yearData?.weekNotes[entry.isoWeek];
+    final visitId = entry.metaRow?.visitId;
+    final notesByExercise = <String, List<String>>{};
+    if (visitId != null) {
+      for (final n in ref.watch(notesProvider)) {
+        if (n.visitId != visitId) continue;
+        (notesByExercise[n.exerciseName] ??= []).add(
+          n.setIndex == null ? n.text : 'Set ${n.setIndex! + 1}: ${n.text}',
+        );
+      }
+    }
     final dayLabel = matchedDay?.label ??
         (entry.muscleGroups.isEmpty
             ? null
@@ -390,10 +401,37 @@ class _EntryDetail extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 4),
+        if (entry.metaRow?.ratingRelevance == RatingRelevance.unrelated)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Text(
+              'Not 100%',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.error,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
         for (final name in entry.exerciseNames)
           Padding(
             padding: const EdgeInsets.only(bottom: 2),
-            child: Text(name, style: theme.textTheme.bodyMedium),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(name, style: theme.textTheme.bodyMedium),
+                if (notesByExercise[name] != null)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 8, top: 1),
+                    child: Text(
+                      notesByExercise[name]!.join(' · '),
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        fontStyle: FontStyle.italic,
+                        color: theme.colorScheme.outline,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
         if (note != null && note.isNotEmpty)
           Padding(

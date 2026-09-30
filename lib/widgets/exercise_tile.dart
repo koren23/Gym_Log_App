@@ -51,6 +51,7 @@ class ExerciseDraft {
          null,
          growable: true,
        ),
+       setNotes = List<String?>.filled(setCount, null, growable: true),
        weightControllers = List.generate(
          setCount,
          (_) => TextEditingController(),
@@ -81,6 +82,14 @@ class ExerciseDraft {
   List<double?> targetWeightOverridePerSet;
   final List<TextEditingController> weightControllers;
   final List<TextEditingController> repsControllers;
+
+  /// A free-text note on the exercise as a whole, separate from the
+  /// whole-visit note — null when none has been entered.
+  String? note;
+
+  /// A free-text note per set, parallel to [setWeights] — null entries mean
+  /// no note for that set.
+  List<String?> setNotes;
 
   bool get isComplete => setWeights.every(
     (w) => w != null && (w > 0 || (w == 0 && exercise.unit.allowsZeroAsRealValue)),
@@ -165,6 +174,7 @@ class ExerciseDraft {
     targetRepRangeLowOverridePerSet.add(null);
     targetRepRangeHighOverridePerSet.add(null);
     targetWeightOverridePerSet.add(null);
+    setNotes.add(null);
     weightControllers.add(TextEditingController());
     repsControllers.add(TextEditingController());
   }
@@ -178,6 +188,7 @@ class ExerciseDraft {
     targetRepRangeLowOverridePerSet.removeLast();
     targetRepRangeHighOverridePerSet.removeLast();
     targetWeightOverridePerSet.removeLast();
+    setNotes.removeLast();
     weightControllers.removeLast().dispose();
     repsControllers.removeLast().dispose();
   }
@@ -189,6 +200,7 @@ class ExerciseDraft {
     required List<int?> reps,
     List<bool>? approxReps,
     List<SetFeedback>? setFeedback,
+    List<String?>? setNotes,
   }) {
     for (final c in weightControllers) {
       c.dispose();
@@ -218,6 +230,8 @@ class ExerciseDraft {
       null,
       growable: true,
     );
+    this.setNotes =
+        setNotes ?? List<String?>.filled(weights.length, null, growable: true);
     weightControllers
       ..clear()
       ..addAll([
@@ -276,6 +290,7 @@ class ExerciseTile extends ConsumerWidget {
     required this.onToggle,
     required this.onChanged,
     this.onFocusLost,
+    this.onDeleted,
     this.previousWeight,
     this.trend = TileTrend.unknown,
   });
@@ -284,6 +299,11 @@ class ExerciseTile extends ConsumerWidget {
   final bool selected;
   final ValueChanged<bool> onToggle;
   final VoidCallback onChanged;
+
+  /// Fired after this exercise was successfully deleted from the sheet, so
+  /// the parent screen can drop it from its own local/draft state too (this
+  /// tile has no local state of its own to clean up beyond that).
+  final VoidCallback? onDeleted;
 
   /// Fired when a set field in this tile loses focus (not on every
   /// keystroke) — used to defer UI reflow (e.g. "Workout so far" updating)
@@ -330,14 +350,36 @@ class ExerciseTile extends ConsumerWidget {
                       'Last time: ${formatExerciseValue(draft.exercise.unit, previousWeight!, customLabel: draft.exercise.customUnitLabel)}',
                     ),
                   const SizedBox(height: 4),
-                  ActionChip(
-                    avatar: const Icon(Icons.edit_outlined, size: 16),
-                    label: Text(
-                      'Unit: ${_unitName(draft.exercise.unit, draft.exercise.customUnitLabel)}',
-                    ),
-                    tooltip: 'Edit exercise (name / muscle / unit / delete)',
-                    visualDensity: VisualDensity.compact,
-                    onPressed: () => _editExercise(context, ref),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    children: [
+                      ActionChip(
+                        avatar: const Icon(Icons.edit_outlined, size: 16),
+                        label: Text(
+                          'Unit: ${_unitName(draft.exercise.unit, draft.exercise.customUnitLabel)}',
+                        ),
+                        tooltip: 'Edit exercise (name / muscle / unit / delete)',
+                        visualDensity: VisualDensity.compact,
+                        onPressed: () => _editExercise(context, ref),
+                      ),
+                      ActionChip(
+                        avatar: Icon(
+                          draft.note == null || draft.note!.isEmpty
+                              ? Icons.note_add_outlined
+                              : Icons.sticky_note_2,
+                          size: 16,
+                        ),
+                        label: Text(
+                          draft.note == null || draft.note!.isEmpty
+                              ? 'Add note'
+                              : 'Note',
+                        ),
+                        tooltip: "Note on this exercise",
+                        visualDensity: VisualDensity.compact,
+                        onPressed: () => _editNote(context),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -357,6 +399,17 @@ class ExerciseTile extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _editNote(BuildContext context) async {
+    final result = await showEditNoteDialog(
+      context,
+      title: 'Note on ${draft.exercise.name}',
+      initialText: draft.note,
+    );
+    if (result == null) return;
+    draft.note = result.isEmpty ? null : result;
+    onChanged();
   }
 
   static String _unitName(ExerciseUnit unit, String? customLabel) =>
@@ -379,7 +432,9 @@ class ExerciseTile extends ConsumerWidget {
 
     if (result.deleted) {
       final ok = await ref.read(snapshotProvider.notifier).deleteExercise(old);
-      if (!ok && context.mounted) {
+      if (ok) {
+        onDeleted?.call();
+      } else if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
@@ -563,8 +618,9 @@ class _SetEditorRowState extends State<_SetEditorRow> {
     final approx = draft.setApproxReps[i];
     final feedback = draft.setFeedback[i];
     final theme = Theme.of(context);
+    final hasNote = draft.setNotes[i] != null && draft.setNotes[i]!.isNotEmpty;
     return SizedBox(
-      width: 268,
+      width: 300,
       child: Row(
         children: [
           Expanded(
@@ -672,8 +728,73 @@ class _SetEditorRowState extends State<_SetEditorRow> {
               ),
             ),
           ),
+          const SizedBox(width: 4),
+          Tooltip(
+            message: hasNote ? 'Note on this set' : 'Add a note to this set',
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: () async {
+                final result = await showEditNoteDialog(
+                  context,
+                  title: 'Note on set ${i + 1}',
+                  initialText: draft.setNotes[i],
+                );
+                if (result == null) return;
+                draft.setNotes[i] = result.isEmpty ? null : result;
+                widget.onChanged();
+              },
+              child: CircleAvatar(
+                radius: 14,
+                backgroundColor: hasNote
+                    ? theme.colorScheme.primaryContainer
+                    : theme.colorScheme.surfaceContainerHighest,
+                child: Icon(
+                  hasNote ? Icons.sticky_note_2 : Icons.note_add_outlined,
+                  size: 14,
+                  color: hasNote
+                      ? theme.colorScheme.onPrimaryContainer
+                      : theme.colorScheme.outline,
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
   }
+}
+
+/// A small dialog for entering/editing a free-text note — shared by
+/// exercise-level and set-level note affordances. Returns the trimmed text
+/// (possibly empty, meaning "clear the note") on save, or null if cancelled.
+Future<String?> showEditNoteDialog(
+  BuildContext context, {
+  required String title,
+  required String? initialText,
+}) {
+  final controller = TextEditingController(text: initialText ?? '');
+  return showDialog<String>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text(title),
+      content: TextField(
+        controller: controller,
+        autofocus: true,
+        maxLines: 4,
+        minLines: 1,
+        decoration: const InputDecoration(hintText: 'e.g. felt easy, form broke down...'),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () =>
+              Navigator.of(context).pop(controller.text.trim()),
+          child: const Text('Save'),
+        ),
+      ],
+    ),
+  );
 }
