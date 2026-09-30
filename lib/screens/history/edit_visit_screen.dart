@@ -7,6 +7,7 @@ import '../../core/utils/iso_week.dart';
 import '../../core/utils/text.dart';
 import '../../models/exercise.dart';
 import '../../models/exercise_muscle_info.dart';
+import '../../models/exercise_unit.dart';
 import '../../models/exercise_note.dart';
 import '../../models/rating_relevance.dart';
 import '../../models/set_feedback.dart';
@@ -77,6 +78,8 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
           muscleGroupKnown: muscleGroupByName.containsKey(
             logged.exerciseName.toLowerCase(),
           ),
+          unit: exercise?.unit ?? ExerciseUnit.kg,
+          customUnitLabel: exercise?.customUnitLabel,
         ),
       );
 
@@ -348,28 +351,11 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
       entries.add(entry);
     }
 
-    final newWeights = {
-      for (final entry in entries) entry.exercise.name: entry.averageWeight,
-    };
-    final weightsOk = await notifier.updateVisitWeights(metaRow, newWeights);
-
-    final setsOk = await notifier.updateVisitExerciseOrder(metaRow, [
-      for (final entry in entries) _toLoggedRange(entry),
-    ]);
-
-    var ratingOk = true;
-    final ratingChanged = _rating != (metaRow.rating ?? 0);
-    final relevanceChanged = _ratingRelevance != metaRow.ratingRelevance;
-    if (ratingChanged || relevanceChanged) {
-      final outcome = await notifier.saveRating(
-        isoYear: metaRow.isoYear,
-        metaRowIndex: metaRow.rowIndex,
-        rating: _rating,
-        ratingRelevance: relevanceChanged ? _ratingRelevance : null,
-      );
-      ratingOk = outcome == SaveOutcome.synced;
-    }
-
+    // Notes are saved first, deliberately: saveVisitNote/saveNotesForVisit
+    // still end with a network refresh() (see sheet_data_providers.dart), and
+    // running them before the in-memory-patch saves below (weights, order,
+    // rating) guarantees that refresh can never land inside Sheets' write
+    // propagation window for one of those patches and revert it.
     var noteOk = true;
     final newNote = _noteController.text.trim();
     if (newNote != (widget.initialNote ?? '').trim()) {
@@ -406,6 +392,28 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
       metaRow.visitId,
       exerciseNotes,
     );
+
+    final newWeights = {
+      for (final entry in entries) entry.exercise.name: entry.averageWeight,
+    };
+    final weightsOk = await notifier.updateVisitWeights(metaRow, newWeights);
+
+    final setsOk = await notifier.updateVisitExerciseOrder(metaRow, [
+      for (final entry in entries) _toLoggedRange(entry),
+    ]);
+
+    var ratingOk = true;
+    final ratingChanged = _rating != (metaRow.rating ?? 0);
+    final relevanceChanged = _ratingRelevance != metaRow.ratingRelevance;
+    if (ratingChanged || relevanceChanged) {
+      final outcome = await notifier.saveRating(
+        isoYear: metaRow.isoYear,
+        metaRowIndex: metaRow.rowIndex,
+        rating: _rating,
+        ratingRelevance: relevanceChanged ? _ratingRelevance : null,
+      );
+      ratingOk = outcome == SaveOutcome.synced;
+    }
 
     if (!mounted) return;
     setState(() => _saving = false);

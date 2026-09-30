@@ -16,6 +16,19 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '1.4.1',
+    date: '2026-10-01',
+    changes: [
+      'Fixed the "not 100%" flag still reverting: saving a workout\'s note '
+          'afterward could re-fetch from the sheet before the flag had '
+          'finished saving there, silently undoing it. Note saves now '
+          'always happen first.',
+      'Fixed an already-logged exercise using bodyweight or a custom unit '
+          'showing as reset to kg when reopening it to edit, which could '
+          'also wrongly block saving a bodyweight set logged as 0.',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.4.0',
     date: '2026-09-30',
     changes: [

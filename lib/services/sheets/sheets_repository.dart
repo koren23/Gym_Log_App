@@ -50,6 +50,7 @@ class SpreadsheetSnapshot {
   final List<ExerciseNote> notes;
 
   SpreadsheetSnapshot copyWith({
+    Map<int, YearSheetData>? yearData,
     List<ExerciseMuscleInfo>? exerciseMuscleInfo,
     List<WorkoutDayDef>? workoutDayDefs,
     ExerciseUnitsTable? exerciseUnitsTable,
@@ -57,7 +58,7 @@ class SpreadsheetSnapshot {
   }) => SpreadsheetSnapshot(
     classifiedTabs: classifiedTabs,
     gridIdsByTabName: gridIdsByTabName,
-    yearData: yearData,
+    yearData: yearData ?? this.yearData,
     bodyWeightEntries: bodyWeightEntries,
     exerciseMuscleInfo: exerciseMuscleInfo ?? this.exerciseMuscleInfo,
     workoutDayDefs: workoutDayDefs ?? this.workoutDayDefs,

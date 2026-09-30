@@ -69,6 +69,32 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
     await future;
   }
 
+  /// Applies a same-year [YearSheetData] edit directly to the snapshot
+  /// already held in memory, without a network round trip. Google Sheets'
+  /// read-after-write consistency isn't instant (confirmed live via adb
+  /// logcat: a write can report success while the very next read still
+  /// returns the pre-write value for a second or more), and every mutator
+  /// here used to end with a full `refresh()` — a network re-fetch that,
+  /// if it lands inside that window for *any* row recently written by this
+  /// notifier (not just the one the current call is touching), silently
+  /// reverts that other row's already-applied change in the UI. Since each
+  /// mutator already knows exactly which fields it just wrote, patching
+  /// them locally is both correct and race-free.
+  void _patchYearData(int isoYear, YearSheetData Function(YearSheetData) edit) {
+    final current = state.value;
+    final yearData = current?.snapshot.yearData[isoYear];
+    if (current == null || yearData == null) return;
+    state = AsyncData(
+      SnapshotState(
+        snapshot: current.snapshot.copyWith(
+          yearData: Map<int, YearSheetData>.from(current.snapshot.yearData)
+            ..[isoYear] = edit(yearData),
+        ),
+        pendingCount: current.pendingCount,
+      ),
+    );
+  }
+
   /// Logs a completed workout visit. Ensures the target year/overflow tab
   /// exists, writes the matrix + metadata rows, and returns the metadata
   /// row index (needed for the follow-up rating write) alongside whether
@@ -245,12 +271,24 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
         return SaveOutcome.queuedOffline;
       }
     }
-    // Unlike logVisit/deleteExercise/etc., this used to skip refresh() —
-    // the write reached the sheet but the in-memory MetaRow.ratingRelevance
-    // stayed stale, so reopening the same visit for edit right after saving
-    // would show the "not 100%" checkbox as unchecked again until some
-    // other action happened to trigger a reload.
-    await refresh();
+    // See _patchYearData: no refresh() here, this only ever touches one
+    // row's rating/ratingRelevance, so patch it in place instead of racing
+    // a network reload against Sheets' read-after-write consistency window.
+    _patchYearData(
+      isoYear,
+      (yearData) => yearData.copyWith(
+        metaRows: [
+          for (final m in yearData.metaRows)
+            if (m.rowIndex == metaRowIndex)
+              m.copyWith(
+                rating: rating,
+                ratingRelevance: ratingRelevance ?? m.ratingRelevance,
+              )
+            else
+              m,
+        ],
+      ),
+    );
     return SaveOutcome.synced;
   }
 
@@ -349,7 +387,20 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
       weightByExerciseRow: weightByRow,
     );
     if (result.isErr) return false;
-    await refresh();
+    // See _patchYearData: patch the written cells in place instead of a
+    // network refresh(), which could race Sheets' read-after-write
+    // consistency window and revert some other row this notifier recently
+    // wrote (e.g. a rating-relevance flag saved moments earlier).
+    _patchYearData(
+      metaRow.isoYear,
+      (yearData) => yearData.copyWith(
+        cellValues: {
+          ...yearData.cellValues,
+          for (final entry in weightByRow.entries)
+            CellKey(entry.key, weekColumn): entry.value,
+        },
+      ),
+    );
     return true;
   }
 
@@ -402,7 +453,22 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
       }
     }
 
-    await refresh();
+    // See _patchYearData: no refresh() here, same race as saveRating — this
+    // only ever touches one row's note, so patch it in place. The
+    // legacyGrouped/currentGrouped header-row mirror write above is
+    // best-effort and deliberately not reflected into weekNotes/
+    // weekNotesByGroup in memory (it'll show correctly after the next full
+    // refresh) — not worth replicating the parser's cross-header-row merge
+    // logic for this legacy-format-only display detail.
+    _patchYearData(
+      metaRow.isoYear,
+      (yd) => yd.copyWith(
+        metaRows: [
+          for (final m in yd.metaRows)
+            if (m.rowIndex == metaRow.rowIndex) m.copyWith(note: note) else m,
+        ],
+      ),
+    );
     return true;
   }
 
@@ -447,7 +513,21 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
       exercises: newOrder,
     );
     if (result.isErr) return false;
-    await refresh();
+    // See _patchYearData: patch this row's exercises in place instead of a
+    // network refresh(), for the same read-after-write race reason as
+    // updateVisitWeights above.
+    _patchYearData(
+      metaRow.isoYear,
+      (yearData) => yearData.copyWith(
+        metaRows: [
+          for (final m in yearData.metaRows)
+            if (m.rowIndex == metaRow.rowIndex)
+              m.copyWith(exercises: newOrder)
+            else
+              m,
+        ],
+      ),
+    );
     return true;
   }
 

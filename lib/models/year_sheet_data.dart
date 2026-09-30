@@ -144,6 +144,26 @@ class MetaRow {
 
   List<String> get exerciseNames =>
       exercises.map((e) => e.exerciseName).toList();
+
+  MetaRow copyWith({
+    double? rating,
+    RatingRelevance? ratingRelevance,
+    List<LoggedExerciseRepRange>? exercises,
+    String? note,
+  }) => MetaRow(
+    rowIndex: rowIndex,
+    visitId: visitId,
+    date: date,
+    isoWeek: isoWeek,
+    isoYear: isoYear,
+    muscleGroups: muscleGroups,
+    exercises: exercises ?? this.exercises,
+    sourceTab: sourceTab,
+    rating: rating ?? this.rating,
+    ratingRelevance: ratingRelevance ?? this.ratingRelevance,
+    note: note ?? this.note,
+    workoutDayId: workoutDayId,
+  );
 }
 
 /// Parsed representation of one year's data: its matrix tab(s) plus its
@@ -219,4 +239,21 @@ class YearSheetData {
       : weekColumns.values.reduce((a, b) => a > b ? a : b) + 1;
 
   bool get isFull => weekColumns.length >= 52;
+
+  YearSheetData copyWith({
+    Map<CellKey, double>? cellValues,
+    List<MetaRow>? metaRows,
+  }) => YearSheetData(
+    year: year,
+    tabName: tabName,
+    format: format,
+    muscleGroupSections: muscleGroupSections,
+    weekColumns: weekColumns,
+    cellValues: cellValues ?? this.cellValues,
+    sectionHeaderRows: sectionHeaderRows,
+    primaryGroupHeaderRow: primaryGroupHeaderRow,
+    weekNotes: weekNotes,
+    weekNotesByGroup: weekNotesByGroup,
+    metaRows: metaRows ?? this.metaRows,
+  );
 }

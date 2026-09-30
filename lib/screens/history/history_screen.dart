@@ -84,6 +84,13 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
           _CalendarGrid(
             month: _focusedMonth!,
             markedDates: byDate.keys.toSet(),
+            notAllNormalDates: {
+              for (final entry in byDate.entries)
+                if (entry.value.any(
+                  (e) => e.metaRow?.ratingRelevance == RatingRelevance.unrelated,
+                ))
+                  entry.key,
+            },
             selectedDate: _selectedDate,
             onSelect: (date) => setState(() => _selectedDate = date),
           ),
@@ -142,12 +149,17 @@ class _CalendarGrid extends StatelessWidget {
   const _CalendarGrid({
     required this.month,
     required this.markedDates,
+    required this.notAllNormalDates,
     required this.selectedDate,
     required this.onSelect,
   });
 
   final DateTime month;
   final Set<DateTime> markedDates;
+
+  /// Dates with at least one visit flagged "not 100%" — shown with a
+  /// distinct marker so it's visible without opening the day's detail.
+  final Set<DateTime> notAllNormalDates;
   final DateTime? selectedDate;
   final ValueChanged<DateTime> onSelect;
 
@@ -183,6 +195,9 @@ class _CalendarGrid extends StatelessWidget {
             marked: markedDates.contains(
               DateTime(month.year, month.month, day),
             ),
+            notAllNormal: notAllNormalDates.contains(
+              DateTime(month.year, month.month, day),
+            ),
             selected:
                 selectedDate != null &&
                 selectedDate!.year == month.year &&
@@ -199,12 +214,14 @@ class _DayCell extends StatelessWidget {
   const _DayCell({
     required this.date,
     required this.marked,
+    required this.notAllNormal,
     required this.selected,
     required this.onTap,
   });
 
   final DateTime date;
   final bool marked;
+  final bool notAllNormal;
   final bool selected;
   final VoidCallback onTap;
 
@@ -240,7 +257,9 @@ class _DayCell extends StatelessWidget {
                   margin: const EdgeInsets.only(top: 1),
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: theme.colorScheme.primary,
+                    color: notAllNormal
+                        ? theme.colorScheme.error
+                        : theme.colorScheme.primary,
                   ),
                 ),
             ],
@@ -366,6 +385,17 @@ class _EntryDetail extends ConsumerWidget {
               Text(
                 entry.metaRow!.rating!.toStringAsFixed(1),
                 style: theme.textTheme.bodySmall,
+              ),
+            ],
+            if (entry.metaRow?.ratingRelevance == RatingRelevance.unrelated) ...[
+              const SizedBox(width: 6),
+              Tooltip(
+                message: 'Not 100%',
+                child: Icon(
+                  Icons.sick_outlined,
+                  size: 16,
+                  color: theme.colorScheme.error,
+                ),
               ),
             ],
             if (entry.isSynthetic) ...[
