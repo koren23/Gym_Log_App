@@ -16,6 +16,16 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '1.4.2',
+    date: '2026-10-01',
+    changes: [
+      'Fixed the "not 100%" flag (and a visit note) reverting after fully '
+          'closing and reopening the app: the startup data fetch was '
+          'silently requesting a column range that cut off those fields, '
+          'so the correct value was saved to the sheet but never read back.',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.4.1',
     date: '2026-10-01',
     changes: [

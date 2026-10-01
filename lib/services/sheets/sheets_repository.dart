@@ -113,7 +113,10 @@ class SheetsRepository {
         final tab = classified.writableTabFor(year);
         if (tab != null) rangesToFetch.add("'$tab'!A1:CZ2000");
         final metaTab = classified.metaTabByYear[year];
-        if (metaTab != null) rangesToFetch.add("'$metaTab'!A1:H2000");
+        // Must cover every column in kMetaTabColumns (11 columns, through K:
+        // workoutDayId) — a narrower range here silently drops ratingRelevance/
+        // note/workoutDayId from the fetched rows on every full reload.
+        if (metaTab != null) rangesToFetch.add("'$metaTab'!A1:K2000");
       }
       if (classified.hasBodyWeightTab) {
         rangesToFetch.add("'$kBodyWeightTabName'!A1:B5000");
