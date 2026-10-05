@@ -222,12 +222,14 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
     }
   }
 
-  /// The most recent weight logged for [exerciseName] strictly before this
-  /// visit's own date — a "last time" preview, matching the one shown while
-  /// logging a new workout (see `exercise_tile.dart`'s "Last time" line).
-  /// Excludes this visit's own (possibly not-yet-saved) entry so editing
-  /// doesn't show the visit as a preview of itself.
-  double? _previousWeightFor(String exerciseName) {
+  /// Per-set weights actually logged for [exerciseName] strictly before
+  /// this visit's own date, e.g. `[50, 70, 80]` — a "last time" preview,
+  /// matching the one shown while logging a new workout (see
+  /// `exercise_tile.dart`'s "Last time" line). Excludes this visit's own
+  /// (possibly not-yet-saved) entry so editing doesn't show the visit as a
+  /// preview of itself. Falls back to the single pre-averaged value for a
+  /// legacy visit logged before per-set tracking existed.
+  List<double> _previousWeightsFor(String exerciseName) {
     final yearsAscending = ref
         .read(snapshotProvider)
         .value
@@ -235,7 +237,7 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
         .yearData
         .values
         .toList();
-    if (yearsAscending == null) return null;
+    if (yearsAscending == null) return const [];
     yearsAscending.sort((a, b) => a.year.compareTo(b.year));
     final history = buildExerciseHistory(
       yearsAscending: yearsAscending,
@@ -243,7 +245,11 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
     ).where((h) => h.date.isBefore(widget.metaRow.date))
         .where((h) => h.ratingRelevance != RatingRelevance.unrelated)
         .toList();
-    return history.isEmpty ? null : history.last.avgWeight;
+    if (history.isEmpty) return const [];
+    final last = history.last;
+    return last.actualWeightsPerSet.isNotEmpty
+        ? last.actualWeightsPerSet
+        : [last.avgWeight];
   }
 
   /// Exercises this visit's year already has a matrix-tab row for, minus
@@ -582,7 +588,7 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
                               child: Builder(
                                 builder: (context) {
                                   final draft = _drafts[_exerciseOrder[i]]!;
-                                  final previousWeight = _previousWeightFor(
+                                  final previousWeights = _previousWeightsFor(
                                     _exerciseOrder[i],
                                   );
                                   return Column(
@@ -595,9 +601,9 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
                                           context,
                                         ).textTheme.titleSmall,
                                       ),
-                                      if (previousWeight != null)
+                                      if (previousWeights.isNotEmpty)
                                         Text(
-                                          'Last time: ${formatExerciseValue(draft.exercise.unit, previousWeight, customLabel: draft.exercise.customUnitLabel)}',
+                                          'Last time: ${formatExerciseValuesPerSet(draft.exercise.unit, previousWeights, customLabel: draft.exercise.customUnitLabel)}',
                                           style: Theme.of(
                                             context,
                                           ).textTheme.bodySmall?.copyWith(

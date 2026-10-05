@@ -214,6 +214,17 @@ class PendingSyncQueue {
           return Result.err(contextResult.error, contextResult.stackTrace);
         }
         final context = (contextResult as Ok<YearWriteContext>).value;
+        // A previous attempt may have actually reached the sheet even
+        // though it reported failure (e.g. the response was lost after the
+        // write was already applied — more common on web/PWA) — appending
+        // again would create a genuine duplicate "phantom" workout. If a
+        // meta row for this visit already exists, treat it as synced.
+        final alreadySynced = context.yearData.metaRows.any(
+          (m) => m.visitId == visit.visitId,
+        );
+        if (alreadySynced) {
+          return const Result.ok(null);
+        }
         final writeResult = await repository.writeVisit(
           yearData: context.yearData,
           sheetGridId: context.sheetGridId,

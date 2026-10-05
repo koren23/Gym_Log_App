@@ -16,6 +16,19 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '1.4.3',
+    date: '2026-10-05',
+    changes: [
+      'Fixed PWA sometimes creating a duplicate ("phantom") workout: '
+          'retrying a save that actually already reached the sheet now '
+          'checks first instead of blindly appending it again.',
+      'Fixed a muscle-group edit on PWA briefly showing the change, then '
+          'reverting to the old muscle group a moment later.',
+      'The "Last time" hint while logging an exercise now shows each set\'s '
+          'actual weight (e.g. "50 70 80kg") instead of one averaged number.',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.4.2',
     date: '2026-10-01',
     changes: [

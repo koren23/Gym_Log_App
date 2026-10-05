@@ -291,7 +291,7 @@ class ExerciseTile extends ConsumerWidget {
     required this.onChanged,
     this.onFocusLost,
     this.onDeleted,
-    this.previousWeight,
+    this.previousWeights = const [],
     this.trend = TileTrend.unknown,
   });
 
@@ -310,10 +310,11 @@ class ExerciseTile extends ConsumerWidget {
   /// until the user is done typing, instead of on the completing keystroke.
   final VoidCallback? onFocusLost;
 
-  /// Most recently logged average weight for this exercise, if any —
-  /// shown as a subtitle so the user can tell what they lifted last time
-  /// before entering today's weights.
-  final double? previousWeight;
+  /// Per-set weight actually logged last time for this exercise, e.g.
+  /// `[50, 70, 80]` — shown as a subtitle so the user can tell what they
+  /// lifted last time, set by set, before entering today's weights. Empty
+  /// when there's no eligible history yet.
+  final List<double> previousWeights;
 
   /// Recent improving/stuck/steady classification for this exercise, shown
   /// as a colored left-border stripe. [TileTrend.unknown] (new exercise, or
@@ -345,9 +346,9 @@ class ExerciseTile extends ConsumerWidget {
               subtitle: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (previousWeight != null)
+                  if (previousWeights.isNotEmpty)
                     Text(
-                      'Last time: ${formatExerciseValue(draft.exercise.unit, previousWeight!, customLabel: draft.exercise.customUnitLabel)}',
+                      'Last time: ${formatExerciseValuesPerSet(draft.exercise.unit, previousWeights, customLabel: draft.exercise.customUnitLabel)}',
                     ),
                   const SizedBox(height: 4),
                   Wrap(

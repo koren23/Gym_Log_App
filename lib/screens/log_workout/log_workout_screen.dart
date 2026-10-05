@@ -608,7 +608,10 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
     }
   }
 
-  double? _previousWeightFor(
+  /// Per-set weights actually logged last time, e.g. `[50, 70, 80]` — falls
+  /// back to the single pre-averaged value for a legacy visit logged before
+  /// per-set tracking existed (empty `actualWeightsPerSet`).
+  List<double> _previousWeightsFor(
     String exerciseName,
     List<YearSheetData> yearsAscending,
   ) {
@@ -616,7 +619,11 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
       yearsAscending: yearsAscending,
       exerciseName: exerciseName,
     ).where((h) => h.ratingRelevance != RatingRelevance.unrelated).toList();
-    return history.isEmpty ? null : history.last.avgWeight;
+    if (history.isEmpty) return const [];
+    final last = history.last;
+    return last.actualWeightsPerSet.isNotEmpty
+        ? last.actualWeightsPerSet
+        : [last.avgWeight];
   }
 
   @override
@@ -1063,7 +1070,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
             // already excludes the pinned exercise from the normal list.
             key: GlobalObjectKey(exercise.name),
             draft: _draftFor(exercise, yearsAscending),
-            previousWeight: _previousWeightFor(exercise.name, yearsAscending),
+            previousWeights: _previousWeightsFor(exercise.name, yearsAscending),
             trend: trendByName[exercise.name] ?? TileTrend.unknown,
             selected: _checked.contains(exercise.name),
             onToggle: (v) {

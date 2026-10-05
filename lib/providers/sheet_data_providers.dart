@@ -837,6 +837,28 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
     }
 
     await refresh();
+
+    // A muscle-group change can insert/move whole rows (grouped tabs) or
+    // move a column (flat tabs) — unlike the other mutators here, that's
+    // too structurally involved to patch in memory, so this still refreshes
+    // from network. But that refresh can land inside Sheets' read-after-
+    // write consistency window and come back with the pre-move data,
+    // which reads as "the edit reverted" (reported on web/PWA). Rather
+    // than accept whatever the first refresh returns, verify the moved
+    // exercise's muscle group actually came back changed and retry the
+    // fetch briefly if not, instead of showing a known-stale result.
+    if (muscleChanged && !failedSteps.contains('muscle')) {
+      for (var attempt = 0; attempt < 3; attempt++) {
+        final updated = state.value?.snapshot.yearData[currentYear]
+            ?.findExercise(newExercise.name);
+        if (updated != null && updated.muscleGroup == newExercise.muscleGroup) {
+          break;
+        }
+        await Future.delayed(const Duration(milliseconds: 500));
+        await refresh();
+      }
+    }
+
     return (success: failedSteps.isEmpty, failedSteps: failedSteps);
   }
 
@@ -1140,6 +1162,13 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
   Future<void> retryPendingSyncs() async {
     final repository = await ref.read(sheetsRepositoryProvider.future);
     final queue = ref.read(pendingSyncQueueProvider);
+    // Refresh first so the workoutVisit dedup check in [PendingSyncQueue]
+    // (matching on visitId against metaRows already on the sheet) sees an
+    // up-to-date picture, not whatever was last cached in memory — a queued
+    // visit may have actually landed on a previous attempt whose success
+    // response was lost (more common on web/PWA), and retrying blind would
+    // append it a second time.
+    await refresh();
     await queue.retryAll(
       repository: repository,
       resolveYearContext: (year) async {
