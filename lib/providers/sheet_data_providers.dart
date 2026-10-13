@@ -95,6 +95,25 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
     );
   }
 
+  /// Same idea as [_patchYearData], for the sheet-backed `WorkoutDays` tab:
+  /// patches `snapshot.workoutDayDefs` directly in memory instead of
+  /// `refresh()`-ing, so an add/update/delete can never visibly flicker or
+  /// revert due to Sheets' read-after-write consistency lag.
+  void _patchWorkoutDayDefs(
+    List<WorkoutDayDef> Function(List<WorkoutDayDef> current) edit,
+  ) {
+    final current = state.value;
+    if (current == null) return;
+    state = AsyncData(
+      SnapshotState(
+        snapshot: current.snapshot.copyWith(
+          workoutDayDefs: edit(current.snapshot.workoutDayDefs),
+        ),
+        pendingCount: current.pendingCount,
+      ),
+    );
+  }
+
   /// Logs a completed workout visit. Ensures the target year/overflow tab
   /// exists, writes the matrix + metadata rows, and returns the metadata
   /// row index (needed for the follow-up rating write) alongside whether
@@ -920,7 +939,29 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
       await queue.enqueueWorkoutDay(def);
       return false;
     }
-    await refresh();
+    // `values.append` with an "A1" range always lands right after the
+    // sheet's current last data row (Sheets API's own append semantics),
+    // so the new row's index is deterministic without a re-fetch.
+    final existing = state.value?.snapshot.workoutDayDefs ?? const [];
+    final maxRow = existing.fold<int>(
+      0,
+      (max, d) => d.sheetRowIndex != null && d.sheetRowIndex! > max
+          ? d.sheetRowIndex!
+          : max,
+    );
+    _patchWorkoutDayDefs((current) {
+      if (current.any((d) => d.id == def.id)) return current;
+      return [
+        ...current,
+        WorkoutDayDef(
+          id: def.id,
+          label: def.label,
+          muscleGroups: def.muscleGroups,
+          legacyDay: def.legacyDay,
+          sheetRowIndex: maxRow + 1,
+        ),
+      ];
+    });
     return true;
   }
 
@@ -934,7 +975,9 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
     final repository = await ref.read(sheetsRepositoryProvider.future);
     final result = await repository.updateWorkoutDay(def);
     if (result.isErr) return false;
-    await refresh();
+    _patchWorkoutDayDefs(
+      (current) => [for (final d in current) d.id == def.id ? def : d],
+    );
     return true;
   }
 
@@ -958,8 +1001,87 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
       workoutDaysGridId: gridId,
     );
     if (result.isErr) return false;
-    await refresh();
+    _patchWorkoutDayDefs((current) {
+      final remaining = current.where((d) => d.id != def.id);
+      // Rows after the deleted one shift up by one in the sheet.
+      return [
+        for (final d in remaining)
+          d.sheetRowIndex != null && d.sheetRowIndex! > rowIndex
+              ? WorkoutDayDef(
+                  id: d.id,
+                  label: d.label,
+                  muscleGroups: d.muscleGroups,
+                  legacyDay: d.legacyDay,
+                  sheetRowIndex: d.sheetRowIndex! - 1,
+                )
+              : d,
+      ];
+    });
     return true;
+  }
+
+  /// One-time startup sweep that merges and removes any duplicate
+  /// `WorkoutDays` rows left over from before the durable seed guard
+  /// (`AppSettingsService.hasSeededWorkoutDays`) existed — safe to call on
+  /// every launch since it's gated by its own persisted flag and no-ops
+  /// once there's nothing left to merge. For each id with more than one
+  /// row, unions their muscle groups and keeps the latest label (see
+  /// [mergeDuplicateWorkoutDays]), overwrites the lowest-indexed row with
+  /// that result, and deletes the rest (highest row index first, so
+  /// earlier indices stay valid mid-sweep).
+  Future<void> cleanupDuplicateWorkoutDays() async {
+    final settings = ref.read(appSettingsServiceProvider);
+    if (settings.hasCleanedUpDuplicateWorkoutDays) return;
+
+    final current = state.value;
+    if (current == null) return;
+
+    final byId = <String, List<WorkoutDayDef>>{};
+    for (final d in current.snapshot.workoutDayDefs) {
+      if (d.sheetRowIndex == null) continue;
+      byId.putIfAbsent(d.id, () => []).add(d);
+    }
+    final duplicateGroups = byId.values.where((g) => g.length > 1).toList();
+    if (duplicateGroups.isEmpty) {
+      await settings.setHasCleanedUpDuplicateWorkoutDays(true);
+      return;
+    }
+
+    final gridId = current.snapshot.gridIdsByTabName[kWorkoutDaysTabName];
+    if (gridId == null) return; // retry on next launch.
+    final repository = await ref.read(sheetsRepositoryProvider.future);
+
+    final merges = <WorkoutDayDef>[];
+    final rowsToDelete = <int>[];
+    for (final group in duplicateGroups) {
+      final merged = mergeDuplicateWorkoutDays(group).single;
+      merges.add(merged);
+      final lowestRow = merged.sheetRowIndex!;
+      for (final d in group) {
+        if (d.sheetRowIndex! != lowestRow) rowsToDelete.add(d.sheetRowIndex!);
+      }
+    }
+
+    for (final merged in merges) {
+      final result = await repository.updateWorkoutDay(merged);
+      if (result.isErr) return; // retry on next launch.
+    }
+
+    rowsToDelete.sort((a, b) => b.compareTo(a));
+    for (final rowIndex in rowsToDelete) {
+      final result = await repository.deleteWorkoutDay(
+        rowIndex: rowIndex,
+        workoutDaysGridId: gridId,
+      );
+      if (result.isErr) return; // retry on next launch.
+    }
+
+    await settings.setHasCleanedUpDuplicateWorkoutDays(true);
+    // A one-time, infrequent sweep — unlike the interactive per-action
+    // mutators above, a brief read-after-write lag here is harmless (it
+    // self-heals on the next natural refresh) and not worth hand-computing
+    // every surviving row's shifted index for.
+    await refresh();
   }
 
   /// Changes a previously logged visit's date, including moving it to a

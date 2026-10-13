@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../core/app_page_route.dart';
 import '../../core/constants/muscle_groups.dart';
 import '../../core/utils/text.dart';
 import '../../models/history_entry.dart';
@@ -11,6 +12,7 @@ import '../../models/year_sheet_data.dart';
 import '../../providers/analysis_providers.dart';
 import '../../providers/settings_providers.dart';
 import '../../providers/sheet_data_providers.dart';
+import '../../widgets/empty_state.dart';
 import 'edit_visit_screen.dart';
 
 /// A month calendar: days with a logged workout are marked, tapping a day
@@ -35,7 +37,19 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
       ?..sort((a, b) => a.year.compareTo(b.year));
 
     if (yearsAscending == null || yearsAscending.isEmpty) {
-      return const Center(child: Text('No logged workouts yet.'));
+      return RefreshIndicator(
+        onRefresh: () => ref.read(snapshotProvider.notifier).refresh(),
+        child: const SingleChildScrollView(
+          physics: AlwaysScrollableScrollPhysics(),
+          child: Padding(
+            padding: EdgeInsets.only(top: 80),
+            child: EmptyState(
+              icon: Icons.history,
+              message: 'No logged workouts yet.',
+            ),
+          ),
+        ),
+      );
     }
 
     final workoutDayDefs = ref.watch(workoutDayDefsProvider);
@@ -62,55 +76,56 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     final yearDataByYear = {for (final y in yearsAscending) y.year: y};
     final theme = Theme.of(context);
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-      child: Column(
-        children: [
-          _MonthHeader(
-            month: _focusedMonth!,
-            onPrevious: () => setState(
-              () => _focusedMonth = DateTime(
-                _focusedMonth!.year,
-                _focusedMonth!.month - 1,
+    return RefreshIndicator(
+      onRefresh: () => ref.read(snapshotProvider.notifier).refresh(),
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        child: Column(
+          children: [
+            _MonthHeader(
+              month: _focusedMonth!,
+              onPrevious: () => setState(
+                () => _focusedMonth = DateTime(
+                  _focusedMonth!.year,
+                  _focusedMonth!.month - 1,
+                ),
+              ),
+              onNext: () => setState(
+                () => _focusedMonth = DateTime(
+                  _focusedMonth!.year,
+                  _focusedMonth!.month + 1,
+                ),
               ),
             ),
-            onNext: () => setState(
-              () => _focusedMonth = DateTime(
-                _focusedMonth!.year,
-                _focusedMonth!.month + 1,
-              ),
+            _CalendarGrid(
+              month: _focusedMonth!,
+              markedDates: byDate.keys.toSet(),
+              notAllNormalDates: {
+                for (final entry in byDate.entries)
+                  if (entry.value.any(
+                    (e) =>
+                        e.metaRow?.ratingRelevance == RatingRelevance.unrelated,
+                  ))
+                    entry.key,
+              },
+              selectedDate: _selectedDate,
+              onSelect: (date) => setState(() => _selectedDate = date),
             ),
-          ),
-          _CalendarGrid(
-            month: _focusedMonth!,
-            markedDates: byDate.keys.toSet(),
-            notAllNormalDates: {
-              for (final entry in byDate.entries)
-                if (entry.value.any(
-                  (e) => e.metaRow?.ratingRelevance == RatingRelevance.unrelated,
-                ))
-                  entry.key,
-            },
-            selectedDate: _selectedDate,
-            onSelect: (date) => setState(() => _selectedDate = date),
-          ),
-          const SizedBox(height: 12),
-          Expanded(
-            child: SingleChildScrollView(
-              child: _selectedDate == null
-                  ? Text(
-                      'No workouts logged yet.',
-                      style: theme.textTheme.bodyMedium,
-                    )
-                  : _DayDetail(
-                      date: _selectedDate!,
-                      entries: selectedEntries,
-                      yearDataByYear: yearDataByYear,
-                      workoutDayDefs: workoutDayDefs,
-                    ),
-            ),
-          ),
-        ],
+            const SizedBox(height: 12),
+            _selectedDate == null
+                ? Text(
+                    'No workouts logged yet.',
+                    style: theme.textTheme.bodyMedium,
+                  )
+                : _DayDetail(
+                    date: _selectedDate!,
+                    entries: selectedEntries,
+                    yearDataByYear: yearDataByYear,
+                    workoutDayDefs: workoutDayDefs,
+                  ),
+          ],
+        ),
       ),
     );
   }
@@ -346,8 +361,7 @@ class _EntryDetail extends ConsumerWidget {
     // Kept separately only for the legacy week-note lookup below, which
     // needs the legacy [WorkoutDay] enum specifically, not a [WorkoutDayDef].
     final legacyDay = workoutDayForGroupLabels(entry.muscleGroups);
-    final note =
-        entry.metaRow?.note ?? yearData?.weekNotes[entry.isoWeek];
+    final note = entry.metaRow?.note ?? yearData?.weekNotes[entry.isoWeek];
     final visitId = entry.metaRow?.visitId;
     final notesByExercise = <String, List<String>>{};
     if (visitId != null) {
@@ -358,7 +372,8 @@ class _EntryDetail extends ConsumerWidget {
         );
       }
     }
-    final dayLabel = matchedDay?.label ??
+    final dayLabel =
+        matchedDay?.label ??
         (entry.muscleGroups.isEmpty
             ? null
             : entry.muscleGroups.map(titleCase).join(', '));
@@ -387,7 +402,8 @@ class _EntryDetail extends ConsumerWidget {
                 style: theme.textTheme.bodySmall,
               ),
             ],
-            if (entry.metaRow?.ratingRelevance == RatingRelevance.unrelated) ...[
+            if (entry.metaRow?.ratingRelevance ==
+                RatingRelevance.unrelated) ...[
               const SizedBox(width: 6),
               Tooltip(
                 message: 'Not 100%',
@@ -413,7 +429,7 @@ class _EntryDetail extends ConsumerWidget {
                 tooltip: 'Edit or delete this workout',
                 visualDensity: VisualDensity.compact,
                 onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(
+                  AppPageRoute(
                     builder: (_) => EditVisitScreen(
                       metaRow: entry.metaRow!,
                       initialNote:

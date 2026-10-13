@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/app_page_route.dart';
 import '../../models/exercise_note.dart';
 import '../../models/rating_relevance.dart';
 import '../../models/workout_visit.dart';
 import '../../providers/settings_providers.dart';
 import '../../providers/sheet_data_providers.dart';
+import '../../widgets/app_snack_bar.dart';
 import '../../widgets/star_rating_input.dart';
 import 'post_save_insight_screen.dart';
 
@@ -52,26 +55,19 @@ class _RatingScreenState extends ConsumerState<RatingScreen> {
     if (!mounted) return;
     setState(() => _saving = false);
 
+    HapticFeedback.lightImpact();
     if (outcome == SaveOutcome.queuedOffline) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Saved locally — will sync when back online.'),
-        ),
-      );
+      showAppSnackBar(context, 'Saved locally — will sync when back online.');
     } else if (notesFailed) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            "Workout saved, but the notes couldn't be saved — check your connection.",
-          ),
-        ),
+      showAppSnackBar(
+        context,
+        "Workout saved, but the notes couldn't be saved — check your connection.",
+        isError: true,
       );
     }
 
     Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (_) => PostSaveInsightScreen(visit: ratedVisit),
-      ),
+      AppPageRoute(builder: (_) => PostSaveInsightScreen(visit: ratedVisit)),
     );
   }
 

@@ -16,6 +16,28 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '1.4.4',
+    date: '2026-10-13',
+    changes: [
+      'Fixed workout days (Push/Pull/Legs/Full Body) duplicating on PWA — '
+          'muscles that seemed to vanish (e.g. rear delt from Pull) and '
+          'exercises that went missing from the log-workout picker were '
+          'actually stuck on a different, incomplete duplicate; existing '
+          'duplicates are now merged back together automatically.',
+      'Fixed a crash when clearing a weight field mid-log.',
+      'Added a way to remove an exercise from "Workout so far" while '
+          'logging, without affecting the rest of the workout.',
+      'The read-only "last time" view no longer shows the per-set thumbs '
+          'up/down (the star rating still does).',
+      'Added an optional auto-rotating theme that picks a new color preset '
+          'once per day.',
+      'Polish pass: haptic feedback on key actions, clearer empty states, '
+          'a consistent snackbar style, pull-to-refresh on History and '
+          'Graphs, a sectioned Settings screen, and subtle page '
+          'transitions.',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.4.3',
     date: '2026-10-05',
     changes: [

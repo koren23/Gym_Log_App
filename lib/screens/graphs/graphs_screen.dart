@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/app_page_route.dart';
 import '../../core/utils/text.dart';
 import '../../models/exercise.dart';
 import '../../models/exercise_unit.dart';
 import '../../providers/analysis_providers.dart';
 import '../../providers/sheet_data_providers.dart';
+import '../../widgets/empty_state.dart';
 import '../../widgets/simple_line_chart.dart';
 import '../body_weight/body_weight_history_screen.dart';
 
@@ -64,7 +66,19 @@ class _GraphsScreenState extends ConsumerState<GraphsScreen> {
         : null;
 
     if (yearsAscending == null || yearsAscending.isEmpty) {
-      return const Center(child: Text('No workout data loaded yet.'));
+      return RefreshIndicator(
+        onRefresh: () => ref.read(snapshotProvider.notifier).refresh(),
+        child: const SingleChildScrollView(
+          physics: AlwaysScrollableScrollPhysics(),
+          child: Padding(
+            padding: EdgeInsets.only(top: 80),
+            child: EmptyState(
+              icon: Icons.show_chart,
+              message: 'No workout data loaded yet.',
+            ),
+          ),
+        ),
+      );
     }
 
     final exerciseMuscleInfo = ref.watch(exerciseMuscleInfoProvider);
@@ -144,95 +158,100 @@ class _GraphsScreenState extends ConsumerState<GraphsScreen> {
       secondaryPoints = bodyWeightPoints;
     }
 
-    return ListView(
-      padding: const EdgeInsets.only(bottom: 24),
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-          child: Row(
-            children: [
-              Expanded(
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(4),
-                  onTap: () => _showGraphPicker(
-                    context,
-                    muscleNames: muscleNames,
-                    exercisesByMuscleName: exercisesByMuscleName,
-                    allExerciseNames: allExerciseNames,
-                  ),
-                  child: InputDecorator(
-                    decoration: const InputDecoration(
-                      labelText: 'Graph',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            _optionLabel(_selectedOption!),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        const Icon(Icons.arrow_drop_down),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.list),
-                tooltip: 'Edit body weight history',
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => const BodyWeightHistoryScreen(),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        if (showingMuscle)
+    return RefreshIndicator(
+      onRefresh: () => ref.read(snapshotProvider.notifier).refresh(),
+      child: ListView(
+        padding: const EdgeInsets.only(bottom: 24),
+        children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
-            child: Text(
-              "Shown as % of your starting weight on each exercise — 100% = your "
-              'first logged session. Switching exercises for this muscle stays on '
-              'the same graph, each starting its own 100% baseline.',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.outline,
-              ),
-            ),
-          ),
-        SizedBox(
-          height: MediaQuery.sizeOf(context).height * 0.5,
-          child: SimpleLineChart(
-            points: primaryPoints,
-            color: primaryColorForChart,
-            secondaryPoints: secondaryPoints,
-            secondaryColor: bodyWeightColor,
-            secondaryFloor: 45,
-            secondaryCeiling: 100,
-          ),
-        ),
-        if (secondaryPoints != null)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                _LegendDot(
-                  color: primaryColor,
-                  label: showingMuscle
-                      ? '% of starting weight'
-                      : _weightAxisLabel(allExercisesByName[_selectedOption!]),
+                Expanded(
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(4),
+                    onTap: () => _showGraphPicker(
+                      context,
+                      muscleNames: muscleNames,
+                      exercisesByMuscleName: exercisesByMuscleName,
+                      allExerciseNames: allExerciseNames,
+                    ),
+                    child: InputDecorator(
+                      decoration: const InputDecoration(
+                        labelText: 'Graph',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              _optionLabel(_selectedOption!),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const Icon(Icons.arrow_drop_down),
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
-                const SizedBox(width: 20),
-                _LegendDot(color: bodyWeightColor, label: 'Body weight'),
+                IconButton(
+                  icon: const Icon(Icons.list),
+                  tooltip: 'Edit body weight history',
+                  onPressed: () => Navigator.of(context).push(
+                    AppPageRoute(
+                      builder: (_) => const BodyWeightHistoryScreen(),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
-      ],
+          if (showingMuscle)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+              child: Text(
+                "Shown as % of your starting weight on each exercise — 100% = your "
+                'first logged session. Switching exercises for this muscle stays on '
+                'the same graph, each starting its own 100% baseline.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.outline,
+                ),
+              ),
+            ),
+          SizedBox(
+            height: MediaQuery.sizeOf(context).height * 0.5,
+            child: SimpleLineChart(
+              points: primaryPoints,
+              color: primaryColorForChart,
+              secondaryPoints: secondaryPoints,
+              secondaryColor: bodyWeightColor,
+              secondaryFloor: 45,
+              secondaryCeiling: 100,
+            ),
+          ),
+          if (secondaryPoints != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _LegendDot(
+                    color: primaryColor,
+                    label: showingMuscle
+                        ? '% of starting weight'
+                        : _weightAxisLabel(
+                            allExercisesByName[_selectedOption!],
+                          ),
+                  ),
+                  const SizedBox(width: 20),
+                  _LegendDot(color: bodyWeightColor, label: 'Body weight'),
+                ],
+              ),
+            ),
+        ],
+      ),
     );
   }
 
@@ -334,16 +353,15 @@ class _GraphsScreenState extends ConsumerState<GraphsScreen> {
                                             muscle,
                                           ),
                                           titleStyle: categoryBase,
-                                          onToggleExpanded: () =>
-                                              setSheetState(() {
-                                                if (!expandedMuscles.add(
-                                                  muscle,
-                                                )) {
-                                                  expandedMuscles.remove(
-                                                    muscle,
-                                                  );
-                                                }
-                                              }),
+                                          onToggleExpanded: () => setSheetState(
+                                            () {
+                                              if (!expandedMuscles.add(
+                                                muscle,
+                                              )) {
+                                                expandedMuscles.remove(muscle);
+                                              }
+                                            },
+                                          ),
                                           onSelectMuscle: () => Navigator.of(
                                             sheetContext,
                                           ).pop('$_kMusclePrefix$muscle'),

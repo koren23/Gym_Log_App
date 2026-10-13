@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/constants/muscle_groups.dart';
@@ -15,6 +16,7 @@ import '../../models/workout_visit.dart';
 import '../../models/year_sheet_data.dart';
 import '../../providers/analysis_providers.dart';
 import '../../providers/sheet_data_providers.dart';
+import '../../widgets/app_snack_bar.dart';
 import '../../widgets/exercise_tile.dart';
 import '../../widgets/star_rating_input.dart';
 import '../log_workout/add_new_exercise_dialog.dart';
@@ -178,12 +180,10 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
       if (ok) {
         _removeExercise(name);
       } else if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              "Couldn't delete the exercise — check your connection and try again.",
-            ),
-          ),
+        showAppSnackBar(
+          context,
+          "Couldn't delete the exercise — check your connection and try again.",
+          isError: true,
         );
       }
       return;
@@ -212,12 +212,10 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
           newMuscleColumnIndex: result.muscleColumnIndex,
         );
     if (!updateResult.success && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            "Couldn't save: ${updateResult.failedSteps.join(', ')} — check your connection and try again.",
-          ),
-        ),
+      showAppSnackBar(
+        context,
+        "Couldn't save: ${updateResult.failedSteps.join(', ')} — check your connection and try again.",
+        isError: true,
       );
     }
   }
@@ -239,12 +237,14 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
         .toList();
     if (yearsAscending == null) return const [];
     yearsAscending.sort((a, b) => a.year.compareTo(b.year));
-    final history = buildExerciseHistory(
-      yearsAscending: yearsAscending,
-      exerciseName: exerciseName,
-    ).where((h) => h.date.isBefore(widget.metaRow.date))
-        .where((h) => h.ratingRelevance != RatingRelevance.unrelated)
-        .toList();
+    final history =
+        buildExerciseHistory(
+              yearsAscending: yearsAscending,
+              exerciseName: exerciseName,
+            )
+            .where((h) => h.date.isBefore(widget.metaRow.date))
+            .where((h) => h.ratingRelevance != RatingRelevance.unrelated)
+            .toList();
     if (history.isEmpty) return const [];
     final last = history.last;
     return last.actualWeightsPerSet.isNotEmpty
@@ -275,10 +275,8 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
     final selected = await showModalBottomSheet<Exercise>(
       context: context,
       isScrollControlled: true,
-      builder: (context) => _AddExerciseSheet(
-        candidates: candidates,
-        muscleByName: muscleByName,
-      ),
+      builder: (context) =>
+          _AddExerciseSheet(candidates: candidates, muscleByName: muscleByName),
     );
     if (selected != null) _addExercise(selected);
   }
@@ -307,12 +305,10 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
       if (!dateOk) {
         if (!mounted) return;
         setState(() => _saving = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              "Couldn't change the date — check your connection and try again.",
-            ),
-          ),
+        showAppSnackBar(
+          context,
+          "Couldn't change the date — check your connection and try again.",
+          isError: true,
         );
         return;
       }
@@ -330,13 +326,11 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
       if (located == null) {
         if (!mounted) return;
         setState(() => _saving = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Date changed, but the rest of this edit could not be '
-              'located afterward — please reopen it from History.',
-            ),
-          ),
+        showAppSnackBar(
+          context,
+          'Date changed, but the rest of this edit could not be '
+          'located afterward — please reopen it from History.',
+          isError: true,
         );
         return;
       }
@@ -349,8 +343,10 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
       if (entry == null) {
         if (!mounted) return;
         setState(() => _saving = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Fill in all set weights for $name.')),
+        showAppSnackBar(
+          context,
+          'Fill in all set weights for $name.',
+          isError: true,
         );
         return;
       }
@@ -425,13 +421,15 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
     setState(() => _saving = false);
 
     if (!(weightsOk && setsOk && ratingOk && noteOk && notesOk)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Some changes failed to save — check your connection.'),
-        ),
+      showAppSnackBar(
+        context,
+        'Some changes failed to save — check your connection.',
+        isError: true,
       );
       return;
     }
+
+    HapticFeedback.lightImpact();
 
     // Show the same "just logged" summary as a fresh log-workout session,
     // built from the edited values.
@@ -483,14 +481,13 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
     setState(() => _saving = false);
 
     if (ok) {
+      HapticFeedback.mediumImpact();
       Navigator.of(context).pop();
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Could not delete — check your connection and try again.',
-          ),
-        ),
+      showAppSnackBar(
+        context,
+        'Could not delete — check your connection and try again.',
+        isError: true,
       );
     }
   }
@@ -604,13 +601,14 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
                                       if (previousWeights.isNotEmpty)
                                         Text(
                                           'Last time: ${formatExerciseValuesPerSet(draft.exercise.unit, previousWeights, customLabel: draft.exercise.customUnitLabel)}',
-                                          style: Theme.of(
-                                            context,
-                                          ).textTheme.bodySmall?.copyWith(
-                                            color: Theme.of(
-                                              context,
-                                            ).colorScheme.outline,
-                                          ),
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodySmall
+                                              ?.copyWith(
+                                                color: Theme.of(
+                                                  context,
+                                                ).colorScheme.outline,
+                                              ),
                                         ),
                                     ],
                                   );
@@ -619,14 +617,16 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
                             ),
                             IconButton(
                               icon: const Icon(Icons.edit_outlined),
-                              tooltip: 'Edit exercise (name / muscle / unit / delete)',
+                              tooltip:
+                                  'Edit exercise (name / muscle / unit / delete)',
                               onPressed: () => _editExercise(_exerciseOrder[i]),
                             ),
                             Builder(
                               builder: (context) {
                                 final draft = _drafts[_exerciseOrder[i]]!;
                                 final hasNote =
-                                    draft.note != null && draft.note!.isNotEmpty;
+                                    draft.note != null &&
+                                    draft.note!.isNotEmpty;
                                 return IconButton(
                                   icon: Icon(
                                     hasNote
@@ -642,8 +642,9 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
                                     );
                                     if (result == null) return;
                                     setState(() {
-                                      draft.note =
-                                          result.isEmpty ? null : result;
+                                      draft.note = result.isEmpty
+                                          ? null
+                                          : result;
                                     });
                                   },
                                 );
@@ -719,7 +720,10 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
 /// tapping a row immediately adds it and closes the sheet, so no separate
 /// confirm step is needed (only one exercise is added per open).
 class _AddExerciseSheet extends StatefulWidget {
-  const _AddExerciseSheet({required this.candidates, required this.muscleByName});
+  const _AddExerciseSheet({
+    required this.candidates,
+    required this.muscleByName,
+  });
 
   final List<Exercise> candidates;
   final Map<String, ExerciseMuscleInfo> muscleByName;
@@ -739,7 +743,10 @@ class _AddExerciseSheetState extends State<_AddExerciseSheet> {
     final byMuscle = <String, List<Exercise>>{};
     for (final exercise in filtered) {
       final muscle =
-          widget.muscleByName[exercise.name.toLowerCase()]?.muscleGroup.sheetHeader ??
+          widget
+              .muscleByName[exercise.name.toLowerCase()]
+              ?.muscleGroup
+              .sheetHeader ??
           exercise.muscleGroup.sheetHeader;
       byMuscle.putIfAbsent(muscle, () => []).add(exercise);
     }

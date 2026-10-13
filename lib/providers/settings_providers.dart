@@ -149,11 +149,21 @@ class WorkoutDayDefsNotifier extends Notifier<List<WorkoutDayDef>> {
       Future.microtask(() => _seedIfStillEmpty());
       return kWorkoutDaySeed;
     }
-    return [...sheetDays, ...localPending];
+    // Defense in depth against duplicate rows (e.g. ones left over from
+    // before the durable seed guard below existed, until the one-time sheet
+    // cleanup gets to them): never show/use more than one entry per id.
+    return mergeDuplicateWorkoutDays([...sheetDays, ...localPending]);
   }
 
   Future<void> _seedIfStillEmpty() async {
     if (state.isNotEmpty && state != kWorkoutDaySeed) return;
+    final settings = ref.read(appSettingsServiceProvider);
+    // Set *before* writing, not after — so a reload or a racing refresh()
+    // mid-sequence (Sheets' read-after-write lag can make the just-seeded
+    // tab briefly read back as empty, re-entering this method) can never
+    // append a second duplicate set of rows.
+    if (settings.hasSeededWorkoutDays) return;
+    await settings.setHasSeededWorkoutDays(true);
     final notifier = ref.read(snapshotProvider.notifier);
     for (final def in kWorkoutDaySeed) {
       await notifier.addWorkoutDayToSheet(def);

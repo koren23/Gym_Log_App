@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../core/utils/exercise_value_format.dart';
 import '../models/exercise_unit.dart';
-import '../models/set_feedback.dart';
 import '../models/year_sheet_data.dart';
 
 /// Read-only rendering of one previously-logged exercise's sets — reused by
@@ -56,7 +55,6 @@ class ReadOnlyExerciseSets extends StatelessWidget {
                         : null,
                     reps: exercise.actualReps[i],
                     approx: exercise.isApprox(i),
-                    feedback: exercise.feedbackFor(i),
                     unit: unit,
                     customUnitLabel: customUnitLabel,
                   ),
@@ -73,7 +71,6 @@ class _SetChip extends StatelessWidget {
     required this.weight,
     required this.reps,
     required this.approx,
-    required this.feedback,
     this.unit = ExerciseUnit.kg,
     this.customUnitLabel,
   });
@@ -81,7 +78,6 @@ class _SetChip extends StatelessWidget {
   final double? weight;
   final int reps;
   final bool approx;
-  final SetFeedback feedback;
   final ExerciseUnit unit;
   final String? customUnitLabel;
 
@@ -92,21 +88,6 @@ class _SetChip extends StatelessWidget {
         ? '?'
         : formatExerciseValue(unit, weight!, customLabel: customUnitLabel);
     final label = '$weightLabel×${approx ? '~' : ''}$reps';
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(label, style: theme.textTheme.bodySmall),
-        if (feedback == SetFeedback.up)
-          const Padding(
-            padding: EdgeInsets.only(left: 2),
-            child: Icon(Icons.thumb_up, size: 12, color: Colors.green),
-          )
-        else if (feedback == SetFeedback.down)
-          const Padding(
-            padding: EdgeInsets.only(left: 2),
-            child: Icon(Icons.thumb_down, size: 12, color: Colors.redAccent),
-          ),
-      ],
-    );
+    return Text(label, style: theme.textTheme.bodySmall);
   }
 }

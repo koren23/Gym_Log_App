@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/sheet_data_providers.dart';
+import '../../widgets/app_snack_bar.dart';
 
 class BodyWeightEntryScreen extends ConsumerStatefulWidget {
   const BodyWeightEntryScreen({super.key});
@@ -33,14 +35,12 @@ class _BodyWeightEntryScreenState extends ConsumerState<BodyWeightEntryScreen> {
     if (!mounted) return;
     setState(() => _saving = false);
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          outcome == SaveOutcome.synced
-              ? 'Saved.'
-              : 'Saved locally — will sync when back online.',
-        ),
-      ),
+    HapticFeedback.lightImpact();
+    showAppSnackBar(
+      context,
+      outcome == SaveOutcome.synced
+          ? 'Saved.'
+          : 'Saved locally — will sync when back online.',
     );
     Navigator.of(context).pop();
   }

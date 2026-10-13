@@ -2,10 +2,12 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../core/analysis/tile_trend.dart';
+import '../../core/app_page_route.dart';
 import '../../core/constants/muscle_groups.dart';
 import '../../core/constants/sheet_layout.dart';
 import '../../core/utils/exercise_value_format.dart';
@@ -25,6 +27,7 @@ import '../../models/year_sheet_data.dart';
 import '../../providers/analysis_providers.dart';
 import '../../providers/settings_providers.dart';
 import '../../providers/sheet_data_providers.dart';
+import '../../widgets/app_snack_bar.dart';
 import '../../widgets/exercise_tile.dart';
 import '../history/edit_visit_screen.dart';
 import 'add_new_exercise_dialog.dart';
@@ -248,6 +251,21 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
     _saveDraft();
   }
 
+  /// Drops [name] from "Workout so far" without touching the sheet — just
+  /// unchecks it and discards its entered sets, mirroring
+  /// `edit_visit_screen.dart`'s `_removeExercise`. Unlike
+  /// [_removeAddedExercise], the exercise itself isn't deleted (it stays
+  /// available to check again below), only the current draft's progress on
+  /// it is.
+  void _removeFromCompleted(String name) {
+    setState(() {
+      _checked.remove(name);
+      _drafts.remove(name)?.dispose();
+      _refreshCompletionSnapshot();
+    });
+    _saveDraft();
+  }
+
   Future<void> _confirmClear() async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -326,10 +344,10 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
     final yearsAscending = snapshot.yearData.values.toList()
       ..sort((a, b) => a.year.compareTo(b.year));
     final dayDefs = ref.read(workoutDayDefsProvider);
-    return buildHistoryEntries(yearsAscending, workoutDays: dayDefs)
-        .where((e) => historyEntryBelongsToDay(e, day, dayDefs))
-        .take(2)
-        .toList();
+    return buildHistoryEntries(
+      yearsAscending,
+      workoutDays: dayDefs,
+    ).where((e) => historyEntryBelongsToDay(e, day, dayDefs)).take(2).toList();
   }
 
   /// The most frequent name in [names]; ties broken by whichever occurs in
@@ -457,9 +475,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
         availableExercises,
         muscleByName,
       );
-      final remaining = usualOrder
-          .where((n) => !_checked.contains(n))
-          .toList();
+      final remaining = usualOrder.where((n) => !_checked.contains(n)).toList();
       for (final name in remaining) {
         final group = _muscleGroupOf(name, availableExercises, muscleByName);
         if (group == null || !covered.contains(group)) return name;
@@ -556,22 +572,24 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
     _saveDraft();
   }
 
-  ExerciseDraft _draftFor(Exercise exercise, List<YearSheetData> yearsAscending) =>
-      _drafts.putIfAbsent(exercise.name, () {
-        final defaults = ref.read(workoutDefaultsProvider);
-        final historicalSetCount = historicalAverageSetCount(
-          yearsAscending: yearsAscending,
-          exerciseName: exercise.name,
-        );
-        final draft = ExerciseDraft(
-          exercise,
-          setCount: historicalSetCount ?? kDefaultSetCount,
-          repRangeLow: defaults.repRangeLow,
-          repRangeHigh: defaults.repRangeHigh,
-        );
-        _applyPendingSuggestionIfAny(exercise, draft);
-        return draft;
-      });
+  ExerciseDraft _draftFor(
+    Exercise exercise,
+    List<YearSheetData> yearsAscending,
+  ) => _drafts.putIfAbsent(exercise.name, () {
+    final defaults = ref.read(workoutDefaultsProvider);
+    final historicalSetCount = historicalAverageSetCount(
+      yearsAscending: yearsAscending,
+      exerciseName: exercise.name,
+    );
+    final draft = ExerciseDraft(
+      exercise,
+      setCount: historicalSetCount ?? kDefaultSetCount,
+      repRangeLow: defaults.repRangeLow,
+      repRangeHigh: defaults.repRangeHigh,
+    );
+    _applyPendingSuggestionIfAny(exercise, draft);
+    return draft;
+  });
 
   /// Applies (and consumes) an accepted suggestion for [exercise] — see
   /// `PendingSuggestionsNotifier`/`SuggestionCard`. [SuggestionKind
@@ -664,9 +682,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
     final suggestedExercise = suggestedNextName == null
         ? null
         : _findByName(availableExercises, suggestedNextName);
-    final completedNames = _checked
-        .where(_completedSnapshot.contains)
-        .toList();
+    final completedNames = _checked.where(_completedSnapshot.contains).toList();
 
     // Computed once per build (not per tile) — the trend stripe on each
     // ExerciseTile. Reuses analyzeExercises, the same batch analysis entry
@@ -723,6 +739,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
                         _scheduleSaveDraft();
                       },
                       onFocusLost: _handleFieldBlur,
+                      onRemove: _removeFromCompleted,
                     ),
                   ),
                 if (day != null)
@@ -737,7 +754,10 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
                             child: TextButton.icon(
                               icon: const Icon(Icons.calendar_today, size: 16),
                               label: Text(
-                                DateUtils.isSameDay(_selectedDate, DateTime.now())
+                                DateUtils.isSameDay(
+                                      _selectedDate,
+                                      DateTime.now(),
+                                    )
                                     ? 'Today'
                                     : '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}',
                               ),
@@ -776,14 +796,10 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
                                           columnIndex: columnIndex,
                                         );
                                     if (!ok && context.mounted) {
-                                      ScaffoldMessenger.of(
+                                      showAppSnackBar(
                                         context,
-                                      ).showSnackBar(
-                                        const SnackBar(
-                                          content: Text(
-                                            "Couldn't reach your sheet — the muscle is queued and will retry automatically.",
-                                          ),
-                                        ),
+                                        "Couldn't reach your sheet — the muscle is queued and will retry automatically.",
+                                        isError: true,
                                       );
                                     }
                                   }
@@ -792,15 +808,14 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
                                       .addExerciseUnit(
                                         exerciseName: newExercise.name,
                                         unit: newExercise.unit,
-                                        customLabel: newExercise.customUnitLabel,
+                                        customLabel:
+                                            newExercise.customUnitLabel,
                                       );
                                   if (!unitOk && context.mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text(
-                                          "Couldn't reach your sheet — the unit is queued and will retry automatically.",
-                                        ),
-                                      ),
+                                    showAppSnackBar(
+                                      context,
+                                      "Couldn't reach your sheet — the unit is queued and will retry automatically.",
+                                      isError: true,
                                     );
                                   }
                                 },
@@ -810,7 +825,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
                                 icon: const Icon(Icons.insights_outlined),
                                 label: Text('Last ${day.label} day'),
                                 onPressed: () => Navigator.of(context).push(
-                                  MaterialPageRoute(
+                                  AppPageRoute(
                                     builder: (_) =>
                                         LastWorkoutInsightScreen(day: day),
                                   ),
@@ -862,9 +877,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
                 if (day == null)
                   const SliverFillRemaining(
                     key: ValueKey('sliver_empty_state'),
-                    child: Center(
-                      child: Text('Pick a day to start.'),
-                    ),
+                    child: Center(child: Text('Pick a day to start.')),
                   )
                 else
                   SliverPadding(
@@ -987,10 +1000,9 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
         for (final name in consumedNames) {
           ref.read(pendingSuggestionsProvider.notifier).consume(name);
         }
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Swapped in a suggested exercise for this day.'),
-          ),
+        showAppSnackBar(
+          context,
+          'Swapped in a suggested exercise for this day.',
         );
       });
     }
@@ -1074,6 +1086,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
             trend: trendByName[exercise.name] ?? TileTrend.unknown,
             selected: _checked.contains(exercise.name),
             onToggle: (v) {
+              if (v) HapticFeedback.selectionClick();
               setState(() {
                 if (v) {
                   if (!_checked.contains(exercise.name))
@@ -1131,7 +1144,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
             onPressed: () {
               Navigator.of(dialogContext).pop();
               Navigator.of(context).push(
-                MaterialPageRoute(
+                AppPageRoute(
                   builder: (_) => EditVisitScreen(
                     metaRow: existing,
                     initialNote: existing.note,
@@ -1159,8 +1172,10 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
       final draft = _drafts[name];
       final entry = draft?.toEntry();
       if (entry == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Fill in all set weights for $name.')),
+        showAppSnackBar(
+          context,
+          'Fill in all set weights for $name.',
+          isError: true,
         );
         return;
       }
@@ -1203,7 +1218,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
     );
 
     Navigator.of(context).push(
-      MaterialPageRoute(
+      AppPageRoute(
         builder: (_) => RatingScreen(visit: visit, notes: exerciseNotes),
       ),
     );
@@ -1220,6 +1235,7 @@ class _CompletedSummary extends StatelessWidget {
     required this.onReorder,
     required this.onChanged,
     this.onFocusLost,
+    this.onRemove,
   });
 
   final List<String> names;
@@ -1227,6 +1243,7 @@ class _CompletedSummary extends StatelessWidget {
   final void Function(int oldIndex, int newIndex) onReorder;
   final VoidCallback onChanged;
   final VoidCallback? onFocusLost;
+  final void Function(String name)? onRemove;
 
   @override
   Widget build(BuildContext context) {
@@ -1263,6 +1280,7 @@ class _CompletedSummary extends StatelessWidget {
                   draft: drafts[names[i]]!,
                   onChanged: onChanged,
                   onFocusLost: onFocusLost,
+                  onRemove: onRemove == null ? null : () => onRemove!(names[i]),
                 ),
             ],
           ),
@@ -1280,6 +1298,7 @@ class _CompletedRow extends StatefulWidget {
     required this.draft,
     required this.onChanged,
     this.onFocusLost,
+    this.onRemove,
   });
 
   final int index;
@@ -1287,6 +1306,7 @@ class _CompletedRow extends StatefulWidget {
   final ExerciseDraft draft;
   final VoidCallback onChanged;
   final VoidCallback? onFocusLost;
+  final VoidCallback? onRemove;
 
   @override
   State<_CompletedRow> createState() => _CompletedRowState();
@@ -1299,11 +1319,7 @@ class _CompletedRowState extends State<_CompletedRow> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final draft = widget.draft;
-    final setsSummary = [
-      for (var i = 0; i < draft.setWeights.length; i++)
-        '${formatExerciseValue(draft.exercise.unit, draft.setWeights[i]!, customLabel: draft.exercise.customUnitLabel)}×'
-            '${draft.setApproxReps[i] ? '~' : ''}${draft.repsFor(i)}',
-    ].join(', ');
+    final setsSummary = completedRowSetsSummary(draft);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Column(
@@ -1346,6 +1362,15 @@ class _CompletedRowState extends State<_CompletedRow> {
                     size: 20,
                     color: theme.colorScheme.outline,
                   ),
+                  if (widget.onRemove != null)
+                    IconButton(
+                      icon: const Icon(Icons.remove_circle_outline, size: 20),
+                      tooltip: 'Remove from this workout',
+                      onPressed: () {
+                        HapticFeedback.lightImpact();
+                        widget.onRemove!();
+                      },
+                    ),
                 ],
               ),
             ),
@@ -1364,6 +1389,19 @@ class _CompletedRowState extends State<_CompletedRow> {
     );
   }
 }
+
+/// The "Workout so far" summary line for one completed exercise, e.g.
+/// "50.0kg×8, 55.0kg×6". A set can read as `null` here even though the
+/// exercise as a whole is "complete" (`_completedSnapshot` only refreshes on
+/// field blur — see [_LogWorkoutScreenState._handleFieldBlur] — so clearing
+/// a focused weight field mid-edit can rebuild this row before that
+/// refresh catches up); rendered as `?` rather than force-unwrapped so that
+/// momentary state doesn't crash the row.
+String completedRowSetsSummary(ExerciseDraft draft) => [
+  for (var i = 0; i < draft.setWeights.length; i++)
+    '${draft.setWeights[i] == null ? '?' : formatExerciseValue(draft.exercise.unit, draft.setWeights[i]!, customLabel: draft.exercise.customUnitLabel)}×'
+        '${draft.setApproxReps[i] ? '~' : ''}${draft.repsFor(i)}',
+].join(', ');
 
 const Map<WorkoutDay, List<Color>> _kDayColors = {
   WorkoutDay.push: [Color(0xFFFF8A5B), Color(0xFFFF5E7E)],

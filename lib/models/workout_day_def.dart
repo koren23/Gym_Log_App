@@ -55,6 +55,70 @@ class WorkoutDayDef {
   );
 }
 
+/// Collapses duplicate [WorkoutDayDef]s sharing the same [id] into one:
+/// unions their muscle groups (so nothing already-added is lost) and keeps
+/// the label from the entry with the highest [WorkoutDayDef.sheetRowIndex]
+/// — the most recently written, matching this codebase's existing "later
+/// wins" convention (see `allKnownExercisesProvider`). An entry with no
+/// `sheetRowIndex` (a locally-pending add not yet confirmed synced) counts
+/// as more recent than any synced row. The merged entry's `sheetRowIndex`
+/// is the *lowest* of the group's — the row a one-time sheet cleanup keeps
+/// and overwrites, deleting the rest. Non-duplicated entries pass through
+/// unchanged, and relative order is preserved.
+List<WorkoutDayDef> mergeDuplicateWorkoutDays(List<WorkoutDayDef> defs) {
+  final order = <String>[];
+  final byId = <String, List<WorkoutDayDef>>{};
+  for (final d in defs) {
+    if (!byId.containsKey(d.id)) order.add(d.id);
+    byId.putIfAbsent(d.id, () => []).add(d);
+  }
+  return [
+    for (final id in order)
+      if (byId[id]!.length == 1)
+        byId[id]!.single
+      else
+        _mergeGroup(byId[id]!),
+  ];
+}
+
+WorkoutDayDef _mergeGroup(List<WorkoutDayDef> group) {
+  final sorted = [...group]..sort((a, b) {
+    final ar = a.sheetRowIndex;
+    final br = b.sheetRowIndex;
+    if (ar == null && br == null) return 0;
+    if (ar == null) return 1; // pending sorts as most recent.
+    if (br == null) return -1;
+    return ar.compareTo(br);
+  });
+  final latest = sorted.last;
+  final mergedGroups = <MuscleGroup>[];
+  for (final d in group) {
+    for (final g in d.muscleGroups) {
+      if (!mergedGroups.contains(g)) mergedGroups.add(g);
+    }
+  }
+  WorkoutDay? legacyDay;
+  for (final d in group) {
+    if (d.legacyDay != null) {
+      legacyDay = d.legacyDay;
+      break;
+    }
+  }
+  final rowIndices = [
+    for (final d in group)
+      if (d.sheetRowIndex != null) d.sheetRowIndex!,
+  ];
+  return WorkoutDayDef(
+    id: latest.id,
+    label: latest.label,
+    muscleGroups: mergedGroups,
+    legacyDay: legacyDay,
+    sheetRowIndex: rowIndices.isEmpty
+        ? null
+        : rowIndices.reduce((a, b) => a < b ? a : b),
+  );
+}
+
 /// One-time seed used only when the sheet has no `WorkoutDays` tab data yet
 /// (e.g. a brand-new spreadsheet, or upgrading from the old local-only
 /// custom-day feature): Push/Pull/Legs (best-effort mapped onto the current

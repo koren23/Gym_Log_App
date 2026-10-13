@@ -4,6 +4,8 @@ import 'package:intl/intl.dart';
 
 import '../../models/body_weight_entry.dart';
 import '../../providers/sheet_data_providers.dart';
+import '../../widgets/app_snack_bar.dart';
+import '../../widgets/empty_state.dart';
 
 class BodyWeightHistoryScreen extends ConsumerWidget {
   const BodyWeightHistoryScreen({super.key});
@@ -16,20 +18,32 @@ class BodyWeightHistoryScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Body weight history')),
-      body: entries.isEmpty
-          ? const Center(child: Text('No body weight entries yet.'))
-          : ListView.separated(
-              itemCount: entries.length,
-              separatorBuilder: (_, __) => const Divider(height: 1),
-              itemBuilder: (context, index) {
-                final entry = entries[index];
-                return ListTile(
-                  title: Text('${entry.weightKg.toStringAsFixed(1)} kg'),
-                  subtitle: Text(dateFormat.format(entry.date)),
-                  onTap: () => _editEntry(context, ref, entry),
-                );
-              },
-            ),
+      body: RefreshIndicator(
+        onRefresh: () => ref.read(snapshotProvider.notifier).refresh(),
+        child: entries.isEmpty
+            ? const SingleChildScrollView(
+                physics: AlwaysScrollableScrollPhysics(),
+                child: Padding(
+                  padding: EdgeInsets.only(top: 80),
+                  child: EmptyState(
+                    icon: Icons.monitor_weight_outlined,
+                    message: 'No body weight entries yet.',
+                  ),
+                ),
+              )
+            : ListView.separated(
+                itemCount: entries.length,
+                separatorBuilder: (_, __) => const Divider(height: 1),
+                itemBuilder: (context, index) {
+                  final entry = entries[index];
+                  return ListTile(
+                    title: Text('${entry.weightKg.toStringAsFixed(1)} kg'),
+                    subtitle: Text(dateFormat.format(entry.date)),
+                    onTap: () => _editEntry(context, ref, entry),
+                  );
+                },
+              ),
+      ),
     );
   }
 
@@ -112,12 +126,10 @@ class BodyWeightHistoryScreen extends ConsumerWidget {
 
     if (!context.mounted) return;
     if (!ok) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Could not save — check your connection and try again.',
-          ),
-        ),
+      showAppSnackBar(
+        context,
+        'Could not save — check your connection and try again.',
+        isError: true,
       );
     }
   }

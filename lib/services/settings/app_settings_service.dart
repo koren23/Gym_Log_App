@@ -49,6 +49,11 @@ class AppSettingsService {
   static const _kDefaultRepRangeLow = 'default_rep_range_low';
   static const _kDefaultRepRangeHigh = 'default_rep_range_high';
   static const _kCustomWorkoutDays = 'custom_workout_days';
+  static const _kHasSeededWorkoutDays = 'has_seeded_workout_days';
+  static const _kHasCleanedUpDuplicateWorkoutDays =
+      'has_cleaned_up_duplicate_workout_days';
+  static const _kAutoThemeRotationEnabled = 'auto_theme_rotation_enabled';
+  static const _kLastAutoThemeChangeDate = 'last_auto_theme_change_date';
 
   static Future<AppSettingsService> create() async {
     final prefs = await SharedPreferences.getInstance();
@@ -289,4 +294,38 @@ class AppSettingsService {
         jsonEncode([for (final d in defs) d.toJson()]),
       );
 
+  /// Guards the one-time Push/Pull/Legs/Full Body seed in
+  /// `WorkoutDayDefsNotifier._seedIfStillEmpty` — set *before* that seed's
+  /// writes go out, not after, so a reload or a racing `refresh()`
+  /// mid-sequence (Google Sheets' read-after-write lag can make a
+  /// freshly-seeded tab briefly read back as empty) can never re-enter it
+  /// and append a duplicate set of rows.
+  bool get hasSeededWorkoutDays =>
+      _prefs.getBool(_kHasSeededWorkoutDays) ?? false;
+
+  Future<void> setHasSeededWorkoutDays(bool value) =>
+      _prefs.setBool(_kHasSeededWorkoutDays, value);
+
+  /// Guards the one-time startup sweep (`SnapshotNotifier
+  /// .cleanupDuplicateWorkoutDays`) that merges and deletes any duplicate
+  /// `WorkoutDays` rows left over from before [hasSeededWorkoutDays] existed.
+  bool get hasCleanedUpDuplicateWorkoutDays =>
+      _prefs.getBool(_kHasCleanedUpDuplicateWorkoutDays) ?? false;
+
+  Future<void> setHasCleanedUpDuplicateWorkoutDays(bool value) =>
+      _prefs.setBool(_kHasCleanedUpDuplicateWorkoutDays, value);
+
+  bool get autoThemeRotationEnabled =>
+      _prefs.getBool(_kAutoThemeRotationEnabled) ?? false;
+
+  Future<void> setAutoThemeRotationEnabled(bool value) =>
+      _prefs.setBool(_kAutoThemeRotationEnabled, value);
+
+  /// yyyy-mm-dd of the last automatic theme rotation, or null if it's never
+  /// run — compared against today's date so it fires at most once per day.
+  String? get lastAutoThemeChangeDate =>
+      _prefs.getString(_kLastAutoThemeChangeDate);
+
+  Future<void> setLastAutoThemeChangeDate(String value) =>
+      _prefs.setString(_kLastAutoThemeChangeDate, value);
 }
