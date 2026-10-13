@@ -2,8 +2,15 @@ import 'package:flutter/material.dart';
 
 /// One consistent snackbar style for the whole app (icon + message, red for
 /// errors) instead of each screen calling the stock `ScaffoldMessenger`
-/// directly with its own ad hoc content.
-void showAppSnackBar(BuildContext context, String message, {bool isError = false}) {
+/// directly with its own ad hoc content. Pass [onUndo] to show a trailing
+/// "Undo" action (e.g. for a reversible delete) instead of/alongside the
+/// plain message.
+void showAppSnackBar(
+  BuildContext context,
+  String message, {
+  bool isError = false,
+  VoidCallback? onUndo,
+}) {
   final theme = Theme.of(context);
   ScaffoldMessenger.of(context)
     ..clearSnackBars()
@@ -29,6 +36,13 @@ void showAppSnackBar(BuildContext context, String message, {bool isError = false
             ),
           ],
         ),
+        action: onUndo == null
+            ? null
+            : SnackBarAction(
+                label: 'Undo',
+                textColor: isError ? theme.colorScheme.onError : theme.colorScheme.inversePrimary,
+                onPressed: onUndo,
+              ),
       ),
     );
 }

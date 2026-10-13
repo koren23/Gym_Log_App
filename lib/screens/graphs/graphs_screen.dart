@@ -8,6 +8,7 @@ import '../../models/exercise_unit.dart';
 import '../../providers/analysis_providers.dart';
 import '../../providers/sheet_data_providers.dart';
 import '../../widgets/empty_state.dart';
+import '../../widgets/loading_skeleton.dart';
 import '../../widgets/simple_line_chart.dart';
 import '../body_weight/body_weight_history_screen.dart';
 
@@ -41,7 +42,11 @@ String _weightAxisLabel(Exercise? exercise) => switch (exercise?.unit) {
 /// "Exercises" reference tab, as % of starting weight), or "Body weight"
 /// itself as its own standalone graph.
 class GraphsScreen extends ConsumerStatefulWidget {
-  const GraphsScreen({super.key});
+  const GraphsScreen({super.key, this.onChartInteractionChanged});
+
+  /// Forwarded to [SimpleLineChart.onInteractionChanged] — see that field
+  /// for why `MainShell`'s swipe-to-change-tabs gesture needs this.
+  final ValueChanged<bool>? onChartInteractionChanged;
 
   @override
   ConsumerState<GraphsScreen> createState() => _GraphsScreenState();
@@ -52,7 +57,8 @@ class _GraphsScreenState extends ConsumerState<GraphsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final snapshotState = ref.watch(snapshotProvider).value;
+    final snapshotAsync = ref.watch(snapshotProvider);
+    final snapshotState = snapshotAsync.value;
     final yearsAscending = snapshotState?.snapshot.yearData.values.toList()
       ?..sort((a, b) => a.year.compareTo(b.year));
 
@@ -64,6 +70,10 @@ class _GraphsScreenState extends ConsumerState<GraphsScreen> {
               ChartPoint(date: e.date, value: e.weightKg),
           ]
         : null;
+
+    if (snapshotAsync.isLoading && snapshotState == null) {
+      return const ChartScreenSkeleton();
+    }
 
     if (yearsAscending == null || yearsAscending.isEmpty) {
       return RefreshIndicator(
@@ -229,6 +239,7 @@ class _GraphsScreenState extends ConsumerState<GraphsScreen> {
               secondaryColor: bodyWeightColor,
               secondaryFloor: 45,
               secondaryCeiling: 100,
+              onInteractionChanged: widget.onChartInteractionChanged,
             ),
           ),
           if (secondaryPoints != null)

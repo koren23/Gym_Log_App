@@ -16,6 +16,28 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '1.4.5',
+    date: '2026-10-13',
+    changes: [
+      'Zoomed-in graphs no longer let the line spill past the axes.',
+      'Swipe left/right anywhere to switch between Home, Graphs, and '
+          'History — except directly on a chart, where that gesture still '
+          'zooms.',
+      'Swipe a logged exercise or visit away to remove it, with an Undo '
+          'action in the snackbar.',
+      'Long-press a set to duplicate it, copy the set above, or clear it.',
+      'Weight and reps fields now jump to the next field when you submit, '
+          'instead of needing to tap each one.',
+      'Shimmer loading placeholders instead of a blank screen while the '
+          'first load is in progress.',
+      'A streak banner on Home shows your current consecutive-day streak.',
+      'The app bar now gets a subtle shadow once you scroll Graphs or '
+          'History, for a more native feel.',
+      'Chart text and tooltip colors now read correctly against every dark '
+          'theme preset.',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.4.4',
     date: '2026-10-13',
     changes: [
@@ -150,7 +172,9 @@ const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
     version: '1.0.7',
     date: '2026-09-23',
-    changes: ['Added a tappable unit chip directly on each exercise in the log page.'],
+    changes: [
+      'Added a tappable unit chip directly on each exercise in the log page.',
+    ],
   ),
   ChangelogEntry(
     version: '1.0.6',

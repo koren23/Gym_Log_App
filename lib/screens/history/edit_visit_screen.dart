@@ -156,10 +156,28 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
   }
 
   void _removeExercise(String name) {
+    // Not disposed (unlike the exercise-deleted path above) so the
+    // snackbar's "Undo" can restore the exact same draft.
+    final removedIndex = _exerciseOrder.indexOf(name);
+    final removedDraft = _drafts[name];
     setState(() {
       _exerciseOrder.remove(name);
-      _drafts.remove(name)?.dispose();
+      _drafts.remove(name);
     });
+    if (removedDraft == null || removedIndex == -1) return;
+    showAppSnackBar(
+      context,
+      'Removed $name',
+      onUndo: () {
+        setState(() {
+          _exerciseOrder.insert(
+            removedIndex.clamp(0, _exerciseOrder.length),
+            name,
+          );
+          _drafts[name] = removedDraft;
+        });
+      },
+    );
   }
 
   /// Opens the same add/edit-exercise dialog the log page uses, so an
@@ -564,107 +582,129 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
                 Card(
                   key: ValueKey(_exerciseOrder[i]),
                   margin: const EdgeInsets.only(bottom: 12),
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            ReorderableDragStartListener(
-                              index: i,
-                              child: Padding(
-                                padding: const EdgeInsets.only(right: 8),
-                                child: Icon(
-                                  Icons.drag_handle,
-                                  color: Theme.of(context).colorScheme.outline,
+                  child: Dismissible(
+                    key: ValueKey('dismiss-${_exerciseOrder[i]}'),
+                    direction: _exerciseOrder.length <= 1
+                        ? DismissDirection.none
+                        : DismissDirection.endToStart,
+                    background: Container(
+                      alignment: Alignment.centerRight,
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.errorContainer,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(
+                        Icons.delete_outline,
+                        color: Theme.of(context).colorScheme.onErrorContainer,
+                      ),
+                    ),
+                    onDismissed: (_) => _removeExercise(_exerciseOrder[i]),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              ReorderableDragStartListener(
+                                index: i,
+                                child: Padding(
+                                  padding: const EdgeInsets.only(right: 8),
+                                  child: Icon(
+                                    Icons.drag_handle,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.outline,
+                                  ),
                                 ),
                               ),
-                            ),
-                            Expanded(
-                              child: Builder(
+                              Expanded(
+                                child: Builder(
+                                  builder: (context) {
+                                    final draft = _drafts[_exerciseOrder[i]]!;
+                                    final previousWeights = _previousWeightsFor(
+                                      _exerciseOrder[i],
+                                    );
+                                    return Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          _exerciseOrder[i],
+                                          style: Theme.of(
+                                            context,
+                                          ).textTheme.titleSmall,
+                                        ),
+                                        if (previousWeights.isNotEmpty)
+                                          Text(
+                                            'Last time: ${formatExerciseValuesPerSet(draft.exercise.unit, previousWeights, customLabel: draft.exercise.customUnitLabel)}',
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .bodySmall
+                                                ?.copyWith(
+                                                  color: Theme.of(
+                                                    context,
+                                                  ).colorScheme.outline,
+                                                ),
+                                          ),
+                                      ],
+                                    );
+                                  },
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.edit_outlined),
+                                tooltip:
+                                    'Edit exercise (name / muscle / unit / delete)',
+                                onPressed: () =>
+                                    _editExercise(_exerciseOrder[i]),
+                              ),
+                              Builder(
                                 builder: (context) {
                                   final draft = _drafts[_exerciseOrder[i]]!;
-                                  final previousWeights = _previousWeightsFor(
-                                    _exerciseOrder[i],
-                                  );
-                                  return Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        _exerciseOrder[i],
-                                        style: Theme.of(
-                                          context,
-                                        ).textTheme.titleSmall,
-                                      ),
-                                      if (previousWeights.isNotEmpty)
-                                        Text(
-                                          'Last time: ${formatExerciseValuesPerSet(draft.exercise.unit, previousWeights, customLabel: draft.exercise.customUnitLabel)}',
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .bodySmall
-                                              ?.copyWith(
-                                                color: Theme.of(
-                                                  context,
-                                                ).colorScheme.outline,
-                                              ),
-                                        ),
-                                    ],
+                                  final hasNote =
+                                      draft.note != null &&
+                                      draft.note!.isNotEmpty;
+                                  return IconButton(
+                                    icon: Icon(
+                                      hasNote
+                                          ? Icons.sticky_note_2
+                                          : Icons.note_add_outlined,
+                                    ),
+                                    tooltip: 'Note on this exercise',
+                                    onPressed: () async {
+                                      final result = await showEditNoteDialog(
+                                        context,
+                                        title: 'Note on ${_exerciseOrder[i]}',
+                                        initialText: draft.note,
+                                      );
+                                      if (result == null) return;
+                                      setState(() {
+                                        draft.note = result.isEmpty
+                                            ? null
+                                            : result;
+                                      });
+                                    },
                                   );
                                 },
                               ),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.edit_outlined),
-                              tooltip:
-                                  'Edit exercise (name / muscle / unit / delete)',
-                              onPressed: () => _editExercise(_exerciseOrder[i]),
-                            ),
-                            Builder(
-                              builder: (context) {
-                                final draft = _drafts[_exerciseOrder[i]]!;
-                                final hasNote =
-                                    draft.note != null &&
-                                    draft.note!.isNotEmpty;
-                                return IconButton(
-                                  icon: Icon(
-                                    hasNote
-                                        ? Icons.sticky_note_2
-                                        : Icons.note_add_outlined,
-                                  ),
-                                  tooltip: 'Note on this exercise',
-                                  onPressed: () async {
-                                    final result = await showEditNoteDialog(
-                                      context,
-                                      title: 'Note on ${_exerciseOrder[i]}',
-                                      initialText: draft.note,
-                                    );
-                                    if (result == null) return;
-                                    setState(() {
-                                      draft.note = result.isEmpty
-                                          ? null
-                                          : result;
-                                    });
-                                  },
-                                );
-                              },
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.remove_circle_outline),
-                              tooltip: 'Remove exercise',
-                              onPressed: _exerciseOrder.length <= 1
-                                  ? null
-                                  : () => _removeExercise(_exerciseOrder[i]),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        SetsEditor(
-                          draft: _drafts[_exerciseOrder[i]]!,
-                          onChanged: () => setState(() {}),
-                        ),
-                      ],
+                              IconButton(
+                                icon: const Icon(Icons.remove_circle_outline),
+                                tooltip: 'Remove exercise',
+                                onPressed: _exerciseOrder.length <= 1
+                                    ? null
+                                    : () => _removeExercise(_exerciseOrder[i]),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          SetsEditor(
+                            draft: _drafts[_exerciseOrder[i]]!,
+                            onChanged: () => setState(() {}),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),

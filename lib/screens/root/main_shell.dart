@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/app_page_route.dart';
@@ -29,6 +30,50 @@ class _MainShellState extends ConsumerState<MainShell> {
   int _selectedIndex = 0;
 
   static const _tabTitles = ['', 'Progress', 'Workout history'];
+
+  // Raw swipe-to-change-tabs tracking, mirroring the pinch-zoom approach in
+  // SimpleLineChart: a Listener (not a GestureDetector) so it never
+  // contests the gesture arena against a tab's own scrolling/chart
+  // gestures — it just watches alongside them and acts on release.
+  bool _chartInteractionActive = false;
+  int? _swipePointer;
+  double _swipeStartX = 0;
+  double _swipeStartY = 0;
+
+  void _onChartInteractionChanged(bool active) {
+    _chartInteractionActive = active;
+  }
+
+  void _onBodyPointerDown(PointerDownEvent event) {
+    if (_chartInteractionActive || _swipePointer != null) return;
+    _swipePointer = event.pointer;
+    _swipeStartX = event.position.dx;
+    _swipeStartY = event.position.dy;
+  }
+
+  void _onBodyPointerMove(PointerMoveEvent event) {
+    if (event.pointer != _swipePointer) return;
+    // The chart's own pinch/pan/tooltip-scrub claimed this touch partway
+    // through (e.g. a second finger just came down) — stop treating it as
+    // a tab swipe.
+    if (_chartInteractionActive) _swipePointer = null;
+  }
+
+  void _onBodyPointerUpOrCancel(PointerEvent event) {
+    if (event.pointer != _swipePointer) return;
+    _swipePointer = null;
+    final dx = event.position.dx - _swipeStartX;
+    final dy = event.position.dy - _swipeStartY;
+    const threshold = 60.0;
+    if (dx.abs() < threshold || dx.abs() < dy.abs() * 1.5) return;
+    if (dx < 0 && _selectedIndex < 2) {
+      setState(() => _selectedIndex++);
+      HapticFeedback.selectionClick();
+    } else if (dx > 0 && _selectedIndex > 0) {
+      setState(() => _selectedIndex--);
+      HapticFeedback.selectionClick();
+    }
+  }
 
   @override
   void initState() {
@@ -89,9 +134,19 @@ class _MainShellState extends ConsumerState<MainShell> {
           const SizedBox(width: 4),
         ],
       ),
-      body: IndexedStack(
-        index: _selectedIndex,
-        children: const [HomeTab(), GraphsScreen(), HistoryScreen()],
+      body: Listener(
+        onPointerDown: _onBodyPointerDown,
+        onPointerMove: _onBodyPointerMove,
+        onPointerUp: _onBodyPointerUpOrCancel,
+        onPointerCancel: _onBodyPointerUpOrCancel,
+        child: IndexedStack(
+          index: _selectedIndex,
+          children: [
+            const HomeTab(),
+            GraphsScreen(onChartInteractionChanged: _onChartInteractionChanged),
+            const HistoryScreen(),
+          ],
+        ),
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,

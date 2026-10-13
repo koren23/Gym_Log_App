@@ -116,12 +116,20 @@ class SimpleLineChart extends StatefulWidget {
     this.secondaryColor,
     this.secondaryFloor,
     this.secondaryCeiling,
+    this.onInteractionChanged,
   });
 
   final List<ChartPoint> points;
   final Color color;
   final List<ChartPoint>? secondaryPoints;
   final Color? secondaryColor;
+
+  /// Called with `true` while any pointer is down directly on the chart
+  /// (pinch-zoom, pan, or just a tooltip-scrub touch) and `false` once all
+  /// pointers lift — lets an ancestor (the swipe-to-change-tabs gesture in
+  /// `MainShell`) tell a touch that started on the chart apart from one that
+  /// started elsewhere, without the two gestures contesting the same arena.
+  final ValueChanged<bool>? onInteractionChanged;
 
   /// Fixed lower bound for the secondary (right) axis, used instead of the
   /// usual data-min-minus-padding when the data's own minimum is at or
@@ -169,6 +177,7 @@ class _SimpleLineChartState extends State<SimpleLineChart> {
   double _cachedVisibleSpan = 1;
 
   void _onPointerDown(PointerDownEvent event) {
+    if (_activePointers.isEmpty) widget.onInteractionChanged?.call(true);
     _activePointers[event.pointer] = event.localPosition;
     if (_activePointers.length == 2) {
       final pts = _activePointers.values.toList();
@@ -226,7 +235,8 @@ class _SimpleLineChartState extends State<SimpleLineChart> {
         0.0,
         1.0,
       );
-      final focalValue = _cachedVisibleStart + focalFraction * _cachedVisibleSpan;
+      final focalValue =
+          _cachedVisibleStart + focalFraction * _cachedVisibleSpan;
       var newStart = focalValue - focalFraction * newSpan;
       newStart = newStart.clamp(
         0.0,
@@ -242,6 +252,7 @@ class _SimpleLineChartState extends State<SimpleLineChart> {
     if (_activePointers.length < 2) {
       _pinchStartDistance = null;
     }
+    if (_activePointers.isEmpty) widget.onInteractionChanged?.call(false);
   }
 
   void _resetZoom() => setState(() {
@@ -277,6 +288,10 @@ class _SimpleLineChartState extends State<SimpleLineChart> {
         ),
       );
     }
+
+    final theme = Theme.of(context);
+    final axisLabelColor = theme.colorScheme.onSurface;
+    final axisSubLabelColor = theme.colorScheme.outline;
 
     final color = widget.color;
     final secondaryColor = widget.secondaryColor;
@@ -425,6 +440,7 @@ class _SimpleLineChartState extends State<SimpleLineChart> {
                         maxY: primaryMax,
                         minX: visibleStart,
                         maxX: visibleEnd,
+                        clipData: const FlClipData.all(),
                         lineBarsData: [
                           if (secondarySpots.length > 1)
                             LineChartBarData(
@@ -474,7 +490,10 @@ class _SimpleLineChartState extends State<SimpleLineChart> {
                                 lastLeftTick = value;
                                 return Text(
                                   value.toStringAsFixed(0),
-                                  style: const TextStyle(fontSize: 11),
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: axisLabelColor,
+                                  ),
                                 );
                               },
                             ),
@@ -531,13 +550,16 @@ class _SimpleLineChartState extends State<SimpleLineChart> {
                                     children: [
                                       Text(
                                         monthFormat.format(date),
-                                        style: const TextStyle(fontSize: 11),
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: axisLabelColor,
+                                        ),
                                       ),
                                       Text(
                                         yearFormat.format(date),
                                         style: TextStyle(
                                           fontSize: 10,
-                                          color: Colors.grey.shade600,
+                                          color: axisSubLabelColor,
                                         ),
                                       ),
                                     ],
@@ -554,6 +576,8 @@ class _SimpleLineChartState extends State<SimpleLineChart> {
                         borderData: FlBorderData(show: false),
                         lineTouchData: LineTouchData(
                           touchTooltipData: LineTouchTooltipData(
+                            getTooltipColor: (_) =>
+                                theme.colorScheme.inverseSurface,
                             getTooltipItems: (touchedSpots) => touchedSpots.map((
                               s,
                             ) {
@@ -582,7 +606,9 @@ class _SimpleLineChartState extends State<SimpleLineChart> {
                               }
                               return LineTooltipItem(
                                 text,
-                                const TextStyle(color: Colors.white),
+                                TextStyle(
+                                  color: theme.colorScheme.onInverseSurface,
+                                ),
                               );
                             }).toList(),
                           ),

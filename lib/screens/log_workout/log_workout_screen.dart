@@ -258,12 +258,29 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
   /// available to check again below), only the current draft's progress on
   /// it is.
   void _removeFromCompleted(String name) {
+    // Not disposed here (unlike _removeAddedExercise) so the snackbar's
+    // "Undo" can hand the exact same draft — with everything the user
+    // entered — back without losing anything.
+    final removedDraft = _drafts[name];
     setState(() {
       _checked.remove(name);
-      _drafts.remove(name)?.dispose();
+      _drafts.remove(name);
       _refreshCompletionSnapshot();
     });
     _saveDraft();
+    if (removedDraft == null) return;
+    showAppSnackBar(
+      context,
+      'Removed $name from this workout',
+      onUndo: () {
+        setState(() {
+          _checked.add(name);
+          _drafts[name] = removedDraft;
+          _refreshCompletionSnapshot();
+        });
+        _saveDraft();
+      },
+    );
   }
 
   Future<void> _confirmClear() async {
@@ -1320,71 +1337,91 @@ class _CompletedRowState extends State<_CompletedRow> {
     final theme = Theme.of(context);
     final draft = widget.draft;
     final setsSummary = completedRowSetsSummary(draft);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          InkWell(
-            borderRadius: BorderRadius.circular(8),
-            onTap: () => setState(() => _expanded = !_expanded),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Row(
-                children: [
-                  ReorderableDragStartListener(
-                    index: widget.index,
-                    child: Icon(
-                      Icons.drag_handle,
+    return Dismissible(
+      key: ValueKey('dismiss-${widget.name}'),
+      direction: widget.onRemove == null
+          ? DismissDirection.none
+          : DismissDirection.endToStart,
+      background: Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        color: theme.colorScheme.errorContainer,
+        child: Icon(
+          Icons.delete_outline,
+          color: theme.colorScheme.onErrorContainer,
+        ),
+      ),
+      onDismissed: (_) => widget.onRemove!(),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: () => setState(() => _expanded = !_expanded),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  children: [
+                    ReorderableDragStartListener(
+                      index: widget.index,
+                      child: Icon(
+                        Icons.drag_handle,
+                        size: 18,
+                        color: theme.colorScheme.outline,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    const Icon(
+                      Icons.check_circle,
                       size: 18,
+                      color: Colors.green,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            widget.name,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          Text(setsSummary, style: theme.textTheme.bodySmall),
+                        ],
+                      ),
+                    ),
+                    Icon(
+                      _expanded ? Icons.expand_less : Icons.expand_more,
+                      size: 20,
                       color: theme.colorScheme.outline,
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  const Icon(Icons.check_circle, size: 18, color: Colors.green),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          widget.name,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        Text(setsSummary, style: theme.textTheme.bodySmall),
-                      ],
-                    ),
-                  ),
-                  Icon(
-                    _expanded ? Icons.expand_less : Icons.expand_more,
-                    size: 20,
-                    color: theme.colorScheme.outline,
-                  ),
-                  if (widget.onRemove != null)
-                    IconButton(
-                      icon: const Icon(Icons.remove_circle_outline, size: 20),
-                      tooltip: 'Remove from this workout',
-                      onPressed: () {
-                        HapticFeedback.lightImpact();
-                        widget.onRemove!();
-                      },
-                    ),
-                ],
+                    if (widget.onRemove != null)
+                      IconButton(
+                        icon: const Icon(Icons.remove_circle_outline, size: 20),
+                        tooltip: 'Remove from this workout',
+                        onPressed: () {
+                          HapticFeedback.lightImpact();
+                          widget.onRemove!();
+                        },
+                      ),
+                  ],
+                ),
               ),
             ),
-          ),
-          if (_expanded)
-            Padding(
-              padding: const EdgeInsets.only(left: 26, bottom: 8),
-              child: SetsEditor(
-                draft: draft,
-                onChanged: widget.onChanged,
-                onFocusLost: widget.onFocusLost,
+            if (_expanded)
+              Padding(
+                padding: const EdgeInsets.only(left: 26, bottom: 8),
+                child: SetsEditor(
+                  draft: draft,
+                  onChanged: widget.onChanged,
+                  onFocusLost: widget.onFocusLost,
+                ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }

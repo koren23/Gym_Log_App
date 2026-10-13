@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/analysis/tile_trend.dart';
@@ -61,6 +62,16 @@ class ExerciseDraft {
          setCount,
          (_) => TextEditingController(),
          growable: true,
+       ),
+       weightFocusNodes = List.generate(
+         setCount,
+         (_) => FocusNode(),
+         growable: true,
+       ),
+       repsFocusNodes = List.generate(
+         setCount,
+         (_) => FocusNode(),
+         growable: true,
        );
 
   /// Not final: updated in place when the unit is edited from the log page
@@ -83,6 +94,12 @@ class ExerciseDraft {
   final List<TextEditingController> weightControllers;
   final List<TextEditingController> repsControllers;
 
+  /// Owned here (not per-row) so weight->reps->next-set's-weight keyboard
+  /// "next" chaining in [_SetEditorRow] can request focus on a sibling
+  /// row's field, which a row's own private [FocusNode] couldn't reach.
+  final List<FocusNode> weightFocusNodes;
+  final List<FocusNode> repsFocusNodes;
+
   /// A free-text note on the exercise as a whole, separate from the
   /// whole-visit note — null when none has been entered.
   String? note;
@@ -92,7 +109,8 @@ class ExerciseDraft {
   List<String?> setNotes;
 
   bool get isComplete => setWeights.every(
-    (w) => w != null && (w > 0 || (w == 0 && exercise.unit.allowsZeroAsRealValue)),
+    (w) =>
+        w != null && (w > 0 || (w == 0 && exercise.unit.allowsZeroAsRealValue)),
   );
 
   int repsFor(int index) {
@@ -177,6 +195,32 @@ class ExerciseDraft {
     setNotes.add(null);
     weightControllers.add(TextEditingController());
     repsControllers.add(TextEditingController());
+    weightFocusNodes.add(FocusNode());
+    repsFocusNodes.add(FocusNode());
+  }
+
+  /// Inserts a copy of set [index] right after it — used by the set row's
+  /// long-press "Duplicate this set" quick action.
+  void duplicateSetAt(int index) {
+    final insertAt = index + 1;
+    setWeights.insert(insertAt, setWeights[index]);
+    setReps.insert(insertAt, setReps[index]);
+    setApproxReps.insert(insertAt, setApproxReps[index]);
+    setFeedback.insert(insertAt, SetFeedback.none);
+    targetRepRangeLowOverridePerSet.insert(insertAt, null);
+    targetRepRangeHighOverridePerSet.insert(insertAt, null);
+    targetWeightOverridePerSet.insert(insertAt, null);
+    setNotes.insert(insertAt, null);
+    weightControllers.insert(
+      insertAt,
+      TextEditingController(text: weightControllers[index].text),
+    );
+    repsControllers.insert(
+      insertAt,
+      TextEditingController(text: repsControllers[index].text),
+    );
+    weightFocusNodes.insert(insertAt, FocusNode());
+    repsFocusNodes.insert(insertAt, FocusNode());
   }
 
   void removeLastSet() {
@@ -191,6 +235,8 @@ class ExerciseDraft {
     setNotes.removeLast();
     weightControllers.removeLast().dispose();
     repsControllers.removeLast().dispose();
+    weightFocusNodes.removeLast().dispose();
+    repsFocusNodes.removeLast().dispose();
   }
 
   /// Replaces all set data (used when applying a persisted/restored draft),
@@ -208,13 +254,23 @@ class ExerciseDraft {
     for (final c in repsControllers) {
       c.dispose();
     }
+    for (final f in weightFocusNodes) {
+      f.dispose();
+    }
+    for (final f in repsFocusNodes) {
+      f.dispose();
+    }
     setWeights = weights;
     setReps = reps;
     setApproxReps =
         approxReps ?? List<bool>.filled(weights.length, false, growable: true);
     this.setFeedback =
         setFeedback ??
-        List<SetFeedback>.filled(weights.length, SetFeedback.none, growable: true);
+        List<SetFeedback>.filled(
+          weights.length,
+          SetFeedback.none,
+          growable: true,
+        );
     targetRepRangeLowOverridePerSet = List<int?>.filled(
       weights.length,
       null,
@@ -243,6 +299,12 @@ class ExerciseDraft {
       ..addAll([
         for (final r in reps) TextEditingController(text: r?.toString() ?? ''),
       ]);
+    weightFocusNodes
+      ..clear()
+      ..addAll([for (final _ in weights) FocusNode()]);
+    repsFocusNodes
+      ..clear()
+      ..addAll([for (final _ in weights) FocusNode()]);
   }
 
   void dispose() {
@@ -251,6 +313,12 @@ class ExerciseDraft {
     }
     for (final c in repsControllers) {
       c.dispose();
+    }
+    for (final f in weightFocusNodes) {
+      f.dispose();
+    }
+    for (final f in repsFocusNodes) {
+      f.dispose();
     }
   }
 
@@ -360,7 +428,8 @@ class ExerciseTile extends ConsumerWidget {
                         label: Text(
                           'Unit: ${_unitName(draft.exercise.unit, draft.exercise.customUnitLabel)}',
                         ),
-                        tooltip: 'Edit exercise (name / muscle / unit / delete)',
+                        tooltip:
+                            'Edit exercise (name / muscle / unit / delete)',
                         visualDensity: VisualDensity.compact,
                         onPressed: () => _editExercise(context, ref),
                       ),
@@ -458,7 +527,8 @@ class ExerciseTile extends ConsumerWidget {
           newMuscleColumnIndex: result.muscleColumnIndex,
         );
     if (!updateResult.success && context.mounted) {
-      final onlyUnitFailed = updateResult.failedSteps.length == 1 &&
+      final onlyUnitFailed =
+          updateResult.failedSteps.length == 1 &&
           updateResult.failedSteps.single == 'unit';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -566,8 +636,10 @@ class _SetEditorRow extends StatefulWidget {
 }
 
 class _SetEditorRowState extends State<_SetEditorRow> {
-  final _weightFocus = FocusNode();
-  final _repsFocus = FocusNode();
+  // Owned by the draft (not this row) so "next field" keyboard chaining can
+  // reach a sibling row's field — see [ExerciseDraft.weightFocusNodes].
+  FocusNode get _weightFocus => widget.draft.weightFocusNodes[widget.setIndex];
+  FocusNode get _repsFocus => widget.draft.repsFocusNodes[widget.setIndex];
 
   @override
   void initState() {
@@ -604,8 +676,10 @@ class _SetEditorRowState extends State<_SetEditorRow> {
 
   @override
   void dispose() {
-    _weightFocus.dispose();
-    _repsFocus.dispose();
+    _weightFocus.removeListener(_scrollIntoViewOnFocus);
+    _repsFocus.removeListener(_scrollIntoViewOnFocus);
+    _weightFocus.removeListener(_handleFocusLost);
+    _repsFocus.removeListener(_handleFocusLost);
     super.dispose();
   }
 
@@ -620,148 +694,218 @@ class _SetEditorRowState extends State<_SetEditorRow> {
     final feedback = draft.setFeedback[i];
     final theme = Theme.of(context);
     final hasNote = draft.setNotes[i] != null && draft.setNotes[i]!.isNotEmpty;
-    return SizedBox(
-      width: 300,
-      child: Row(
-        children: [
-          Expanded(
-            child: TextFormField(
-              controller: draft.weightControllers[i],
-              focusNode: _weightFocus,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
+    return GestureDetector(
+      onLongPress: () => _showQuickActions(context),
+      child: SizedBox(
+        width: 300,
+        child: Row(
+          children: [
+            Expanded(
+              child: TextFormField(
+                controller: draft.weightControllers[i],
+                focusNode: _weightFocus,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                textInputAction: TextInputAction.next,
+                decoration: InputDecoration(
+                  labelText:
+                      'Set ${i + 1} (${draft.exercise.unit.labelSuffix(customLabel: draft.exercise.customUnitLabel)})',
+                  isDense: true,
+                ),
+                onChanged: (text) {
+                  draft.setWeights[i] = double.tryParse(text);
+                  widget.onChanged();
+                },
+                onFieldSubmitted: (_) =>
+                    FocusScope.of(context).requestFocus(_repsFocus),
               ),
-              decoration: InputDecoration(
-                labelText:
-                    'Set ${i + 1} (${draft.exercise.unit.labelSuffix(customLabel: draft.exercise.customUnitLabel)})',
-                isDense: true,
-              ),
-              onChanged: (text) {
-                draft.setWeights[i] = double.tryParse(text);
-                widget.onChanged();
-              },
             ),
-          ),
-          const SizedBox(width: 6),
-          Expanded(
-            child: TextFormField(
-              controller: draft.repsControllers[i],
-              focusNode: _repsFocus,
-              keyboardType: TextInputType.number,
-              decoration: InputDecoration(
-                labelText: 'Reps',
-                isDense: true,
-                hintText: '${draft.repsFor(i)}',
-                suffixIcon: draft.hasSuggestedTarget(i)
-                    ? const Tooltip(
-                        message: 'Target updated from a recent suggestion',
-                        child: Icon(Icons.auto_awesome, size: 16),
-                      )
-                    : null,
+            const SizedBox(width: 6),
+            Expanded(
+              child: TextFormField(
+                controller: draft.repsControllers[i],
+                focusNode: _repsFocus,
+                keyboardType: TextInputType.number,
+                textInputAction: i + 1 < draft.weightFocusNodes.length
+                    ? TextInputAction.next
+                    : TextInputAction.done,
+                decoration: InputDecoration(
+                  labelText: 'Reps',
+                  isDense: true,
+                  hintText: '${draft.repsFor(i)}',
+                  suffixIcon: draft.hasSuggestedTarget(i)
+                      ? const Tooltip(
+                          message: 'Target updated from a recent suggestion',
+                          child: Icon(Icons.auto_awesome, size: 16),
+                        )
+                      : null,
+                ),
+                onChanged: (text) {
+                  draft.setReps[i] = int.tryParse(text);
+                  widget.onChanged();
+                },
+                onFieldSubmitted: (_) {
+                  if (i + 1 < draft.weightFocusNodes.length) {
+                    FocusScope.of(
+                      context,
+                    ).requestFocus(draft.weightFocusNodes[i + 1]);
+                  } else {
+                    FocusScope.of(context).unfocus();
+                  }
+                },
               ),
-              onChanged: (text) {
-                draft.setReps[i] = int.tryParse(text);
-                widget.onChanged();
-              },
             ),
-          ),
-          const SizedBox(width: 4),
-          Tooltip(
-            message: approx ? 'Marked approximate' : 'Mark reps as approximate',
-            child: InkWell(
-              borderRadius: BorderRadius.circular(16),
-              onTap: () {
-                draft.setApproxReps[i] = !approx;
-                widget.onChanged();
+            const SizedBox(width: 4),
+            Tooltip(
+              message: approx
+                  ? 'Marked approximate'
+                  : 'Mark reps as approximate',
+              child: InkWell(
+                borderRadius: BorderRadius.circular(16),
+                onTap: () {
+                  draft.setApproxReps[i] = !approx;
+                  widget.onChanged();
+                },
+                child: CircleAvatar(
+                  radius: 14,
+                  backgroundColor: approx
+                      ? theme.colorScheme.primaryContainer
+                      : theme.colorScheme.surfaceContainerHighest,
+                  child: Text(
+                    '~',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: approx
+                          ? theme.colorScheme.onPrimaryContainer
+                          : theme.colorScheme.outline,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 4),
+            Tooltip(
+              message: switch (feedback) {
+                SetFeedback.none => 'Mark this set good/bad',
+                SetFeedback.up => 'Marked extra good — tap for bad',
+                SetFeedback.down => 'Marked extra bad — tap to clear',
               },
-              child: CircleAvatar(
-                radius: 14,
-                backgroundColor: approx
-                    ? theme.colorScheme.primaryContainer
-                    : theme.colorScheme.surfaceContainerHighest,
-                child: Text(
-                  '~',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: approx
+              child: InkWell(
+                borderRadius: BorderRadius.circular(16),
+                onTap: () {
+                  draft.setFeedback[i] = switch (feedback) {
+                    SetFeedback.none => SetFeedback.up,
+                    SetFeedback.up => SetFeedback.down,
+                    SetFeedback.down => SetFeedback.none,
+                  };
+                  widget.onChanged();
+                },
+                child: CircleAvatar(
+                  radius: 14,
+                  backgroundColor: feedback == SetFeedback.none
+                      ? theme.colorScheme.surfaceContainerHighest
+                      : theme.colorScheme.primaryContainer,
+                  child: Icon(
+                    switch (feedback) {
+                      SetFeedback.none => Icons.thumbs_up_down_outlined,
+                      SetFeedback.up => Icons.thumb_up,
+                      SetFeedback.down => Icons.thumb_down,
+                    },
+                    size: 14,
+                    color: switch (feedback) {
+                      SetFeedback.none => theme.colorScheme.outline,
+                      SetFeedback.up => Colors.green,
+                      SetFeedback.down => Colors.red,
+                    },
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 4),
+            Tooltip(
+              message: hasNote ? 'Note on this set' : 'Add a note to this set',
+              child: InkWell(
+                borderRadius: BorderRadius.circular(16),
+                onTap: () async {
+                  final result = await showEditNoteDialog(
+                    context,
+                    title: 'Note on set ${i + 1}',
+                    initialText: draft.setNotes[i],
+                  );
+                  if (result == null) return;
+                  draft.setNotes[i] = result.isEmpty ? null : result;
+                  widget.onChanged();
+                },
+                child: CircleAvatar(
+                  radius: 14,
+                  backgroundColor: hasNote
+                      ? theme.colorScheme.primaryContainer
+                      : theme.colorScheme.surfaceContainerHighest,
+                  child: Icon(
+                    hasNote ? Icons.sticky_note_2 : Icons.note_add_outlined,
+                    size: 14,
+                    color: hasNote
                         ? theme.colorScheme.onPrimaryContainer
                         : theme.colorScheme.outline,
                   ),
                 ),
               ),
             ),
-          ),
-          const SizedBox(width: 4),
-          Tooltip(
-            message: switch (feedback) {
-              SetFeedback.none => 'Mark this set good/bad',
-              SetFeedback.up => 'Marked extra good — tap for bad',
-              SetFeedback.down => 'Marked extra bad — tap to clear',
-            },
-            child: InkWell(
-              borderRadius: BorderRadius.circular(16),
-              onTap: () {
-                draft.setFeedback[i] = switch (feedback) {
-                  SetFeedback.none => SetFeedback.up,
-                  SetFeedback.up => SetFeedback.down,
-                  SetFeedback.down => SetFeedback.none,
-                };
-                widget.onChanged();
-              },
-              child: CircleAvatar(
-                radius: 14,
-                backgroundColor: feedback == SetFeedback.none
-                    ? theme.colorScheme.surfaceContainerHighest
-                    : theme.colorScheme.primaryContainer,
-                child: Icon(
-                  switch (feedback) {
-                    SetFeedback.none => Icons.thumbs_up_down_outlined,
-                    SetFeedback.up => Icons.thumb_up,
-                    SetFeedback.down => Icons.thumb_down,
-                  },
-                  size: 14,
-                  color: switch (feedback) {
-                    SetFeedback.none => theme.colorScheme.outline,
-                    SetFeedback.up => Colors.green,
-                    SetFeedback.down => Colors.red,
-                  },
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 4),
-          Tooltip(
-            message: hasNote ? 'Note on this set' : 'Add a note to this set',
-            child: InkWell(
-              borderRadius: BorderRadius.circular(16),
-              onTap: () async {
-                final result = await showEditNoteDialog(
-                  context,
-                  title: 'Note on set ${i + 1}',
-                  initialText: draft.setNotes[i],
-                );
-                if (result == null) return;
-                draft.setNotes[i] = result.isEmpty ? null : result;
-                widget.onChanged();
-              },
-              child: CircleAvatar(
-                radius: 14,
-                backgroundColor: hasNote
-                    ? theme.colorScheme.primaryContainer
-                    : theme.colorScheme.surfaceContainerHighest,
-                child: Icon(
-                  hasNote ? Icons.sticky_note_2 : Icons.note_add_outlined,
-                  size: 14,
-                  color: hasNote
-                      ? theme.colorScheme.onPrimaryContainer
-                      : theme.colorScheme.outline,
-                ),
-              ),
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
+  }
+
+  Future<void> _showQuickActions(BuildContext context) async {
+    final draft = widget.draft;
+    final i = widget.setIndex;
+    HapticFeedback.selectionClick();
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (i > 0)
+              ListTile(
+                leading: const Icon(Icons.content_copy),
+                title: const Text('Copy weight & reps from set above'),
+                onTap: () => Navigator.of(context).pop('copy'),
+              ),
+            ListTile(
+              leading: const Icon(Icons.library_add_outlined),
+              title: const Text('Duplicate this set'),
+              onTap: () => Navigator.of(context).pop('duplicate'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.clear),
+              title: const Text('Clear this set'),
+              onTap: () => Navigator.of(context).pop('clear'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || action == null) return;
+    switch (action) {
+      case 'copy':
+        draft.setWeights[i] = draft.setWeights[i - 1];
+        draft.setReps[i] = draft.setReps[i - 1];
+        draft.setApproxReps[i] = draft.setApproxReps[i - 1];
+        draft.weightControllers[i].text = draft.weightControllers[i - 1].text;
+        draft.repsControllers[i].text = draft.repsControllers[i - 1].text;
+      case 'duplicate':
+        draft.duplicateSetAt(i);
+      case 'clear':
+        draft.setWeights[i] = null;
+        draft.setReps[i] = null;
+        draft.setApproxReps[i] = false;
+        draft.weightControllers[i].clear();
+        draft.repsControllers[i].clear();
+    }
+    widget.onChanged();
   }
 }
 
@@ -783,7 +927,9 @@ Future<String?> showEditNoteDialog(
         autofocus: true,
         maxLines: 4,
         minLines: 1,
-        decoration: const InputDecoration(hintText: 'e.g. felt easy, form broke down...'),
+        decoration: const InputDecoration(
+          hintText: 'e.g. felt easy, form broke down...',
+        ),
       ),
       actions: [
         TextButton(
@@ -791,8 +937,7 @@ Future<String?> showEditNoteDialog(
           child: const Text('Cancel'),
         ),
         FilledButton(
-          onPressed: () =>
-              Navigator.of(context).pop(controller.text.trim()),
+          onPressed: () => Navigator.of(context).pop(controller.text.trim()),
           child: const Text('Save'),
         ),
       ],

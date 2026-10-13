@@ -44,6 +44,14 @@ class GymTrackerApp extends ConsumerWidget {
         appBarTheme: AppBarTheme(
           backgroundColor: colors.appBar,
           foregroundColor: Colors.white,
+          // Flutter's Material-3 AppBar already listens for bubbling scroll
+          // notifications and raises `scrolledUnderElevation` automatically
+          // once a tab's content scrolls — explicit `shadowColor` is the only
+          // thing missing, since the default is transparent and the tint-only
+          // effect barely shows against a custom solid background color.
+          elevation: 0,
+          scrolledUnderElevation: 4,
+          shadowColor: Colors.black,
         ),
       ),
       // The theme itself (not the phone's system setting) decides light vs.
