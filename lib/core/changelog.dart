@@ -16,6 +16,18 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '1.4.6',
+    date: '2026-10-14',
+    changes: [
+      'Fixed swipe-to-change-tabs being unreliable on Home: a swipe '
+          'starting on empty space between Home\'s boxes wasn\'t being '
+          'picked up at all.',
+      'Switching tabs (by swipe or by tapping the bottom bar) now slides '
+          'the new tab in instead of cutting instantly.',
+      'Removed the streak banner from Home.',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.4.5',
     date: '2026-10-13',
     changes: [

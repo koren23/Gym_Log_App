@@ -135,11 +135,19 @@ class _MainShellState extends ConsumerState<MainShell> {
         ],
       ),
       body: Listener(
+        // `translucent` (not the default `deferToChild`) so this still sees
+        // every pointer event even when the touch starts on an empty gap in
+        // a tab's layout (e.g. the spacing between Home's boxes) where no
+        // descendant claims the hit — deferToChild silently dropped those,
+        // which is why swiping was unreliable specifically on Home (Graphs/
+        // History are filled edge-to-edge by a scrollable/chart, so a
+        // descendant always claimed the hit there).
+        behavior: HitTestBehavior.translucent,
         onPointerDown: _onBodyPointerDown,
         onPointerMove: _onBodyPointerMove,
         onPointerUp: _onBodyPointerUpOrCancel,
         onPointerCancel: _onBodyPointerUpOrCancel,
-        child: IndexedStack(
+        child: _TabSlideBody(
           index: _selectedIndex,
           children: [
             const HomeTab(),
@@ -188,6 +196,95 @@ class _MainShellState extends ConsumerState<MainShell> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Like [IndexedStack] (every tab stays mounted so its state survives
+/// switching away and back) but animates a horizontal slide between the
+/// previous and new index instead of an instant cut. Only the from/to tabs
+/// are kept onstage and hit-testable at any time — the others sit `Offstage`
+/// with ticking disabled, exactly as cheap as a plain `IndexedStack`.
+class _TabSlideBody extends StatefulWidget {
+  const _TabSlideBody({required this.index, required this.children});
+
+  final int index;
+  final List<Widget> children;
+
+  @override
+  State<_TabSlideBody> createState() => _TabSlideBodyState();
+}
+
+class _TabSlideBodyState extends State<_TabSlideBody>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late int _fromIndex;
+  late int _toIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    _fromIndex = widget.index;
+    _toIndex = widget.index;
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 260),
+    );
+  }
+
+  @override
+  void didUpdateWidget(_TabSlideBody oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.index != widget.index) {
+      _fromIndex = oldWidget.index;
+      _toIndex = widget.index;
+      _controller
+        ..value = 0
+        ..forward();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) {
+        final t = Curves.easeOutCubic.transform(_controller.value);
+        final direction = _toIndex > _fromIndex ? 1 : -1;
+        return Stack(
+          children: [
+            for (var i = 0; i < widget.children.length; i++)
+              Positioned.fill(
+                child: Offstage(
+                  offstage: i != _fromIndex && i != _toIndex,
+                  child: TickerMode(
+                    enabled: i == _fromIndex || i == _toIndex,
+                    child: IgnorePointer(
+                      ignoring: i != _toIndex,
+                      child: FractionalTranslation(
+                        translation: Offset(
+                          i == _fromIndex && _fromIndex != _toIndex
+                              ? -direction * t
+                              : i == _toIndex && _fromIndex != _toIndex
+                              ? direction * (1 - t)
+                              : 0,
+                          0,
+                        ),
+                        child: widget.children[i],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 }

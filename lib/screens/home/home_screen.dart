@@ -67,15 +67,10 @@ class _HomeTabState extends ConsumerState<HomeTab> {
           ],
         ),
         data: (snapshotState) {
-          final streak = _currentStreak(snapshotState.snapshot);
           return Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
             child: Column(
               children: [
-                if (streak > 0) ...[
-                  _StreakBanner(days: streak),
-                  const SizedBox(height: 8),
-                ],
                 AnimatedContainer(
                   duration: const Duration(milliseconds: 200),
                   height: _expandedDayId != null ? 56 : screenHeight * 0.3,
@@ -92,63 +87,6 @@ class _HomeTabState extends ConsumerState<HomeTab> {
             ),
           );
         },
-      ),
-    );
-  }
-}
-
-/// Consecutive calendar days (counting backward from today, or from
-/// yesterday if nothing's logged yet today so the streak doesn't zero out
-/// mid-day) with at least one logged workout.
-int _currentStreak(dynamic snapshot) {
-  final workoutDates = <DateTime>{};
-  for (final year in snapshot.yearData.values) {
-    for (final row in year.metaRows) {
-      final d = row.date;
-      workoutDates.add(DateTime(d.year, d.month, d.day));
-    }
-  }
-  if (workoutDates.isEmpty) return 0;
-  final today = DateTime.now();
-  var cursor = DateTime(today.year, today.month, today.day);
-  if (!workoutDates.contains(cursor)) {
-    cursor = cursor.subtract(const Duration(days: 1));
-  }
-  var streak = 0;
-  while (workoutDates.contains(cursor)) {
-    streak++;
-    cursor = cursor.subtract(const Duration(days: 1));
-  }
-  return streak;
-}
-
-class _StreakBanner extends StatelessWidget {
-  const _StreakBanner({required this.days});
-
-  final int days;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.primaryContainer,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.local_fire_department, color: Colors.deepOrange),
-          const SizedBox(width: 8),
-          Text(
-            days == 1 ? '1 day streak' : '$days day streak',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              fontWeight: FontWeight.w700,
-              color: theme.colorScheme.onPrimaryContainer,
-            ),
-          ),
-        ],
       ),
     );
   }
