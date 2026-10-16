@@ -473,6 +473,44 @@ List<HistoryEntry> buildHistoryEntries(
   return entries;
 }
 
+/// Per-set weights actually logged for [exerciseName] on the most recent
+/// real visit (optionally strictly before [beforeDate], for an edit-visit
+/// "last time" preview) — reads real per-visit data via [buildHistoryEntries]
+/// instead of the week-bucketed, same-week-averaged series from
+/// [buildExerciseHistory], so a visit sharing an ISO week with an earlier one
+/// is never mistaken for it. Falls back to that visit's own matrix-tab cell
+/// for a legacy visit logged before per-set weight tracking existed (empty
+/// `actualWeights`).
+List<double> previousActualWeights({
+  required List<YearSheetData> yearsAscending,
+  required String exerciseName,
+  DateTime? beforeDate,
+}) {
+  final entries = buildHistoryEntries(yearsAscending)
+      .where((e) => e.metaRow != null)
+      .where((e) => e.metaRow!.ratingRelevance != RatingRelevance.unrelated)
+      .where((e) => beforeDate == null || e.date.isBefore(beforeDate))
+      .where(
+        (e) => e.metaRow!.exercises.any(
+          (ex) => ex.exerciseName.toLowerCase() == exerciseName.toLowerCase(),
+        ),
+      )
+      .toList();
+  if (entries.isEmpty) return const [];
+  final latest = entries.first; // buildHistoryEntries is already most-recent-first
+  final loggedRange = latest.metaRow!.exercises.firstWhere(
+    (ex) => ex.exerciseName.toLowerCase() == exerciseName.toLowerCase(),
+  );
+  if (loggedRange.actualWeights.isNotEmpty) return loggedRange.actualWeights;
+
+  final year = yearsAscending.firstWhere((y) => y.year == latest.isoYear);
+  final exercise = year.findExercise(exerciseName);
+  final col = year.weekColumns[latest.isoWeek];
+  if (exercise?.sheetRow == null || col == null) return const [];
+  final weight = year.cellValues[CellKey(exercise!.sheetRow!, col)];
+  return weight == null ? const [] : [weight];
+}
+
 /// Exercises belonging to [day]'s muscle groups that have a logged weight
 /// in column [col] (a specific week) of [year].
 List<Exercise> _exercisesForDayInColumn(

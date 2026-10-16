@@ -16,6 +16,18 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '1.4.7',
+    date: '2026-10-16',
+    changes: [
+      'The per-set feedback button is now a simple thumbs-down toggle '
+          '(thumbs-up removed).',
+      'Fixed the "Last time" weight hint sometimes showing an older, lower '
+          'weight instead of what you actually lifted last: logging the '
+          'same exercise twice in one calendar week could make the hint '
+          'use the earlier of the two instead of the most recent.',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.4.6',
     date: '2026-10-14',
     changes: [

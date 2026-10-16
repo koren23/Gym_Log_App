@@ -786,38 +786,30 @@ class _SetEditorRowState extends State<_SetEditorRow> {
             ),
             const SizedBox(width: 4),
             Tooltip(
-              message: switch (feedback) {
-                SetFeedback.none => 'Mark this set good/bad',
-                SetFeedback.up => 'Marked extra good — tap for bad',
-                SetFeedback.down => 'Marked extra bad — tap to clear',
-              },
+              message: feedback == SetFeedback.down
+                  ? 'Marked bad — tap to clear'
+                  : 'Mark this set bad',
               child: InkWell(
                 borderRadius: BorderRadius.circular(16),
                 onTap: () {
-                  draft.setFeedback[i] = switch (feedback) {
-                    SetFeedback.none => SetFeedback.up,
-                    SetFeedback.up => SetFeedback.down,
-                    SetFeedback.down => SetFeedback.none,
-                  };
+                  draft.setFeedback[i] = feedback == SetFeedback.down
+                      ? SetFeedback.none
+                      : SetFeedback.down;
                   widget.onChanged();
                 },
                 child: CircleAvatar(
                   radius: 14,
-                  backgroundColor: feedback == SetFeedback.none
-                      ? theme.colorScheme.surfaceContainerHighest
-                      : theme.colorScheme.primaryContainer,
+                  backgroundColor: feedback == SetFeedback.down
+                      ? theme.colorScheme.primaryContainer
+                      : theme.colorScheme.surfaceContainerHighest,
                   child: Icon(
-                    switch (feedback) {
-                      SetFeedback.none => Icons.thumbs_up_down_outlined,
-                      SetFeedback.up => Icons.thumb_up,
-                      SetFeedback.down => Icons.thumb_down,
-                    },
+                    feedback == SetFeedback.down
+                        ? Icons.thumb_down
+                        : Icons.thumb_down_outlined,
                     size: 14,
-                    color: switch (feedback) {
-                      SetFeedback.none => theme.colorScheme.outline,
-                      SetFeedback.up => Colors.green,
-                      SetFeedback.down => Colors.red,
-                    },
+                    color: feedback == SetFeedback.down
+                        ? Colors.red
+                        : theme.colorScheme.outline,
                   ),
                 ),
               ),

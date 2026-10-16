@@ -1069,4 +1069,183 @@ void main() {
       expect(points, isEmpty);
     });
   });
+
+  group('previousActualWeights', () {
+    test(
+      'returns the most recent visit\'s weights even when an earlier visit '
+      'shares the same ISO week',
+      () {
+        // Regression test: logging 100kg early in a week then 120kg later
+        // the same week must surface 120 as "last time", not 100 — see
+        // buildExerciseHistory's week-bucketed, first-match behavior that
+        // this function deliberately avoids by reading buildHistoryEntries
+        // (sorted by true visit date) instead.
+        final bench = Exercise(
+          name: 'Barbell bench press',
+          muscleGroup: MuscleGroup.legacyPush,
+          sheetRow: 5,
+        );
+
+        final year = YearSheetData(
+          year: 2026,
+          tabName: '2026',
+          muscleGroupSections: {MuscleGroup.legacyPush: [bench]},
+          weekColumns: {30: 1},
+          cellValues: {const CellKey(5, 1): 110},
+          metaRows: [
+            MetaRow(
+              rowIndex: 1,
+              visitId: 'v1',
+              date: DateTime(2026, 7, 20),
+              isoWeek: 30,
+              isoYear: 2026,
+              muscleGroups: const ['Push'],
+              exercises: const [
+                LoggedExerciseRepRange(
+                  exerciseName: 'Barbell bench press',
+                  repRangeLow: 6,
+                  repRangeHigh: 8,
+                  actualReps: [8, 8],
+                  actualWeights: [100, 100],
+                ),
+              ],
+              sourceTab: '2026',
+            ),
+            MetaRow(
+              rowIndex: 2,
+              visitId: 'v2',
+              date: DateTime(2026, 7, 22),
+              isoWeek: 30,
+              isoYear: 2026,
+              muscleGroups: const ['Push'],
+              exercises: const [
+                LoggedExerciseRepRange(
+                  exerciseName: 'Barbell bench press',
+                  repRangeLow: 6,
+                  repRangeHigh: 8,
+                  actualReps: [8, 8],
+                  actualWeights: [120, 120],
+                ),
+              ],
+              sourceTab: '2026',
+            ),
+          ],
+        );
+
+        final weights = previousActualWeights(
+          yearsAscending: [year],
+          exerciseName: 'Barbell bench press',
+        );
+
+        expect(weights, [120, 120]);
+      },
+    );
+
+    test('beforeDate excludes a visit on or after that date', () {
+      final bench = Exercise(
+        name: 'Barbell bench press',
+        muscleGroup: MuscleGroup.legacyPush,
+        sheetRow: 5,
+      );
+
+      final year = YearSheetData(
+        year: 2026,
+        tabName: '2026',
+        muscleGroupSections: {MuscleGroup.legacyPush: [bench]},
+        weekColumns: {30: 1, 31: 2},
+        cellValues: {const CellKey(5, 1): 100, const CellKey(5, 2): 120},
+        metaRows: [
+          MetaRow(
+            rowIndex: 1,
+            visitId: 'v1',
+            date: DateTime(2026, 7, 20),
+            isoWeek: 30,
+            isoYear: 2026,
+            muscleGroups: const ['Push'],
+            exercises: const [
+              LoggedExerciseRepRange(
+                exerciseName: 'Barbell bench press',
+                repRangeLow: 6,
+                repRangeHigh: 8,
+                actualReps: [8, 8],
+                actualWeights: [100, 100],
+              ),
+            ],
+            sourceTab: '2026',
+          ),
+          MetaRow(
+            rowIndex: 2,
+            visitId: 'v2',
+            date: DateTime(2026, 7, 27),
+            isoWeek: 31,
+            isoYear: 2026,
+            muscleGroups: const ['Push'],
+            exercises: const [
+              LoggedExerciseRepRange(
+                exerciseName: 'Barbell bench press',
+                repRangeLow: 6,
+                repRangeHigh: 8,
+                actualReps: [8, 8],
+                actualWeights: [120, 120],
+              ),
+            ],
+            sourceTab: '2026',
+          ),
+        ],
+      );
+
+      final weights = previousActualWeights(
+        yearsAscending: [year],
+        exerciseName: 'Barbell bench press',
+        beforeDate: DateTime(2026, 7, 27),
+      );
+
+      expect(weights, [100, 100]);
+    });
+
+    test(
+      'falls back to the matrix-cell value for a legacy visit with no '
+      'per-set weights tracked',
+      () {
+        final bench = Exercise(
+          name: 'Barbell bench press',
+          muscleGroup: MuscleGroup.legacyPush,
+          sheetRow: 5,
+        );
+
+        final year = YearSheetData(
+          year: 2026,
+          tabName: '2026',
+          muscleGroupSections: {MuscleGroup.legacyPush: [bench]},
+          weekColumns: {30: 1},
+          cellValues: {const CellKey(5, 1): 90},
+          metaRows: [
+            MetaRow(
+              rowIndex: 1,
+              visitId: 'v1',
+              date: DateTime(2026, 7, 20),
+              isoWeek: 30,
+              isoYear: 2026,
+              muscleGroups: const ['Push'],
+              exercises: const [
+                LoggedExerciseRepRange(
+                  exerciseName: 'Barbell bench press',
+                  repRangeLow: 6,
+                  repRangeHigh: 8,
+                ),
+              ],
+              sourceTab: '2026',
+            ),
+          ],
+        );
+
+        final weights = previousActualWeights(
+          yearsAscending: [year],
+          exerciseName: 'Barbell bench press',
+        );
+
+        expect(weights, [90]);
+      },
+    );
+  });
 }

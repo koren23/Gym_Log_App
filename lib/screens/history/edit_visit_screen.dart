@@ -255,19 +255,11 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
         .toList();
     if (yearsAscending == null) return const [];
     yearsAscending.sort((a, b) => a.year.compareTo(b.year));
-    final history =
-        buildExerciseHistory(
-              yearsAscending: yearsAscending,
-              exerciseName: exerciseName,
-            )
-            .where((h) => h.date.isBefore(widget.metaRow.date))
-            .where((h) => h.ratingRelevance != RatingRelevance.unrelated)
-            .toList();
-    if (history.isEmpty) return const [];
-    final last = history.last;
-    return last.actualWeightsPerSet.isNotEmpty
-        ? last.actualWeightsPerSet
-        : [last.avgWeight];
+    return previousActualWeights(
+      yearsAscending: yearsAscending,
+      exerciseName: exerciseName,
+      beforeDate: widget.metaRow.date,
+    );
   }
 
   /// Exercises this visit's year already has a matrix-tab row for, minus

@@ -19,7 +19,6 @@ import '../../models/exercise_muscle_info.dart';
 import '../../models/exercise_note.dart';
 import '../../models/exercise_unit.dart';
 import '../../models/history_entry.dart';
-import '../../models/rating_relevance.dart';
 import '../../models/set_feedback.dart';
 import '../../models/workout_day_def.dart';
 import '../../models/workout_visit.dart';
@@ -650,15 +649,10 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
     String exerciseName,
     List<YearSheetData> yearsAscending,
   ) {
-    final history = buildExerciseHistory(
+    return previousActualWeights(
       yearsAscending: yearsAscending,
       exerciseName: exerciseName,
-    ).where((h) => h.ratingRelevance != RatingRelevance.unrelated).toList();
-    if (history.isEmpty) return const [];
-    final last = history.last;
-    return last.actualWeightsPerSet.isNotEmpty
-        ? last.actualWeightsPerSet
-        : [last.avgWeight];
+    );
   }
 
   @override
