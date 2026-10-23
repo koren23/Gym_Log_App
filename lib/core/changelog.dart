@@ -16,6 +16,15 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '1.4.8',
+    date: '2026-10-23',
+    changes: [
+      'Added a time-range slider under every graph — All time, Last 3 years, '
+          'Last year, Last 6 months, Last 3 months, Last month, or Last week '
+          '— alongside the existing pinch/scroll zoom.',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.4.7',
     date: '2026-10-16',
     changes: [

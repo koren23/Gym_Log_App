@@ -70,6 +70,22 @@ bool _tooCloseToLast(double value, double? lastRendered, double axisRange) {
   return (value - lastRendered).abs() < axisRange * 0.12;
 }
 
+class _RangePreset {
+  const _RangePreset(this.label, this.days);
+  final String label;
+  final int? days; // null = all time
+}
+
+const List<_RangePreset> _rangePresets = [
+  _RangePreset('All time', null),
+  _RangePreset('Last 3 years', 365 * 3),
+  _RangePreset('Last year', 365),
+  _RangePreset('Last 6 months', 182),
+  _RangePreset('Last 3 months', 91),
+  _RangePreset('Last month', 30),
+  _RangePreset('Last week', 7),
+];
+
 class ChartPoint {
   const ChartPoint({
     required this.date,
@@ -153,6 +169,8 @@ class _SimpleLineChartState extends State<SimpleLineChart> {
   /// same as `xFor()` below.
   double? _visibleStart;
   double? _visibleSpan;
+
+  int _presetIndex = 0; // index into _rangePresets; 0 = All time
 
   double _chartWidth = 300;
 
@@ -258,6 +276,20 @@ class _SimpleLineChartState extends State<SimpleLineChart> {
   void _resetZoom() => setState(() {
     _visibleStart = null;
     _visibleSpan = null;
+    _presetIndex = 0;
+  });
+
+  void _applyPreset(int index) => setState(() {
+    _presetIndex = index;
+    final days = _rangePresets[index].days;
+    if (days == null) {
+      _visibleStart = null;
+      _visibleSpan = null;
+      return;
+    }
+    final span = math.min(days.toDouble(), _cachedTotalDays);
+    _visibleSpan = span;
+    _visibleStart = (_cachedTotalDays - span).clamp(0.0, _cachedTotalDays);
   });
 
   @override
@@ -273,6 +305,7 @@ class _SimpleLineChartState extends State<SimpleLineChart> {
       setState(() {
         _visibleStart = null;
         _visibleSpan = null;
+        _presetIndex = 0;
       });
     }
   }
@@ -619,6 +652,25 @@ class _SimpleLineChartState extends State<SimpleLineChart> {
                 );
               },
             ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Column(
+            children: [
+              Text(
+                _rangePresets[_presetIndex].label,
+                style: theme.textTheme.labelMedium,
+              ),
+              Slider(
+                value: _presetIndex.toDouble(),
+                min: 0,
+                max: (_rangePresets.length - 1).toDouble(),
+                divisions: _rangePresets.length - 1,
+                label: _rangePresets[_presetIndex].label,
+                onChanged: (v) => _applyPreset(v.round()),
+              ),
+            ],
           ),
         ),
         if (_visibleSpan != null)
