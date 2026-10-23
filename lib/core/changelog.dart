@@ -16,6 +16,16 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '1.4.9',
+    date: '2026-10-23',
+    changes: [
+      'Fixed a note left on one workout sometimes showing up on a later '
+          'workout\'s calendar entry in History when that later workout had '
+          'no note of its own (opening it to edit already showed the note '
+          'box correctly empty — only the calendar display was stale).',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.4.8',
     date: '2026-10-23',
     changes: [

@@ -344,6 +344,19 @@ class _DayDetail extends StatelessWidget {
   }
 }
 
+/// Legacy per-week, per-muscle-group note mirrored into a matrix-tab
+/// header-row cell by `saveVisitNote` (kept only for visits predating the
+/// per-visit note column). Scoped to this entry's own muscle group so it
+/// never surfaces a different visit's note for a different muscle group
+/// sharing the same ISO week.
+String? _legacyWeekNoteFor(HistoryEntry entry, YearSheetData? yearData) {
+  final legacyDay = workoutDayForGroupLabels(entry.muscleGroups);
+  if (legacyDay == null) return null;
+  return yearData?.weekNotesByGroup[primaryGroupForDay(
+    legacyDay,
+  )]?[entry.isoWeek];
+}
+
 class _EntryDetail extends ConsumerWidget {
   const _EntryDetail({
     required this.entry,
@@ -364,10 +377,7 @@ class _EntryDetail extends ConsumerWidget {
     // History and Home always agree, including for legacy (pre-workoutDayId)
     // visits that used to fall back to the weaker legacy-taxonomy-only match.
     final matchedDay = bestMatchingDayForEntry(entry, workoutDayDefs);
-    // Kept separately only for the legacy week-note lookup below, which
-    // needs the legacy [WorkoutDay] enum specifically, not a [WorkoutDayDef].
-    final legacyDay = workoutDayForGroupLabels(entry.muscleGroups);
-    final note = entry.metaRow?.note ?? yearData?.weekNotes[entry.isoWeek];
+    final note = entry.metaRow?.note ?? _legacyWeekNoteFor(entry, yearData);
     final visitId = entry.metaRow?.visitId;
     final notesByExercise = <String, List<String>>{};
     if (visitId != null) {
@@ -440,11 +450,7 @@ class _EntryDetail extends ConsumerWidget {
                       metaRow: entry.metaRow!,
                       initialNote:
                           entry.metaRow!.note ??
-                          (legacyDay == null
-                              ? null
-                              : yearData?.weekNotesByGroup[primaryGroupForDay(
-                                  legacyDay,
-                                )]?[entry.isoWeek]),
+                          _legacyWeekNoteFor(entry, yearData),
                     ),
                   ),
                 ),
