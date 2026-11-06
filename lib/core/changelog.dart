@@ -16,6 +16,15 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '2.1.1',
+    date: '2026-11-07',
+    changes: [
+      'Replaced the muscle-balance body diagram with a simple per-zone '
+          'list (colored dot, score, tap for a breakdown) after reports '
+          'that the diagram wasn\'t displaying correctly.',
+    ],
+  ),
+  ChangelogEntry(
     version: '2.1.0',
     date: '2026-11-07',
     changes: [

@@ -12,7 +12,6 @@ import '../../services/analysis/muscle_balance.dart';
 import '../../services/analysis/stats_engine.dart';
 import '../../services/analysis/xp_engine.dart';
 import '../../widgets/barbell_progress_bar.dart';
-import '../../widgets/body_diagram.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/loading_skeleton.dart';
 import '../../widgets/streak_color.dart';
@@ -20,7 +19,7 @@ import '../../widgets/streak_color.dart';
 final _dateFormat = DateFormat.yMMMd();
 
 /// Whole-history derived stats: frequency, PRs, streaks, muscle balance
-/// (body diagram), long-term goal nudges, and the XP/League progress bar —
+/// (per-zone list), long-term goal nudges, and the XP/League progress bar —
 /// everything here is recomputed from already-loaded history on every
 /// build, nothing is written to the sheet. See `stats_engine.dart`'s doc
 /// comment for the deliberately-deferred BMI/BMR/TDEE calorie-planning
@@ -329,11 +328,12 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
                 ),
               ],
               const SizedBox(height: 12),
-              BodyDiagramWidget(
-                scores: zoneScores,
-                onZoneTap: (zone) =>
-                    _showZoneBreakdown(context, zone, muscleTotals),
-              ),
+              for (final zone in BodyZone.values)
+                _ZoneScoreRow(
+                  label: kBodyZoneLabels[zone]!,
+                  score: zoneScores[zone],
+                  onTap: () => _showZoneBreakdown(context, zone, muscleTotals),
+                ),
             ],
           ),
           if (goals.isNotEmpty)
@@ -401,6 +401,69 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
                 ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// One tappable muscle-zone row: a score-colored dot, the zone's label, and
+/// (when available) its score as a percent of the "at your own historical
+/// average" baseline — tapping opens that zone's per-muscle-group breakdown.
+class _ZoneScoreRow extends StatelessWidget {
+  const _ZoneScoreRow({
+    required this.label,
+    required this.score,
+    required this.onTap,
+  });
+
+  final String label;
+  final double? score;
+  final VoidCallback onTap;
+
+  /// "Safe"/progress-reading green at `score == 1`ish, red at `0`, gray when
+  /// there isn't yet enough history to compute a score at all.
+  static Color _colorForScore(BuildContext context, double? score) {
+    if (score == null) {
+      return Theme.of(context).colorScheme.surfaceContainerHighest;
+    }
+    final t = (score / 2).clamp(0.0, 1.0);
+    if (t < 0.5) {
+      return Color.lerp(Colors.redAccent, Colors.orange, t * 2)!;
+    }
+    return Color.lerp(Colors.orange, Colors.green, (t - 0.5) * 2)!;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final score = this.score;
+    final color = _colorForScore(context, score);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Row(
+          children: [
+            Container(
+              width: 12,
+              height: 12,
+              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+            ),
+            const SizedBox(width: 10),
+            Expanded(child: Text(label, style: theme.textTheme.bodyMedium)),
+            Text(
+              score == null ? 'No data' : '${(score * 100).round()}%',
+              style: theme.textTheme.bodySmall,
+            ),
+            const SizedBox(width: 4),
+            Icon(
+              Icons.chevron_right,
+              size: 18,
+              color: theme.colorScheme.outline,
+            ),
+          ],
         ),
       ),
     );
