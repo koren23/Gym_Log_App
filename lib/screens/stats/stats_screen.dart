@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../core/constants/body_zones.dart';
 import '../../core/constants/muscle_groups.dart';
 import '../../core/utils/exercise_muscle_resolution.dart';
+import '../../models/personal_record.dart';
 import '../../providers/analysis_providers.dart';
 import '../../providers/settings_providers.dart';
 import '../../providers/sheet_data_providers.dart';
@@ -32,8 +34,6 @@ class StatsScreen extends ConsumerStatefulWidget {
 }
 
 class _StatsScreenState extends ConsumerState<StatsScreen> {
-  bool _showImprovementRate = false;
-
   @override
   Widget build(BuildContext context) {
     final snapshotAsync = ref.watch(snapshotProvider);
@@ -117,24 +117,10 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
       previousVolumeTotals: previousTotals,
     );
 
-    final improvementRates = zoneImprovementRates(
+    final zoneScores = zoneCurrentLevelScores(
       realEntries: realEntries,
       exercisesByName: exercisesByName,
     );
-    final hasAnyImprovementData = improvementRates.values.any(
-      (v) => v != null,
-    );
-    final showingImprovementFallback =
-        _showImprovementRate && !hasAnyImprovementData;
-    final zoneScores = _showImprovementRate && hasAnyImprovementData
-        ? <BodyZone, double>{
-            for (final entry in improvementRates.entries)
-              if (entry.value != null) entry.key: 1 + entry.value! / 100,
-          }
-        : zoneCurrentLevelScores(
-            realEntries: realEntries,
-            exercisesByName: exercisesByName,
-          );
     final muscleTotals = muscleVolumeTotals(
       realEntries: realEntries,
       exercisesByName: exercisesByName,
@@ -161,13 +147,9 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
       ..sort((a, b) => b.value.compareTo(a.value));
     final topExercises = frequency.take(3).toList();
 
-    final recentPrNames =
-        {...prs.maxWeightDate.keys, ...prs.maxVolumeDate.keys}.toList()
-          ..sort((a, b) {
-            final aDate = _latestPrDate(prs, a);
-            final bDate = _latestPrDate(prs, b);
-            return bDate.compareTo(aDate);
-          });
+    final personalRecords = [
+      ...ref.watch(appSettingsServiceProvider).personalRecords,
+    ]..sort((a, b) => b.date.compareTo(a.date));
 
     return RefreshIndicator(
       onRefresh: () => ref.read(snapshotProvider.notifier).refresh(),
@@ -271,20 +253,33 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
             title: 'Records',
             icon: Icons.emoji_events,
             accentColor: Colors.amber[700]!,
-            headline: recentPrNames.isEmpty ? null : recentPrNames.first,
-            headlineLabel: recentPrNames.isEmpty ? null : 'Most recent PR',
+            headline: personalRecords.isEmpty ? null : personalRecords.first.exerciseName,
+            headlineLabel: personalRecords.isEmpty ? null : 'Most recent PR',
             children: [
-              if (recentPrNames.isNotEmpty) const SizedBox(height: 8),
-              for (final name in recentPrNames.take(5))
-                _StatRow(
-                  name,
-                  [
-                    if (prs.maxWeight[name] != null)
-                      '${prs.maxWeight[name]!.toStringAsFixed(1)} kg',
-                    if (prs.maxVolume[name] != null)
-                      '${prs.maxVolume[name]!.round()} vol',
-                  ].join(' · '),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: () => _addPersonalRecord(context),
+                  icon: const Icon(Icons.add),
+                  label: const Text('Log a PR'),
                 ),
+              ),
+              if (personalRecords.isEmpty)
+                Text(
+                  'No PRs logged yet — tap "Log a PR" when you hit one.',
+                  style: theme.textTheme.bodySmall,
+                )
+              else
+                for (final record in personalRecords.take(5))
+                  _StatRow(
+                    record.exerciseName,
+                    [
+                      if (record.weightKg != null)
+                        '${record.weightKg!.toStringAsFixed(1)} kg',
+                      if (record.volume != null) '${record.volume!.round()} vol',
+                    ].join(' · '),
+                    onDelete: () => _deletePersonalRecord(record.id),
+                  ),
             ],
           ),
           _StatsCard(
@@ -305,29 +300,6 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
             icon: Icons.accessibility_new,
             accentColor: theme.colorScheme.secondary,
             children: [
-              Align(
-                alignment: Alignment.centerRight,
-                child: SegmentedButton<bool>(
-                  segments: const [
-                    ButtonSegment(value: false, label: Text('Current level')),
-                    ButtonSegment(value: true, label: Text('Improvement')),
-                  ],
-                  selected: {_showImprovementRate},
-                  onSelectionChanged: (s) =>
-                      setState(() => _showImprovementRate = s.first),
-                ),
-              ),
-              if (showingImprovementFallback) ...[
-                const SizedBox(height: 8),
-                Text(
-                  'Not enough history yet to show improvement trends — '
-                  'showing current level instead.',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    fontStyle: FontStyle.italic,
-                  ),
-                ),
-              ],
-              const SizedBox(height: 12),
               for (final zone in BodyZone.values)
                 _ZoneScoreRow(
                   label: kBodyZoneLabels[zone]!,
@@ -365,12 +337,19 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
     );
   }
 
-  DateTime _latestPrDate(PrsByExercise prs, String name) {
-    final weight = prs.maxWeightDate[name];
-    final volume = prs.maxVolumeDate[name];
-    if (weight == null) return volume!;
-    if (volume == null) return weight;
-    return weight.isAfter(volume) ? weight : volume;
+  Future<void> _addPersonalRecord(BuildContext context) async {
+    final result = await showDialog<PersonalRecord>(
+      context: context,
+      builder: (context) => const _AddPersonalRecordDialog(),
+    );
+    if (result == null) return;
+    await ref.read(appSettingsServiceProvider).addPersonalRecord(result);
+    setState(() {});
+  }
+
+  Future<void> _deletePersonalRecord(String id) async {
+    await ref.read(appSettingsServiceProvider).deletePersonalRecord(id);
+    setState(() {});
   }
 
   void _showZoneBreakdown(
@@ -549,11 +528,12 @@ class _StatsCard extends StatelessWidget {
 }
 
 class _StatRow extends StatelessWidget {
-  const _StatRow(this.label, this.value, {this.valueColor});
+  const _StatRow(this.label, this.value, {this.valueColor, this.onDelete});
 
   final String label;
   final String value;
   final Color? valueColor;
+  final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -573,8 +553,117 @@ class _StatRow extends StatelessWidget {
             ),
             textAlign: TextAlign.right,
           ),
+          if (onDelete != null)
+            InkWell(
+              onTap: onDelete,
+              child: Padding(
+                padding: const EdgeInsets.only(left: 6),
+                child: Icon(
+                  Icons.close,
+                  size: 16,
+                  color: theme.colorScheme.outline,
+                ),
+              ),
+            ),
         ],
       ),
+    );
+  }
+}
+
+/// A small form for manually logging a PR — exercise name, an optional
+/// weight and/or volume, and a date (defaulting to today). Returns the new
+/// [PersonalRecord] via [Navigator.pop], or null if cancelled.
+class _AddPersonalRecordDialog extends StatefulWidget {
+  const _AddPersonalRecordDialog();
+
+  @override
+  State<_AddPersonalRecordDialog> createState() =>
+      _AddPersonalRecordDialogState();
+}
+
+class _AddPersonalRecordDialogState extends State<_AddPersonalRecordDialog> {
+  final _exerciseController = TextEditingController();
+  final _weightController = TextEditingController();
+  final _volumeController = TextEditingController();
+  DateTime _date = DateTime.now();
+
+  @override
+  void dispose() {
+    _exerciseController.dispose();
+    _weightController.dispose();
+    _volumeController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _date,
+      firstDate: DateTime(1950),
+      lastDate: DateTime.now(),
+    );
+    if (picked != null) setState(() => _date = picked);
+  }
+
+  void _submit() {
+    final name = _exerciseController.text.trim();
+    if (name.isEmpty) return;
+    final weight = double.tryParse(_weightController.text.trim());
+    final volume = double.tryParse(_volumeController.text.trim());
+    Navigator.of(context).pop(
+      PersonalRecord(
+        id: const Uuid().v4(),
+        exerciseName: name,
+        date: _date,
+        weightKg: weight,
+        volume: volume,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Log a PR'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: _exerciseController,
+            autofocus: true,
+            decoration: const InputDecoration(labelText: 'Exercise'),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _weightController,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(labelText: 'Weight (kg, optional)'),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _volumeController,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(labelText: 'Volume (optional)'),
+          ),
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: _pickDate,
+              icon: const Icon(Icons.calendar_today, size: 18),
+              label: Text(DateFormat.yMMMd().format(_date)),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(onPressed: _submit, child: const Text('Save')),
+      ],
     );
   }
 }

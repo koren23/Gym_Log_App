@@ -16,6 +16,16 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '2.3.0',
+    date: '2026-11-07',
+    changes: [
+      'Records now lets you manually log your own PRs with a button, '
+          'instead of auto-detecting them.',
+      'Muscle balance always shows your current-level score now (the '
+          'Current level/Improvement toggle was removed).',
+    ],
+  ),
+  ChangelogEntry(
     version: '2.2.0',
     date: '2026-11-07',
     changes: [

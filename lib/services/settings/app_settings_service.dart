@@ -7,6 +7,7 @@ import '../../core/constants/sheet_layout.dart';
 import '../../models/analysis_result.dart';
 import '../../models/app_colors.dart';
 import '../../models/pending_suggestion.dart';
+import '../../models/personal_record.dart';
 import '../../models/recent_suggestion_record.dart';
 import '../../models/workout_day_def.dart';
 
@@ -56,6 +57,7 @@ class AppSettingsService {
   static const _kLastAutoThemeChangeDate = 'last_auto_theme_change_date';
   static const _kHeightCm = 'height_cm';
   static const _kTrainingStartDate = 'training_start_date';
+  static const _kPersonalRecords = 'personal_records_v1';
 
   static Future<AppSettingsService> create() async {
     final prefs = await SharedPreferences.getInstance();
@@ -363,4 +365,33 @@ class AppSettingsService {
       );
     }
   }
+
+  /// User-logged PRs for the Stats tab's Records card — manually entered
+  /// only, never auto-detected from logged sets.
+  List<PersonalRecord> get personalRecords {
+    final raw = _prefs.getString(_kPersonalRecords);
+    if (raw == null) return const [];
+    try {
+      final list = jsonDecode(raw) as List;
+      return [
+        for (final e in list)
+          PersonalRecord.fromJson(e as Map<String, dynamic>),
+      ];
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<void> _setPersonalRecords(List<PersonalRecord> records) =>
+      _prefs.setString(
+        _kPersonalRecords,
+        jsonEncode([for (final r in records) r.toJson()]),
+      );
+
+  Future<void> addPersonalRecord(PersonalRecord record) =>
+      _setPersonalRecords([...personalRecords, record]);
+
+  Future<void> deletePersonalRecord(String id) => _setPersonalRecords(
+    personalRecords.where((r) => r.id != id).toList(),
+  );
 }
