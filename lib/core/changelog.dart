@@ -16,6 +16,16 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '2.2.0',
+    date: '2026-11-07',
+    changes: [
+      'The "Workout logged" screen now shows how much XP you just earned, '
+          'broken down into the workout itself, any new PRs, a bonus for '
+          'keeping your weekly streak alive, and a bonus for beating your '
+          'recent average volume.',
+    ],
+  ),
+  ChangelogEntry(
     version: '2.1.1',
     date: '2026-11-07',
     changes: [
