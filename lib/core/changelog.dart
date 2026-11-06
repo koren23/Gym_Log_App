@@ -16,6 +16,17 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '2.1.0',
+    date: '2026-11-07',
+    changes: [
+      'Added a "Training since" date in Settings → Profile, for when you '
+          'started working out before you started logging in this app — '
+          'the Stats tab\'s "Working out since" now uses it (falling back '
+          'to your first logged workout if unset), alongside a new '
+          '"Training for" row showing how long that\'s been.',
+    ],
+  ),
+  ChangelogEntry(
     version: '2.0.3',
     date: '2026-11-06',
     changes: [

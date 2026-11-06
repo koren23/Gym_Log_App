@@ -23,6 +23,40 @@ DateTime? workingOutSince(List<HistoryEntry> realEntries) {
   return realEntries.map((e) => e.date).reduce((a, b) => a.isBefore(b) ? a : b);
 }
 
+/// Human-readable "how long ago" label for a training start date, e.g.
+/// "2 years, 3 months", "5 months", "3 weeks", or "4 days" — always the two
+/// largest non-zero units (one unit once we're down to weeks/days), so it
+/// reads naturally at any age rather than spelling out exact day counts.
+String trainingDurationLabel(DateTime since, {DateTime? now}) {
+  final today = now ?? DateTime.now();
+  var totalDays = today.difference(DateTime(since.year, since.month, since.day)).inDays;
+  if (totalDays < 0) totalDays = 0;
+
+  final years = totalDays ~/ 365;
+  final remainingAfterYears = totalDays % 365;
+  final months = remainingAfterYears ~/ 30;
+  final remainingAfterMonths = remainingAfterYears % 30;
+  final weeks = remainingAfterMonths ~/ 7;
+  final days = remainingAfterMonths % 7;
+
+  String unit(int n, String name) => '$n $name${n == 1 ? '' : 's'}';
+
+  if (years > 0) {
+    return months > 0
+        ? '${unit(years, 'year')}, ${unit(months, 'month')}'
+        : unit(years, 'year');
+  }
+  if (months > 0) {
+    return weeks > 0
+        ? '${unit(months, 'month')}, ${unit(weeks, 'week')}'
+        : unit(months, 'month');
+  }
+  if (weeks > 0) {
+    return unit(weeks, 'week');
+  }
+  return unit(days, 'day');
+}
+
 /// Average real visits per week over the last [windowWeeks] weeks (ending
 /// today), as a simple frequency metric.
 double workoutsPerWeek(List<HistoryEntry> realEntries, {int windowWeeks = 8}) {

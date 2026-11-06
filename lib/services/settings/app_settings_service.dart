@@ -55,6 +55,7 @@ class AppSettingsService {
   static const _kAutoThemeRotationEnabled = 'auto_theme_rotation_enabled';
   static const _kLastAutoThemeChangeDate = 'last_auto_theme_change_date';
   static const _kHeightCm = 'height_cm';
+  static const _kTrainingStartDate = 'training_start_date';
 
   static Future<AppSettingsService> create() async {
     final prefs = await SharedPreferences.getInstance();
@@ -339,6 +340,27 @@ class AppSettingsService {
       await _prefs.remove(_kHeightCm);
     } else {
       await _prefs.setDouble(_kHeightCm, value);
+    }
+  }
+
+  /// User-declared "I started working out on this date", used for the
+  /// Stats tab's training-duration display. Overrides the app-logged
+  /// [workingOutSince] fallback, since the user may have trained for years
+  /// before ever logging a workout in this app. Null until set in Settings.
+  DateTime? get trainingStartDate {
+    final raw = _prefs.getString(_kTrainingStartDate);
+    if (raw == null) return null;
+    return DateTime.tryParse(raw);
+  }
+
+  Future<void> setTrainingStartDate(DateTime? value) async {
+    if (value == null) {
+      await _prefs.remove(_kTrainingStartDate);
+    } else {
+      await _prefs.setString(
+        _kTrainingStartDate,
+        DateTime(value.year, value.month, value.day).toIso8601String(),
+      );
     }
   }
 }

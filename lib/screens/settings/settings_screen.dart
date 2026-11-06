@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 
 import '../../models/app_colors.dart';
 import '../../providers/auth_providers.dart';
@@ -11,6 +12,8 @@ import 'add_workout_day_dialog.dart';
 import 'algorithms_info_screen.dart';
 import 'changelog_screen.dart';
 import 'manage_exercises_screen.dart';
+
+final _dateFormat = DateFormat.yMMMd();
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -100,6 +103,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     setState(() {});
   }
 
+  Future<void> _editTrainingStartDate() async {
+    final settings = ref.read(appSettingsServiceProvider);
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: settings.trainingStartDate ?? now,
+      firstDate: DateTime(1950),
+      lastDate: now,
+      helpText: 'When did you start working out?',
+    );
+    if (picked == null || !mounted) return;
+    await settings.setTrainingStartDate(picked);
+    setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authStateProvider);
@@ -156,6 +174,36 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
                 leading: const Icon(Icons.straighten),
                 onTap: _editHeight,
+              ),
+              Builder(
+                builder: (context) {
+                  final trainingStartDate = ref
+                      .watch(appSettingsServiceProvider)
+                      .trainingStartDate;
+                  return ListTile(
+                    title: const Text('Training since'),
+                    subtitle: Text(
+                      trainingStartDate == null
+                          ? 'Not set — needed to show how long you\'ve '
+                                'trained for on the Stats tab'
+                          : _dateFormat.format(trainingStartDate),
+                    ),
+                    leading: const Icon(Icons.calendar_today_outlined),
+                    onTap: _editTrainingStartDate,
+                    trailing: trainingStartDate == null
+                        ? null
+                        : IconButton(
+                            icon: const Icon(Icons.clear),
+                            tooltip: 'Clear',
+                            onPressed: () async {
+                              await ref
+                                  .read(appSettingsServiceProvider)
+                                  .setTrainingStartDate(null);
+                              setState(() {});
+                            },
+                          ),
+                  );
+                },
               ),
             ],
           ),

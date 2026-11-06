@@ -154,6 +154,9 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
       exercisesByName: exercisesByName,
     );
     final heightCm = ref.watch(appSettingsServiceProvider).heightCm;
+    final trainingStartDate =
+        ref.watch(appSettingsServiceProvider).trainingStartDate ??
+        workingOutSince(realEntries)!;
 
     final frequency = exerciseFrequency(realEntries).entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
@@ -182,7 +185,11 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
             children: [
               _StatRow(
                 'Working out since',
-                _dateFormat.format(workingOutSince(realEntries)!),
+                _dateFormat.format(trainingStartDate),
+              ),
+              _StatRow(
+                'Training for',
+                trainingDurationLabel(trainingStartDate),
               ),
               _StatRow(
                 'Average reps per set',
