@@ -9,11 +9,10 @@ import 'volume.dart';
 /// history on every load, exactly like the rest of this app's derived
 /// stats, so a retroactive log edit is always reflected immediately.
 ///
-/// Scope note: this intentionally omits BMI/BMR/TDEE calorie-target
-/// planning (it needs new, sensitive Profile inputs — height, birth date,
-/// sex — and is fully decoupled from everything else here); see the v2.0.0
-/// plan's own note that this is the cleanest piece to defer to a later
-/// release.
+/// Scope note: this intentionally omits BMR/TDEE calorie-target planning
+/// (it needs new, sensitive Profile inputs — birth date, sex — and is fully
+/// decoupled from everything else here); BMI itself (added in v2.0.1) only
+/// needed height, so it's in scope below.
 const double kResistanceTrainingMet = 5.0;
 
 /// Earliest real (app-logged) visit date — "working out since" — or null
@@ -66,7 +65,7 @@ double averageRepsOverall(List<HistoryEntry> realEntries) {
 Duration estimatedWorkoutDuration(
   HistoryEntry visit, {
   double secondsPerRep = 4.0,
-  double restSeconds = 90,
+  double restSeconds = 150,
 }) {
   final meta = visit.metaRow;
   if (meta == null) return Duration.zero;
@@ -77,6 +76,12 @@ Duration estimatedWorkoutDuration(
     totalSeconds += setCount * (avgReps * secondsPerRep + restSeconds);
   }
   return Duration(seconds: totalSeconds.round());
+}
+
+/// Standard BMI (`kg / (m)^2`) from body weight and height.
+double bmi({required double weightKg, required double heightCm}) {
+  final heightM = heightCm / 100;
+  return weightKg / (heightM * heightM);
 }
 
 /// Rough calorie estimate for a workout of [duration], via the standard

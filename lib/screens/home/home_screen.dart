@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/sheet_data_providers.dart';
 import '../../widgets/loading_skeleton.dart';
+import '../../widgets/streak_banner.dart';
 import '../../widgets/this_week_summary.dart';
 import '../../widgets/weekly_insight_box.dart';
 
@@ -77,6 +78,15 @@ class _HomeTabState extends ConsumerState<HomeTab> {
                   child: WeeklyInsightBox(minimized: _expandedDayId != null),
                 ),
                 SizedBox(height: _expandedDayId != null ? 8 : 16),
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 200),
+                  child: _expandedDayId != null
+                      ? const SizedBox.shrink()
+                      : const Padding(
+                          padding: EdgeInsets.only(bottom: 8),
+                          child: StreakBanner(),
+                        ),
+                ),
                 Expanded(
                   child: ThisWeekSummary(
                     expandedDayId: _expandedDayId,

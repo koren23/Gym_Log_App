@@ -16,6 +16,37 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '2.0.1',
+    date: '2026-11-06',
+    changes: [
+      'Fixed muscle-progress graphs looking broken/inaccurate when a '
+          'recent point was an outlier — the chart no longer rescales '
+          'around just the most recent point, so one spike no longer '
+          'crushes every other point toward the bottom edge.',
+      'Fixed the per-muscle % graph\'s values sometimes rendering flush '
+          'against the bottom edge at 0% — the axis now always leaves a '
+          'little breathing room above and below the real range.',
+      'Redesigned the Stats tab: each card now leads with a large, '
+          'colored headline number and its own accent color, with a '
+          'subtle fade-in on open.',
+      'The muscle-balance body diagram no longer renders fully blank/gray '
+          'when there isn\'t yet enough history for an improvement trend — '
+          'it falls back to showing current level with a note instead.',
+      'Raised the assumed average rest time used for "estimated workout '
+          'duration" from 1.5 to 2.5 minutes per set, for a more realistic '
+          'estimate.',
+      'Removed the all-time Weight PR / Volume PR count rows from the '
+          'Records card (the per-exercise PR list below them stays).',
+      'Added a colored current-streak banner to the Home tab, and gave '
+          'the Stats tab\'s Consistency card the same colorful "pop" '
+          'treatment.',
+      'Added a Height field in Settings → Profile, so a BMI row can now '
+          'show on the Stats tab once both height and a body weight entry '
+          'are available.',
+      'Added 10 more theme presets (34 total).',
+    ],
+  ),
+  ChangelogEntry(
     version: '2.0.0',
     date: '2026-11-06',
     changes: [

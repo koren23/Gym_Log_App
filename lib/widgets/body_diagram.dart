@@ -89,7 +89,9 @@ class _BodyDiagramWidgetState extends State<BodyDiagramWidget> {
                   ),
                   const SizedBox(width: 4),
                   Text(
-                    kBodyZoneLabels[zone]!,
+                    widget.scores[zone] == null
+                        ? '${kBodyZoneLabels[zone]!} (not enough data)'
+                        : kBodyZoneLabels[zone]!,
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ],
@@ -102,6 +104,8 @@ class _BodyDiagramWidgetState extends State<BodyDiagramWidget> {
 
   Color _colorForScore(BuildContext context, double? score) {
     if (score == null) {
+      // Deliberately unknown/not-enough-data, distinct from the red-green
+      // scale below so it reads as "no signal yet" rather than "zero".
       return Theme.of(context).colorScheme.surfaceContainerHighest;
     }
     // 0 -> red, 1 -> amber/green boundary, 2 -> green.

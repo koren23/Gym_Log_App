@@ -209,4 +209,34 @@ const List<AppThemePreset> kAppThemePresets = [
   AppThemePreset(name: 'Wine', colors: AppColors(
     appBar: Color(0xFF3A1A28), background: Color(0xFF190D13),
     dashboardButtons: Color(0xFF8C3D5C), logWorkoutHero: Color(0xFFA3486B))),
+  AppThemePreset(name: 'Lagoon', colors: AppColors(
+    appBar: Color(0xFF1F6E78), background: Color(0xFFE2F3F3),
+    dashboardButtons: Color(0xFF3FA6A6), logWorkoutHero: Color(0xFF2F8F93))),
+  AppThemePreset(name: 'Peach', colors: AppColors(
+    appBar: Color(0xFFC46A4A), background: Color(0xFFFDEADD),
+    dashboardButtons: Color(0xFFF0A074), logWorkoutHero: Color(0xFFE88E5F))),
+  AppThemePreset(name: 'Moss', colors: AppColors(
+    appBar: Color(0xFF445C2E), background: Color(0xFFEAF0DF),
+    dashboardButtons: Color(0xFF6F9448), logWorkoutHero: Color(0xFF5C8038))),
+  AppThemePreset(name: 'Denim', colors: AppColors(
+    appBar: Color(0xFF34506E), background: Color(0xFFE6EDF4),
+    dashboardButtons: Color(0xFF5A7FA3), logWorkoutHero: Color(0xFF466D93))),
+  AppThemePreset(name: 'Mustard', colors: AppColors(
+    appBar: Color(0xFF8C7020), background: Color(0xFFFBF2D8),
+    dashboardButtons: Color(0xFFCCA73C), logWorkoutHero: Color(0xFFBF9830))),
+  AppThemePreset(name: 'Orchid', colors: AppColors(
+    appBar: Color(0xFF7C3F6E), background: Color(0xFFF7E8F2),
+    dashboardButtons: Color(0xFFB165A0), logWorkoutHero: Color(0xFFA0528D))),
+  AppThemePreset(name: 'Ink', colors: AppColors(
+    appBar: Color(0xFF14141C), background: Color(0xFF0A0A0F),
+    dashboardButtons: Color(0xFF4A5570), logWorkoutHero: Color(0xFF596788))),
+  AppThemePreset(name: 'Crimson Night', colors: AppColors(
+    appBar: Color(0xFF330E0E), background: Color(0xFF160707),
+    dashboardButtons: Color(0xFFA33B3B), logWorkoutHero: Color(0xFFBF4848))),
+  AppThemePreset(name: 'Jade Night', colors: AppColors(
+    appBar: Color(0xFF0E2E26), background: Color(0xFF071512),
+    dashboardButtons: Color(0xFF2B8066), logWorkoutHero: Color(0xFF34977A))),
+  AppThemePreset(name: 'Violet Dusk', colors: AppColors(
+    appBar: Color(0xFF241433), background: Color(0xFF110919),
+    dashboardButtons: Color(0xFF6B3FA0), logWorkoutHero: Color(0xFF7D4EB8))),
 ];

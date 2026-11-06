@@ -64,6 +64,42 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     showAppSnackBar(context, message);
   }
 
+  Future<void> _editHeight() async {
+    final settings = ref.read(appSettingsServiceProvider);
+    final controller = TextEditingController(
+      text: settings.heightCm == null
+          ? ''
+          : settings.heightCm!.toStringAsFixed(0),
+    );
+    final result = await showDialog<double?>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Height'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.]'))],
+          decoration: const InputDecoration(suffixText: 'cm'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.of(context).pop(double.tryParse(controller.text)),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (result == null || !mounted) return;
+    await settings.setHeightCm(result > 0 ? result : null);
+    setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authStateProvider);
@@ -105,6 +141,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 onTap: () async {
                   await ref.read(authStateProvider.notifier).signOut();
                 },
+              ),
+            ],
+          ),
+          _SettingsSection(
+            title: 'Profile',
+            children: [
+              ListTile(
+                title: const Text('Height'),
+                subtitle: Text(
+                  ref.watch(appSettingsServiceProvider).heightCm == null
+                      ? 'Not set — needed for BMI on the Stats tab'
+                      : '${ref.watch(appSettingsServiceProvider).heightCm!.toStringAsFixed(0)} cm',
+                ),
+                leading: const Icon(Icons.straighten),
+                onTap: _editHeight,
               ),
             ],
           ),

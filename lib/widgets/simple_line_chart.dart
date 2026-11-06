@@ -366,23 +366,20 @@ class _SimpleLineChartState extends State<SimpleLineChart> {
     final visiblePrimary = inWindow(points);
     final visibleSecondary = inWindow(secondary);
 
-    // Center the Y-axis on the rightmost *visible* point instead of a fixed
-    // 0-based scale — the range is symmetric around that value, wide
-    // enough to still show every visible point, so zooming or a big recent
-    // improvement re-centers the window around it rather than just pinning
-    // the line near the top.
+    // Scale the Y-axis to the full visible range (like the secondary axis
+    // below) rather than centering on the rightmost point — anchoring to a
+    // single point let one outlier balloon the whole axis and crush every
+    // other point toward the edges. No 0-floor clamp either: this axis is
+    // also used for %-change series, which are legitimately negative.
     final primaryValues = visiblePrimary.map((p) => p.value).toList();
     final dataMin = primaryValues.reduce((a, b) => a < b ? a : b);
     final dataMax = primaryValues.reduce((a, b) => a > b ? a : b);
     final lastValue = visiblePrimary.last.value;
-    var halfRange = (lastValue - dataMin).abs() > (dataMax - lastValue).abs()
-        ? (lastValue - dataMin).abs()
-        : (dataMax - lastValue).abs();
-    if (halfRange == 0)
-      halfRange = (lastValue.abs() * 0.1).clamp(1.0, double.infinity);
-    halfRange *= 1.15; // breathing room so the line/dots don't touch the edges.
-    final primaryMin = (lastValue - halfRange).clamp(0.0, double.infinity);
-    final primaryMax = lastValue + halfRange;
+    final pad = dataMax == dataMin
+        ? (lastValue.abs() * 0.1).clamp(1.0, double.infinity)
+        : (dataMax - dataMin) * 0.15;
+    final primaryMin = dataMin - pad;
+    final primaryMax = dataMax + pad;
 
     double? secondaryMin;
     double? secondaryMax;

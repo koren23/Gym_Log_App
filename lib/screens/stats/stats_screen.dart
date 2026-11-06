@@ -6,6 +6,7 @@ import '../../core/constants/body_zones.dart';
 import '../../core/constants/muscle_groups.dart';
 import '../../core/utils/exercise_muscle_resolution.dart';
 import '../../providers/analysis_providers.dart';
+import '../../providers/settings_providers.dart';
 import '../../providers/sheet_data_providers.dart';
 import '../../services/analysis/muscle_balance.dart';
 import '../../services/analysis/stats_engine.dart';
@@ -14,6 +15,7 @@ import '../../widgets/barbell_progress_bar.dart';
 import '../../widgets/body_diagram.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/loading_skeleton.dart';
+import '../../widgets/streak_color.dart';
 
 final _dateFormat = DateFormat.yMMMd();
 
@@ -116,12 +118,18 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
       previousVolumeTotals: previousTotals,
     );
 
-    final zoneScores = _showImprovementRate
+    final improvementRates = zoneImprovementRates(
+      realEntries: realEntries,
+      exercisesByName: exercisesByName,
+    );
+    final hasAnyImprovementData = improvementRates.values.any(
+      (v) => v != null,
+    );
+    final showingImprovementFallback =
+        _showImprovementRate && !hasAnyImprovementData;
+    final zoneScores = _showImprovementRate && hasAnyImprovementData
         ? <BodyZone, double>{
-            for (final entry in zoneImprovementRates(
-              realEntries: realEntries,
-              exercisesByName: exercisesByName,
-            ).entries)
+            for (final entry in improvementRates.entries)
               if (entry.value != null) entry.key: 1 + entry.value! / 100,
           }
         : zoneCurrentLevelScores(
@@ -142,6 +150,7 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
               .reduce((a, b) => a.date.isAfter(b.date) ? a : b)
               .weightKg;
     final estimatedDuration = estimatedWorkoutDuration(mostRecentVisit);
+    final heightCm = ref.watch(appSettingsServiceProvider).heightCm;
 
     final frequency = exerciseFrequency(realEntries).entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
@@ -164,14 +173,13 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
           _StatsCard(
             title: 'Overview',
             icon: Icons.bar_chart,
+            accentColor: theme.colorScheme.primary,
+            headline: '${workoutsPerWeek(realEntries).toStringAsFixed(1)}/wk',
+            headlineLabel: 'Pace (last 8 weeks)',
             children: [
               _StatRow(
                 'Working out since',
                 _dateFormat.format(workingOutSince(realEntries)!),
-              ),
-              _StatRow(
-                'Pace (last 8 weeks)',
-                '${workoutsPerWeek(realEntries).toStringAsFixed(1)} workouts/week',
               ),
               _StatRow(
                 'Average reps per set',
@@ -189,6 +197,7 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
           _StatsCard(
             title: 'League',
             icon: Icons.military_tech,
+            accentColor: theme.colorScheme.tertiary,
             children: [
               Row(
                 children: [
@@ -212,11 +221,10 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
           _StatsCard(
             title: 'Body & calories',
             icon: Icons.local_fire_department,
+            accentColor: Colors.deepOrange,
+            headline: '${estimatedDuration.inMinutes} min',
+            headlineLabel: 'Last workout, estimated duration',
             children: [
-              _StatRow(
-                'Last workout, estimated duration',
-                '${estimatedDuration.inMinutes} min',
-              ),
               if (latestBodyWeightKg != null)
                 _StatRow(
                   'Last workout, rough calorie estimate',
@@ -227,14 +235,28 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
                   'Log a body weight entry to see a rough calorie estimate.',
                   style: theme.textTheme.bodySmall,
                 ),
+              if (latestBodyWeightKg != null && heightCm != null)
+                _StatRow(
+                  'BMI',
+                  bmi(
+                    weightKg: latestBodyWeightKg,
+                    heightCm: heightCm,
+                  ).toStringAsFixed(1),
+                )
+              else if (latestBodyWeightKg != null)
+                Text(
+                  'Set your height in Settings to see your BMI.',
+                  style: theme.textTheme.bodySmall,
+                ),
             ],
           ),
           _StatsCard(
             title: 'Records',
             icon: Icons.emoji_events,
+            accentColor: Colors.amber[700]!,
+            headline: recentPrNames.isEmpty ? null : recentPrNames.first,
+            headlineLabel: recentPrNames.isEmpty ? null : 'Most recent PR',
             children: [
-              _StatRow('Weight PRs set (all time)', '${prs.weightPrCount}'),
-              _StatRow('Volume PRs set (all time)', '${prs.volumePrCount}'),
               if (recentPrNames.isNotEmpty) const SizedBox(height: 8),
               for (final name in recentPrNames.take(5))
                 _StatRow(
@@ -251,8 +273,9 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
           _StatsCard(
             title: 'Consistency',
             icon: Icons.local_fire_department_outlined,
+            accentColor: streakColor(currentStreakWeeks(visitDates)),
+            headline: '${currentStreakWeeks(visitDates)}-week streak',
             children: [
-              _StatRow('Current streak', '${currentStreakWeeks(visitDates)} weeks'),
               _StatRow('Longest streak', '${longestStreakWeeks(visitDates)} weeks'),
               _StatRow(
                 'Consistency',
@@ -263,6 +286,7 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
           _StatsCard(
             title: 'Muscle balance',
             icon: Icons.accessibility_new,
+            accentColor: theme.colorScheme.secondary,
             children: [
               Align(
                 alignment: Alignment.centerRight,
@@ -276,6 +300,16 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
                       setState(() => _showImprovementRate = s.first),
                 ),
               ),
+              if (showingImprovementFallback) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Not enough history yet to show improvement trends — '
+                  'showing current level instead.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ],
               const SizedBox(height: 12),
               BodyDiagramWidget(
                 scores: zoneScores,
@@ -288,6 +322,7 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
             _StatsCard(
               title: 'Goals',
               icon: Icons.flag,
+              accentColor: Colors.teal,
               children: [
                 for (final goal in goals)
                   Padding(
@@ -358,33 +393,74 @@ class _StatsCard extends StatelessWidget {
   const _StatsCard({
     required this.title,
     required this.icon,
+    required this.accentColor,
     required this.children,
+    this.headline,
+    this.headlineLabel,
   });
 
   final String title;
   final IconData icon;
+  final Color accentColor;
+  final String? headline;
+  final String? headlineLabel;
   final List<Widget> children;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(icon, size: 20, color: theme.colorScheme.primary),
-                const SizedBox(width: 8),
-                Text(title, style: theme.textTheme.titleMedium),
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOut,
+      builder: (context, t, child) => Opacity(
+        opacity: t,
+        child: Transform.translate(
+          offset: Offset(0, (1 - t) * 8),
+          child: child,
+        ),
+      ),
+      child: Card(
+        margin: const EdgeInsets.only(bottom: 12),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: accentColor.withValues(alpha: 0.35)),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: accentColor.withValues(alpha: 0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(icon, size: 18, color: accentColor),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(title, style: theme.textTheme.titleMedium),
+                ],
+              ),
+              if (headline != null) ...[
+                const SizedBox(height: 10),
+                Text(
+                  headline!,
+                  style: theme.textTheme.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: accentColor,
+                  ),
+                ),
+                if (headlineLabel != null)
+                  Text(headlineLabel!, style: theme.textTheme.bodySmall),
               ],
-            ),
-            const SizedBox(height: 12),
-            ...children,
-          ],
+              const SizedBox(height: 12),
+              ...children,
+            ],
+          ),
         ),
       ),
     );

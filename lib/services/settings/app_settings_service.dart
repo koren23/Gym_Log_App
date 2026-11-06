@@ -54,6 +54,7 @@ class AppSettingsService {
       'has_cleaned_up_duplicate_workout_days';
   static const _kAutoThemeRotationEnabled = 'auto_theme_rotation_enabled';
   static const _kLastAutoThemeChangeDate = 'last_auto_theme_change_date';
+  static const _kHeightCm = 'height_cm';
 
   static Future<AppSettingsService> create() async {
     final prefs = await SharedPreferences.getInstance();
@@ -328,4 +329,16 @@ class AppSettingsService {
 
   Future<void> setLastAutoThemeChangeDate(String value) =>
       _prefs.setString(_kLastAutoThemeChangeDate, value);
+
+  /// Height in cm, used only for the Stats tab's BMI row — null until the
+  /// user enters one in Settings.
+  double? get heightCm => _prefs.getDouble(_kHeightCm);
+
+  Future<void> setHeightCm(double? value) async {
+    if (value == null) {
+      await _prefs.remove(_kHeightCm);
+    } else {
+      await _prefs.setDouble(_kHeightCm, value);
+    }
+  }
 }
