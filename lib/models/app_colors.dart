@@ -173,4 +173,40 @@ const List<AppThemePreset> kAppThemePresets = [
       logWorkoutHero: Color(0xFF6E8FA0),
     ),
   ),
+  AppThemePreset(name: 'Lavender', colors: AppColors(
+    appBar: Color(0xFF5A4E7C), background: Color(0xFFEFEAF7),
+    dashboardButtons: Color(0xFF8673B0), logWorkoutHero: Color(0xFF7A66A3))),
+  AppThemePreset(name: 'Coral', colors: AppColors(
+    appBar: Color(0xFFB85C52), background: Color(0xFFFDEDE9),
+    dashboardButtons: Color(0xFFE8897B), logWorkoutHero: Color(0xFFDE7A6B))),
+  AppThemePreset(name: 'Olive', colors: AppColors(
+    appBar: Color(0xFF5C5A33), background: Color(0xFFF3F1E0),
+    dashboardButtons: Color(0xFF8C8A4A), logWorkoutHero: Color(0xFF7A7840))),
+  AppThemePreset(name: 'Teal', colors: AppColors(
+    appBar: Color(0xFF2C6B6B), background: Color(0xFFE6F3F2),
+    dashboardButtons: Color(0xFF4AA3A0), logWorkoutHero: Color(0xFF3D8F8C))),
+  AppThemePreset(name: 'Sky', colors: AppColors(
+    appBar: Color(0xFF3E7FB0), background: Color(0xFFEAF4FB),
+    dashboardButtons: Color(0xFF6BB4DE), logWorkoutHero: Color(0xFF5AA3CC))),
+  AppThemePreset(name: 'Pumpkin', colors: AppColors(
+    appBar: Color(0xFF9C5420), background: Color(0xFFFBEADA),
+    dashboardButtons: Color(0xFFD98A42), logWorkoutHero: Color(0xFFCB7A34))),
+  AppThemePreset(name: 'Clay', colors: AppColors(
+    appBar: Color(0xFF7A4F3D), background: Color(0xFFF2E6DC),
+    dashboardButtons: Color(0xFFA97C5F), logWorkoutHero: Color(0xFF96694F))),
+  AppThemePreset(name: 'Obsidian', colors: AppColors(
+    appBar: Color(0xFF1A1A22), background: Color(0xFF0D0D12),
+    dashboardButtons: Color(0xFF6B6BD6), logWorkoutHero: Color(0xFF5A5AC2))),
+  AppThemePreset(name: 'Navy Night', colors: AppColors(
+    appBar: Color(0xFF16293D), background: Color(0xFF0B141F),
+    dashboardButtons: Color(0xFF3D6FA0), logWorkoutHero: Color(0xFF4A82B5))),
+  AppThemePreset(name: 'Amber Dusk', colors: AppColors(
+    appBar: Color(0xFF2E2418), background: Color(0xFF17120C),
+    dashboardButtons: Color(0xFFC98B3D), logWorkoutHero: Color(0xFFDBA24E))),
+  AppThemePreset(name: 'Emerald Night', colors: AppColors(
+    appBar: Color(0xFF13302A), background: Color(0xFF0A1714),
+    dashboardButtons: Color(0xFF2F9E7A), logWorkoutHero: Color(0xFF3BB58C))),
+  AppThemePreset(name: 'Wine', colors: AppColors(
+    appBar: Color(0xFF3A1A28), background: Color(0xFF190D13),
+    dashboardButtons: Color(0xFF8C3D5C), logWorkoutHero: Color(0xFFA3486B))),
 ];

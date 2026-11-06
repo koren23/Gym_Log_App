@@ -38,6 +38,7 @@ Future<NewExerciseResult?> showAddNewExerciseDialog(
   // triceps), so silently filing everything under the first one is wrong.
   var selectedGroup = existing?.muscleGroup ?? muscleGroupOptions.first;
   var selectedUnit = existing?.unit ?? ExerciseUnit.kg;
+  final selectedSecondary = {...(existing?.secondaryMuscleGroups ?? const [])};
   return showDialog<NewExerciseResult>(
     context: context,
     builder: (context) => StatefulBuilder(
@@ -68,7 +69,38 @@ Future<NewExerciseResult?> showAddNewExerciseDialog(
                       child: Text(titleCase(group.sheetHeader)),
                     ),
                 ],
-                onChanged: (v) => setState(() => selectedGroup = v!),
+                onChanged: (v) => setState(() {
+                  selectedGroup = v!;
+                  selectedSecondary.remove(v);
+                }),
+              ),
+              const SizedBox(height: 16),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Also works (optional)',
+                  style: Theme.of(context).textTheme.labelMedium,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: [
+                  for (final group in muscleGroupOptions)
+                    if (group != selectedGroup)
+                      FilterChip(
+                        label: Text(titleCase(group.sheetHeader)),
+                        selected: selectedSecondary.contains(group),
+                        onSelected: (v) => setState(() {
+                          if (v) {
+                            selectedSecondary.add(group);
+                          } else {
+                            selectedSecondary.remove(group);
+                          }
+                        }),
+                      ),
+                ],
               ),
               const SizedBox(height: 16),
               SegmentedButton<ExerciseUnit>(
@@ -147,6 +179,7 @@ Future<NewExerciseResult?> showAddNewExerciseDialog(
                           muscleGroup: selectedGroup,
                           unit: selectedUnit,
                           customUnitLabel: customLabel,
+                          secondaryMuscleGroups: selectedSecondary.toList(),
                         ),
                         muscleColumnIndex: columnIndex,
                         deleted: false,

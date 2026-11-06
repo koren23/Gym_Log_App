@@ -153,6 +153,7 @@ class SheetParser {
     required List<List<Object?>> rows,
     Map<String, MuscleGroup>? exerciseGroupOverrides,
     Map<String, ExerciseUnitAssignment>? exerciseUnitOverrides,
+    Map<String, List<MuscleGroup>>? exerciseSecondaryMusclesOverrides,
   }) {
     final format = detectMatrixFormat(rows);
     final weekColumns = <int, int>{};
@@ -204,6 +205,9 @@ class SheetParser {
           muscleGroupKnown: override != null,
           unit: unitAssignment?.unit ?? ExerciseUnit.kg,
           customUnitLabel: unitAssignment?.customLabel,
+          secondaryMuscleGroups:
+              exerciseSecondaryMusclesOverrides?[colA.trim().toLowerCase()] ??
+              const [],
         );
         muscleGroupSections[resolvedGroup]!.add(exercise);
 
@@ -278,6 +282,9 @@ class SheetParser {
         sheetRow: row,
         unit: unitAssignment?.unit ?? ExerciseUnit.kg,
         customUnitLabel: unitAssignment?.customLabel,
+        secondaryMuscleGroups:
+            exerciseSecondaryMusclesOverrides?[colA.trim().toLowerCase()] ??
+            const [],
       );
       muscleGroupSections[resolvedGroup]!.add(exercise);
 
@@ -391,10 +398,12 @@ class SheetParser {
 
     int? exerciseCol;
     int? unitCol;
+    int? secondaryMusclesCol;
     for (var col = 0; col < header.length; col++) {
       final text = _asString(header[col])?.trim().toLowerCase();
       if (text == 'exercise') exerciseCol = col;
       if (text == 'unit') unitCol = col;
+      if (text == 'secondarymuscles') secondaryMusclesCol = col;
     }
     if (exerciseCol == null || unitCol == null) {
       return ExerciseUnitsTable(headerRowLength: header.length);
@@ -408,9 +417,14 @@ class SheetParser {
       if (name == null || name.isEmpty) continue;
       final token = unitCol < r.length ? (_asString(r[unitCol]) ?? '') : '';
       final assignment = exerciseUnitAssignmentFromSheetToken(token);
+      final secondaryToken =
+          secondaryMusclesCol != null && secondaryMusclesCol < r.length
+          ? (_asString(r[secondaryMusclesCol]) ?? '')
+          : '';
       result[name.toLowerCase()] = (
         unit: assignment.unit,
         customLabel: assignment.customLabel,
+        secondaryMuscles: secondaryMusclesFromSheetToken(secondaryToken),
         rowIndex: row,
       );
     }
@@ -418,6 +432,7 @@ class SheetParser {
       assignments: result,
       exerciseColumnIndex: exerciseCol,
       unitColumnIndex: unitCol,
+      secondaryMusclesColumnIndex: secondaryMusclesCol,
       headerRowLength: header.length,
     );
   }

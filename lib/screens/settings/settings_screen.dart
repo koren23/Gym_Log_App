@@ -10,6 +10,7 @@ import '../../widgets/app_snack_bar.dart';
 import 'add_workout_day_dialog.dart';
 import 'algorithms_info_screen.dart';
 import 'changelog_screen.dart';
+import 'manage_exercises_screen.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -134,6 +135,24 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           overflow: TextOverflow.ellipsis,
                         ),
                 ),
+            ],
+          ),
+          _SettingsSection(
+            title: 'Exercises',
+            children: [
+              ListTile(
+                title: const Text('Manage exercises'),
+                subtitle: const Text(
+                  'Edit any exercise\'s name, muscle, secondary muscles, or '
+                  'unit — or delete it entirely.',
+                ),
+                leading: const Icon(Icons.fitness_center),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const ManageExercisesScreen(),
+                  ),
+                ),
+              ),
               ListTile(
                 title: const Text('Fill in missing exercise info'),
                 subtitle: const Text(

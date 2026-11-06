@@ -175,6 +175,10 @@ class SheetsRepository {
           for (final e in exerciseUnitsTable.assignments.entries)
             e.key: (unit: e.value.unit, customLabel: e.value.customLabel),
         };
+        final exerciseSecondaryMusclesOverrides = <String, List<MuscleGroup>>{
+          for (final e in exerciseUnitsTable.assignments.entries)
+            e.key: e.value.secondaryMuscles,
+        };
         final sortedYears = resolvedYears.toList()..sort();
         for (final year in sortedYears) {
           final tab = classified.writableTabFor(year);
@@ -187,6 +191,7 @@ class SheetsRepository {
             year: year,
             rows: rows,
             exerciseUnitOverrides: exerciseUnitOverrides,
+            exerciseSecondaryMusclesOverrides: exerciseSecondaryMusclesOverrides,
           );
           for (final exercise in firstPass.allExercises) {
             canonicalGroupByExerciseName[exercise.name.toLowerCase()] =
@@ -207,6 +212,7 @@ class SheetsRepository {
             rows: rowsByYear[year] ?? const [],
             exerciseGroupOverrides: canonicalGroupByExerciseName,
             exerciseUnitOverrides: exerciseUnitOverrides,
+            exerciseSecondaryMusclesOverrides: exerciseSecondaryMusclesOverrides,
           );
 
           final metaTab = classified.metaTabByYear[year];
@@ -900,34 +906,54 @@ class SheetsRepository {
     }
   }
 
-  /// Sets [exerciseName]'s unit in the "Exercises" tab's `Exercise`/`Unit`
+  /// Sets [exerciseName]'s unit (and, optionally, its secondary muscles) in
+  /// the "Exercises" tab's flat `Exercise`/`Unit`/`SecondaryMuscles`
   /// side-table: updates its row in place if it already has one (per
   /// [currentTable]), otherwise adds a new row — and also adds an explicit
   /// `kg` row for each of [backfillNames] that has none — creating the
-  /// `Exercise`/`Unit` header pair first if the table doesn't exist yet on
-  /// this sheet at all. [currentTable] must come from the snapshot this
-  /// call is based on (row indices must be exact).
+  /// header row first (all 3 headers together, even if only the unit is
+  /// being set right now) if the table doesn't exist yet on this sheet at
+  /// all. A `null` [secondaryMuscles] leaves that cell alone when updating
+  /// an existing row (so a plain unit-only edit doesn't clobber it), but
+  /// still writes an empty cell for a brand-new row. [currentTable] must
+  /// come from the snapshot this call is based on (row indices must be
+  /// exact).
   Future<Result<void>> setExerciseUnit({
     required String exerciseName,
     required ExerciseUnit unit,
     String? customLabel,
+    List<MuscleGroup>? secondaryMuscles,
     required ExerciseUnitsTable currentTable,
     List<String> backfillNames = const [],
   }) async {
     try {
       var exerciseCol = currentTable.exerciseColumnIndex;
       var unitCol = currentTable.unitColumnIndex;
+      var secondaryCol = currentTable.secondaryMusclesColumnIndex;
       if (exerciseCol == null || unitCol == null) {
         exerciseCol = currentTable.headerRowLength;
         unitCol = exerciseCol + 1;
+        secondaryCol = unitCol + 1;
         await _api.spreadsheets.values.update(
           ValueRange(
             values: [
-              ['Exercise', 'Unit'],
+              ['Exercise', 'Unit', 'SecondaryMuscles'],
             ],
           ),
           _spreadsheetId,
-          "'$kExercisesTabName'!${_columnLetter(exerciseCol)}1:${_columnLetter(unitCol)}1",
+          "'$kExercisesTabName'!${_columnLetter(exerciseCol)}1:${_columnLetter(secondaryCol)}1",
+          valueInputOption: 'USER_ENTERED',
+        );
+      } else if (secondaryCol == null) {
+        secondaryCol = currentTable.headerRowLength;
+        await _api.spreadsheets.values.update(
+          ValueRange(
+            values: [
+              ['SecondaryMuscles'],
+            ],
+          ),
+          _spreadsheetId,
+          "'$kExercisesTabName'!${_columnLetter(secondaryCol)}1",
           valueInputOption: 'USER_ENTERED',
         );
       }
@@ -946,6 +972,18 @@ class SheetsRepository {
           "'$kExercisesTabName'!${_columnLetter(unitCol)}${existingRow + 1}",
           valueInputOption: 'USER_ENTERED',
         );
+        if (secondaryMuscles != null) {
+          await _api.spreadsheets.values.update(
+            ValueRange(
+              values: [
+                [secondaryMusclesToSheetToken(secondaryMuscles)],
+              ],
+            ),
+            _spreadsheetId,
+            "'$kExercisesTabName'!${_columnLetter(secondaryCol)}${existingRow + 1}",
+            valueInputOption: 'USER_ENTERED',
+          );
+        }
       }
 
       // New rows (this exercise if it has none yet, plus an explicit `kg`
@@ -956,11 +994,16 @@ class SheetsRepository {
       // columns of the tab are filled.
       final seen = {exerciseName.toLowerCase()};
       final newRows = <List<Object?>>[
-        if (existingRow == null) [exerciseName, token],
+        if (existingRow == null)
+          [
+            exerciseName,
+            token,
+            secondaryMusclesToSheetToken(secondaryMuscles ?? const []),
+          ],
         for (final name in backfillNames)
           if (seen.add(name.toLowerCase()) &&
               !currentTable.assignments.containsKey(name.toLowerCase()))
-            [name, ExerciseUnit.kg.sheetToken],
+            [name, ExerciseUnit.kg.sheetToken, ''],
       ];
       if (newRows.isNotEmpty) {
         final firstRow = currentTable.assignments.values
@@ -970,7 +1013,7 @@ class SheetsRepository {
         final startRow = firstRow + 1;
         final endRow = startRow + newRows.length - 1;
         final startCol = _columnLetter(exerciseCol);
-        final endCol = _columnLetter(unitCol);
+        final endCol = _columnLetter(secondaryCol);
         await _api.spreadsheets.values.update(
           ValueRange(values: newRows),
           _spreadsheetId,
@@ -1200,14 +1243,17 @@ class SheetsRepository {
       if (unitRow != null &&
           exerciseUnitsTable.exerciseColumnIndex != null &&
           exerciseUnitsTable.unitColumnIndex != null) {
+        final hasSecondaryCol =
+            exerciseUnitsTable.secondaryMusclesColumnIndex != null;
+        final endCol = hasSecondaryCol
+            ? exerciseUnitsTable.secondaryMusclesColumnIndex!
+            : exerciseUnitsTable.unitColumnIndex!;
         clearRanges.add(
           ValueRange(
             range:
                 "'$kExercisesTabName'!${_columnLetter(exerciseUnitsTable.exerciseColumnIndex!)}${unitRow.rowIndex + 1}:"
-                "${_columnLetter(exerciseUnitsTable.unitColumnIndex!)}${unitRow.rowIndex + 1}",
-            values: [
-              ['', ''],
-            ],
+                "${_columnLetter(endCol)}${unitRow.rowIndex + 1}",
+            values: [hasSecondaryCol ? ['', '', ''] : ['', '']],
           ),
         );
       }

@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/constants/muscle_groups.dart';
 import '../core/constants/sheet_layout.dart';
+import '../core/utils/exercise_muscle_resolution.dart';
 import '../core/utils/iso_week.dart';
 import '../models/analysis_result.dart';
 import '../models/body_weight_entry.dart';
@@ -15,6 +16,7 @@ import '../models/workout_day_def.dart';
 import '../models/year_sheet_data.dart';
 import '../services/analysis/alternative_exercise_map.dart';
 import '../services/analysis/analysis_engine.dart';
+import '../services/analysis/volume.dart';
 import '../services/analysis/workout_day_analyzer.dart';
 import '../services/settings/app_settings_service.dart';
 import '../widgets/simple_line_chart.dart' show ChartPoint;
@@ -195,95 +197,80 @@ int? historicalAverageSetCount({
   return avg.round().clamp(1, 10);
 }
 
-/// Combines every exercise tagged with [muscle] into one progress series, so
-/// switching exercises for the same muscle (e.g. cable -> machine lateral
-/// raises) still reads as one continuous story instead of an
-/// apples-to-oranges jump in raw kg. An exercise's muscle tag comes primarily
-/// from the year tabs' own data (reliable for both [MatrixTabFormat
-/// .legacyGrouped] and [MatrixTabFormat.currentGrouped] tabs); the optional
-/// legacy "Exercises" reference tab ([exerciseMuscleInfo]) is folded in only
-/// as an extra source, so this keeps working with no hard dependency on that
-/// tab existing at all.
+/// Combines every exercise resolved to [muscle] (see
+/// [resolveMuscleGroup]/[exerciseNamesByMuscleSheetHeader]) into one
+/// progress series of real-visit-to-real-visit % volume change, so switching
+/// exercises for the same muscle (e.g. cable -> machine lateral raises)
+/// still reads as one continuous story instead of an apples-to-oranges jump
+/// in raw kg.
 ///
-/// Formula: each exercise is indexed to its own first logged session = 100
-/// (so a value of 120 means "+20% over where you started on that specific
-/// exercise"). A shared baseline across different exercises isn't used
-/// on purpose — different equipment/leverage makes their absolute starting
-/// weights incomparable, so indexing each to itself is what keeps the
-/// combined line honest. When more than one exercise for the muscle has a
-/// point in the same ISO week, their indexed values are averaged for that
-/// week's point.
+/// Unlike the old scheme (self-indexed *weight*, bucketed by ISO week with a
+/// best-guess calendar date standing in for pre-app history), this only ever
+/// walks real, exact-dated app-logged visits ([HistoryEntry.metaRow]
+/// non-null) and compares *volume* (weight × reps, not just weight)
+/// instance-to-instance: for each matching exercise, every visit after its
+/// first computable one emits a point for the % change in that exercise's
+/// total volume versus its own immediately-previous visit. A shared
+/// baseline across different exercises isn't used on purpose — different
+/// equipment/leverage makes absolute volume incomparable, so comparing each
+/// exercise only to its own previous instance is what keeps the combined
+/// line honest.
 List<ChartPoint> buildMuscleProgressPoints({
   required List<YearSheetData> yearsAscending,
   required String muscle,
   required List<ExerciseMuscleInfo> exerciseMuscleInfo,
 }) {
-  final muscleLower = muscle.toLowerCase();
-  final taggedNames = {
-    for (final y in yearsAscending)
-      for (final e in y.allExercises)
-        if (e.muscleGroupKnown &&
-            !e.muscleGroup.legacy &&
-            e.muscleGroup.sheetHeader.toLowerCase() == muscleLower)
-          e.name.toLowerCase(),
-    for (final info in exerciseMuscleInfo)
-      if (info.muscleGroup.sheetHeader.toLowerCase() == muscleLower)
-        info.exerciseName.toLowerCase(),
-  };
-  final knownNames = <String>{
-    for (final y in yearsAscending)
-      for (final e in y.allExercises) e.name,
-  };
-  final matchingNames = knownNames.where(
-    (n) => taggedNames.contains(n.toLowerCase()),
-  );
+  final matchingNames =
+      exerciseNamesByMuscleSheetHeader(
+        yearsAscending: yearsAscending,
+        exerciseMuscleInfo: exerciseMuscleInfo,
+      )[muscle] ??
+      const <String>{};
+  if (matchingNames.isEmpty) return const [];
 
-  final indexedByWeek = <String, List<double>>{};
-  final dateByWeek = <String, DateTime>{};
-  final exercisesByWeek = <String, Set<String>>{};
+  final yearByYear = {for (final y in yearsAscending) y.year: y};
+  final realVisits =
+      buildHistoryEntries(yearsAscending).where((e) => e.metaRow != null).toList()
+        ..sort((a, b) => a.date.compareTo(b.date));
 
+  final points = <ChartPoint>[];
   for (final name in matchingNames) {
-    final history = buildExerciseHistory(
-      yearsAscending: yearsAscending,
-      exerciseName: name,
-    );
-    if (history.isEmpty) continue;
-    // Indexing to 100 at the *first* value works even for a mixed-unit
-    // muscle group (e.g. a kg exercise alongside a bodyweight one) since
-    // every point becomes a relative %-of-its-own-baseline number, unitless
-    // by construction — verified when per-exercise units were introduced.
-    // A bodyweight exercise's added weight can legitimately start at 0
-    // (unlike kg, where 0 always means "unfilled" and never reaches here),
-    // so the baseline is the first non-zero point instead of always the
-    // first point — otherwise a division by zero would silently drop the
-    // exercise's entire history from this chart.
-    final baseline = history.firstWhere(
-      (h) => h.avgWeight != 0,
-      orElse: () => history.first,
-    ).avgWeight;
-    if (baseline == 0) continue; // every point is 0 — nothing to index.
+    double? previousVolume;
+    for (final visit in realVisits) {
+      final meta = visit.metaRow!;
+      LoggedExerciseRepRange? range;
+      for (final e in meta.exercises) {
+        if (e.exerciseName.toLowerCase() == name.toLowerCase()) {
+          range = e;
+          break;
+        }
+      }
+      if (range == null) continue;
 
-    for (final h in history) {
-      final key = '${h.isoYear}-${h.isoWeek}';
-      indexedByWeek
-          .putIfAbsent(key, () => [])
-          .add(h.avgWeight / baseline * 100);
-      dateByWeek.putIfAbsent(key, () => h.date);
-      (exercisesByWeek[key] ??= {}).add(name);
+      final year = yearByYear[visit.isoYear];
+      final col = year?.weekColumns[visit.isoWeek];
+      final exercise = year?.findExercise(name);
+      final matrixCellWeight = (exercise?.sheetRow != null && col != null)
+          ? year!.cellValues[CellKey(exercise!.sheetRow!, col)]
+          : null;
+
+      final volume = instanceVolume(range, matrixCellWeight: matrixCellWeight);
+      if (volume == null) continue;
+
+      if (previousVolume != null && previousVolume != 0) {
+        points.add(
+          ChartPoint(
+            date: visit.date,
+            value: (volume - previousVolume) / previousVolume * 100,
+            note: name,
+          ),
+        );
+      }
+      previousVolume = volume;
     }
   }
 
-  final points = [
-    for (final key in indexedByWeek.keys)
-      ChartPoint(
-        date: dateByWeek[key]!,
-        value:
-            indexedByWeek[key]!.reduce((a, b) => a + b) /
-            indexedByWeek[key]!.length,
-        note: exercisesByWeek[key]!.join(', '),
-      ),
-  ]..sort((a, b) => a.date.compareTo(b.date));
-
+  points.sort((a, b) => a.date.compareTo(b.date));
   return points;
 }
 

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/app_page_route.dart';
+import '../../core/utils/exercise_muscle_resolution.dart';
 import '../../core/utils/text.dart';
 import '../../models/exercise.dart';
 import '../../models/exercise_unit.dart';
@@ -97,26 +98,14 @@ class _GraphsScreenState extends ConsumerState<GraphsScreen> {
         for (final e in y.allExercises) e.name: e,
     };
     final allExerciseNames = allExercisesByName.keys.toList()..sort();
-    // Primary source: each exercise's own muscle tag from the year tabs
-    // themselves (reliable for both legacy- and current-grouped tabs); the
-    // optional legacy "Exercises" reference tab is folded in only as an
-    // extra source, so this map isn't empty when that tab doesn't exist.
-    // Legacy (pre-2026 Push/Pull/Legs-era) tags are excluded entirely — the
-    // picker only ever browses by current muscle, never by old training day.
-    final exercisesByMuscleName = <String, Set<String>>{};
-    for (final entry in allExercisesByName.entries) {
-      final group = entry.value.muscleGroup;
-      if (entry.value.muscleGroupKnown && !group.legacy) {
-        exercisesByMuscleName
-            .putIfAbsent(group.sheetHeader, () => {})
-            .add(entry.key);
-      }
-    }
-    for (final i in exerciseMuscleInfo) {
-      exercisesByMuscleName
-          .putIfAbsent(i.muscleGroup.sheetHeader, () => {})
-          .add(i.exerciseName);
-    }
+    // Each exercise's own current-era muscle tag wins whenever it's known;
+    // the optional legacy "Exercises" reference tab is only a fallback for
+    // exercises with no usable tag of their own — see
+    // exerciseNamesByMuscleSheetHeader for the precedence rule.
+    final exercisesByMuscleName = exerciseNamesByMuscleSheetHeader(
+      yearsAscending: yearsAscending,
+      exerciseMuscleInfo: exerciseMuscleInfo,
+    );
     final muscleNames = exercisesByMuscleName.keys.toList()..sort();
 
     _selectedOption ??= _kBodyWeightOption;
@@ -150,6 +139,7 @@ class _GraphsScreenState extends ConsumerState<GraphsScreen> {
         exerciseName: _selectedOption!,
       );
       final yearDataByYear = {for (final y in yearsAscending) y.year: y};
+      final exercise = allExercisesByName[_selectedOption!];
       primaryPoints = [
         for (final h in history)
           ChartPoint(
@@ -158,7 +148,10 @@ class _GraphsScreenState extends ConsumerState<GraphsScreen> {
             label: h.exactDateKnown
                 ? null
                 : approximateWeekLabel(h.isoWeek, h.isoYear),
-            note: yearDataByYear[h.isoYear]?.weekNotes[h.isoWeek],
+            note: exercise == null
+                ? null
+                : yearDataByYear[h.isoYear]
+                      ?.weekNotesByGroup[exercise.muscleGroup]?[h.isoWeek],
             setsLabel: h.totalSets == null || h.avgReps == null
                 ? null
                 : '${h.totalSets}×${h.avgReps!.round()}',
@@ -222,9 +215,10 @@ class _GraphsScreenState extends ConsumerState<GraphsScreen> {
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
               child: Text(
-                "Shown as % of your starting weight on each exercise — 100% = your "
-                'first logged session. Switching exercises for this muscle stays on '
-                'the same graph, each starting its own 100% baseline.',
+                'Shown as % volume change vs. your previous session for that '
+                'exercise, across every real logged visit. Switching exercises '
+                'for this muscle stays on the same graph, each compared only '
+                'to its own history.',
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.outline,
                 ),
@@ -251,7 +245,7 @@ class _GraphsScreenState extends ConsumerState<GraphsScreen> {
                   _LegendDot(
                     color: primaryColor,
                     label: showingMuscle
-                        ? '% of starting weight'
+                        ? '% volume change'
                         : _weightAxisLabel(
                             allExercisesByName[_selectedOption!],
                           ),

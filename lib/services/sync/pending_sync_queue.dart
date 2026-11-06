@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../core/constants/muscle_groups.dart';
 import '../../core/utils/result.dart';
 import '../../models/exercise_unit.dart';
 import '../../models/pending_sync_item.dart';
@@ -113,6 +114,17 @@ class PendingSyncQueue {
     jsonEncode({'exerciseName': exerciseName, 'columnIndex': columnIndex}),
   );
 
+  Future<void> enqueueExerciseSecondaryMuscles({
+    required String exerciseName,
+    required List<MuscleGroup> secondaryMuscles,
+  }) => _enqueue(
+    PendingSyncPayloadType.exerciseSecondaryMuscles,
+    jsonEncode({
+      'exerciseName': exerciseName,
+      'secondaryMuscles': [for (final g in secondaryMuscles) g.name],
+    }),
+  );
+
   /// Removes any still-queued "add this workout day" item for [id] — used
   /// when the user deletes a day before its add ever synced, so it doesn't
   /// get resurrected by a later retry.
@@ -131,7 +143,8 @@ class PendingSyncQueue {
   Future<void> cancelPendingExercise(String exerciseName) async {
     final items = getAll().where((item) {
       if (item.payloadType != PendingSyncPayloadType.exerciseUnit &&
-          item.payloadType != PendingSyncPayloadType.exerciseMuscle) {
+          item.payloadType != PendingSyncPayloadType.exerciseMuscle &&
+          item.payloadType != PendingSyncPayloadType.exerciseSecondaryMuscles) {
         return true;
       }
       final json = jsonDecode(item.serializedPayload) as Map<String, dynamic>;
@@ -290,6 +303,29 @@ class PendingSyncQueue {
         return repository.appendExerciseToMuscleColumn(
           columnIndex: json['columnIndex'] as int,
           exerciseName: json['exerciseName'] as String,
+        );
+
+      case PendingSyncPayloadType.exerciseSecondaryMuscles:
+        final json = jsonDecode(item.serializedPayload) as Map<String, dynamic>;
+        final tableResult = await resolveExerciseUnitsTable();
+        if (tableResult is Err<ExerciseUnitsTable>) {
+          return Result.err(tableResult.error, tableResult.stackTrace);
+        }
+        final table = (tableResult as Ok<ExerciseUnitsTable>).value;
+        final exerciseName = json['exerciseName'] as String;
+        final secondaryNames = (json['secondaryMuscles'] as List).cast<String>();
+        final secondaryMuscles = [
+          for (final name in secondaryNames)
+            for (final g in MuscleGroup.values)
+              if (g.name == name) g,
+        ];
+        final existing = table.assignments[exerciseName.toLowerCase()];
+        return repository.setExerciseUnit(
+          exerciseName: exerciseName,
+          unit: existing?.unit ?? ExerciseUnit.kg,
+          customLabel: existing?.customLabel,
+          secondaryMuscles: secondaryMuscles,
+          currentTable: table,
         );
 
     }

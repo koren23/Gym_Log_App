@@ -9,6 +9,7 @@ class Exercise {
     this.muscleGroupKnown = true,
     this.unit = ExerciseUnit.kg,
     this.customUnitLabel,
+    this.secondaryMuscleGroups = const [],
   });
 
   final String name;
@@ -34,10 +35,16 @@ class Exercise {
   /// Null for every other unit.
   final String? customUnitLabel;
 
+  /// Additional muscles this exercise also works, beyond [muscleGroup]
+  /// (the primary) — each counts at half weight toward muscle-balance
+  /// aggregation. Empty for most exercises.
+  final List<MuscleGroup> secondaryMuscleGroups;
+
   Exercise copyWith({
     int? sheetRow,
     ExerciseUnit? unit,
     String? customUnitLabel,
+    List<MuscleGroup>? secondaryMuscleGroups,
   }) => Exercise(
     name: name,
     muscleGroup: muscleGroup,
@@ -45,6 +52,7 @@ class Exercise {
     muscleGroupKnown: muscleGroupKnown,
     unit: unit ?? this.unit,
     customUnitLabel: customUnitLabel ?? this.customUnitLabel,
+    secondaryMuscleGroups: secondaryMuscleGroups ?? this.secondaryMuscleGroups,
   );
 
   @override

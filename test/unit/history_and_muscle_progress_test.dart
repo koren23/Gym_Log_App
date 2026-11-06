@@ -893,8 +893,14 @@ void main() {
 
   group('buildMuscleProgressPoints', () {
     test(
-      'indexes each exercise to its own first session and combines across an exercise switch',
+      'computes % volume-change between consecutive real visits of the same '
+      'exercise, and continues the series across an exercise switch',
       () {
+        // Redesigned (item 10) to walk only real, exact-dated visits
+        // (MetaRow-backed) and diff each exercise's own instance volume
+        // against its own previous instance — no points from a hand-typed
+        // matrix cell with no backing visit, and no point for an exercise's
+        // very first visit (nothing to diff against yet).
         final legPress = Exercise(
           name: 'Leg press',
           muscleGroup: MuscleGroup.legacyLegs,
@@ -912,13 +918,100 @@ void main() {
           muscleGroupSections: {
             MuscleGroup.legacyLegs: [legPress, hackSquat],
           },
-          weekColumns: {30: 1, 31: 2, 32: 3},
-          cellValues: {
-            const CellKey(20, 1): 100, // Leg press week 30
-            const CellKey(20, 2): 110, // Leg press week 31
-            const CellKey(21, 3):
-                120, // Hack squat week 32 (switched exercises)
-          },
+          weekColumns: const {},
+          cellValues: const {},
+          metaRows: [
+            MetaRow(
+              rowIndex: 1,
+              visitId: 'v1',
+              date: DateTime(2026, 7, 20),
+              isoWeek: 30,
+              isoYear: 2026,
+              muscleGroups: const ['Legs'],
+              exercises: const [
+                LoggedExerciseRepRange(
+                  exerciseName: 'Leg press',
+                  repRangeLow: 6,
+                  repRangeHigh: 8,
+                  actualReps: [8, 8],
+                  actualWeights: [100, 100], // volume 1600 (baseline)
+                ),
+              ],
+              sourceTab: '2026',
+            ),
+            MetaRow(
+              rowIndex: 2,
+              visitId: 'v2',
+              date: DateTime(2026, 7, 27),
+              isoWeek: 31,
+              isoYear: 2026,
+              muscleGroups: const ['Legs'],
+              exercises: const [
+                LoggedExerciseRepRange(
+                  exerciseName: 'Leg press',
+                  repRangeLow: 6,
+                  repRangeHigh: 8,
+                  actualReps: [8, 8],
+                  actualWeights: [110, 110], // volume 1760, +10%
+                ),
+              ],
+              sourceTab: '2026',
+            ),
+            MetaRow(
+              rowIndex: 3,
+              visitId: 'v3',
+              date: DateTime(2026, 8, 3),
+              isoWeek: 32,
+              isoYear: 2026,
+              muscleGroups: const ['Legs'],
+              exercises: const [
+                LoggedExerciseRepRange(
+                  exerciseName: 'Leg press',
+                  repRangeLow: 6,
+                  repRangeHigh: 8,
+                  actualReps: [8, 8],
+                  actualWeights: [121, 121], // volume 1936, +10%
+                ),
+              ],
+              sourceTab: '2026',
+            ),
+            MetaRow(
+              rowIndex: 4,
+              visitId: 'v4',
+              date: DateTime(2026, 8, 10),
+              isoWeek: 33,
+              isoYear: 2026,
+              muscleGroups: const ['Legs'],
+              exercises: const [
+                LoggedExerciseRepRange(
+                  exerciseName: 'Hack squat',
+                  repRangeLow: 6,
+                  repRangeHigh: 8,
+                  actualReps: [8, 8],
+                  actualWeights: [100, 100], // switch: own baseline
+                ),
+              ],
+              sourceTab: '2026',
+            ),
+            MetaRow(
+              rowIndex: 5,
+              visitId: 'v5',
+              date: DateTime(2026, 8, 17),
+              isoWeek: 34,
+              isoYear: 2026,
+              muscleGroups: const ['Legs'],
+              exercises: const [
+                LoggedExerciseRepRange(
+                  exerciseName: 'Hack squat',
+                  repRangeLow: 6,
+                  repRangeHigh: 8,
+                  actualReps: [8, 8],
+                  actualWeights: [110, 110], // volume 1760, +10%
+                ),
+              ],
+              sourceTab: '2026',
+            ),
+          ],
         );
 
         final info = [
@@ -943,15 +1036,12 @@ void main() {
         );
 
         expect(points, hasLength(3));
-        expect(
-          points[0].value,
-          closeTo(100, 0.001),
-        ); // week 30: leg press baseline
-        expect(points[1].value, closeTo(110, 0.001)); // week 31: leg press +10%
-        expect(
-          points[2].value,
-          closeTo(100, 0.001),
-        ); // week 32: hack squat's own baseline
+        expect(points[0].value, closeTo(10, 0.001));
+        expect(points[0].note, 'Leg press');
+        expect(points[1].value, closeTo(10, 0.001));
+        expect(points[1].note, 'Leg press');
+        expect(points[2].value, closeTo(10, 0.001));
+        expect(points[2].note, 'Hack squat');
         expect(
           points.map((p) => p.date),
           orderedEquals(points.map((p) => p.date).toList()..sort()),
@@ -960,7 +1050,8 @@ void main() {
     );
 
     test(
-      'averages indexed values when two exercises for the same muscle share a week',
+      'combines % volume-change points from two different exercises mapped '
+      'to the same muscle into one chronological series',
       () {
         final legPress = Exercise(
           name: 'Leg press',
@@ -979,13 +1070,82 @@ void main() {
           muscleGroupSections: {
             MuscleGroup.legacyLegs: [legPress, hackSquat],
           },
-          weekColumns: {30: 1},
-          cellValues: {
-            const CellKey(20, 1):
-                100, // Leg press week 30 -> its own baseline = 100%
-            const CellKey(21, 1):
-                120, // Hack squat week 30 -> its own baseline = 100%
-          },
+          weekColumns: const {},
+          cellValues: const {},
+          metaRows: [
+            MetaRow(
+              rowIndex: 1,
+              visitId: 'v1',
+              date: DateTime(2026, 7, 20),
+              isoWeek: 30,
+              isoYear: 2026,
+              muscleGroups: const ['Legs'],
+              exercises: const [
+                LoggedExerciseRepRange(
+                  exerciseName: 'Leg press',
+                  repRangeLow: 6,
+                  repRangeHigh: 8,
+                  actualReps: [8, 8],
+                  actualWeights: [100, 100], // volume 1600 (baseline)
+                ),
+              ],
+              sourceTab: '2026',
+            ),
+            MetaRow(
+              rowIndex: 2,
+              visitId: 'v2',
+              date: DateTime(2026, 7, 22),
+              isoWeek: 30,
+              isoYear: 2026,
+              muscleGroups: const ['Legs'],
+              exercises: const [
+                LoggedExerciseRepRange(
+                  exerciseName: 'Hack squat',
+                  repRangeLow: 6,
+                  repRangeHigh: 8,
+                  actualReps: [8, 8],
+                  actualWeights: [200, 200], // volume 3200 (baseline)
+                ),
+              ],
+              sourceTab: '2026',
+            ),
+            MetaRow(
+              rowIndex: 3,
+              visitId: 'v3',
+              date: DateTime(2026, 7, 27),
+              isoWeek: 31,
+              isoYear: 2026,
+              muscleGroups: const ['Legs'],
+              exercises: const [
+                LoggedExerciseRepRange(
+                  exerciseName: 'Leg press',
+                  repRangeLow: 6,
+                  repRangeHigh: 8,
+                  actualReps: [8, 8],
+                  actualWeights: [120, 120], // volume 1920, +20%
+                ),
+              ],
+              sourceTab: '2026',
+            ),
+            MetaRow(
+              rowIndex: 4,
+              visitId: 'v4',
+              date: DateTime(2026, 8, 3),
+              isoWeek: 32,
+              isoYear: 2026,
+              muscleGroups: const ['Legs'],
+              exercises: const [
+                LoggedExerciseRepRange(
+                  exerciseName: 'Hack squat',
+                  repRangeLow: 6,
+                  repRangeHigh: 8,
+                  actualReps: [8, 8],
+                  actualWeights: [220, 220], // volume 3520, +10%
+                ),
+              ],
+              sourceTab: '2026',
+            ),
+          ],
         );
 
         final info = [
@@ -1009,10 +1169,11 @@ void main() {
           exerciseMuscleInfo: info,
         );
 
-        expect(points, hasLength(1));
-        expect(points.single.value, closeTo(100, 0.001));
-        expect(points.single.note, contains('Leg press'));
-        expect(points.single.note, contains('Hack squat'));
+        expect(points, hasLength(2));
+        expect(points[0].note, 'Leg press');
+        expect(points[0].value, closeTo(20, 0.001));
+        expect(points[1].note, 'Hack squat');
+        expect(points[1].value, closeTo(10, 0.001));
       },
     );
 
@@ -1036,8 +1197,46 @@ void main() {
           muscleGroupSections: {
             MuscleGroup.quads: [legPress],
           },
-          weekColumns: {30: 1},
-          cellValues: {const CellKey(20, 1): 100},
+          weekColumns: const {},
+          cellValues: const {},
+          metaRows: [
+            MetaRow(
+              rowIndex: 1,
+              visitId: 'v1',
+              date: DateTime(2026, 7, 20),
+              isoWeek: 30,
+              isoYear: 2026,
+              muscleGroups: const ['quads'],
+              exercises: const [
+                LoggedExerciseRepRange(
+                  exerciseName: 'Leg press',
+                  repRangeLow: 6,
+                  repRangeHigh: 8,
+                  actualReps: [8, 8],
+                  actualWeights: [100, 100], // volume 1600 (baseline)
+                ),
+              ],
+              sourceTab: '2026',
+            ),
+            MetaRow(
+              rowIndex: 2,
+              visitId: 'v2',
+              date: DateTime(2026, 7, 27),
+              isoWeek: 31,
+              isoYear: 2026,
+              muscleGroups: const ['quads'],
+              exercises: const [
+                LoggedExerciseRepRange(
+                  exerciseName: 'Leg press',
+                  repRangeLow: 6,
+                  repRangeHigh: 8,
+                  actualReps: [8, 8],
+                  actualWeights: [110, 110], // volume 1760, +10%
+                ),
+              ],
+              sourceTab: '2026',
+            ),
+          ],
         );
 
         final points = buildMuscleProgressPoints(
@@ -1047,7 +1246,7 @@ void main() {
         );
 
         expect(points, hasLength(1));
-        expect(points.single.value, closeTo(100, 0.001));
+        expect(points.single.value, closeTo(10, 0.001));
       },
     );
 

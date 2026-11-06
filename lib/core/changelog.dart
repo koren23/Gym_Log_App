@@ -16,6 +16,35 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '2.0.0',
+    date: '2026-11-06',
+    changes: [
+      'New "Stats" tab: training overview, League/XP progress with a '
+          'barbell progress bar, body/calorie estimates, PR records, '
+          'consistency streaks, a tap-to-expand muscle balance body '
+          'diagram, and long-term goal nudges.',
+      'Fixed graphs and History sometimes showing a muscle group as '
+          'trained on a day it wasn\'t actually logged, caused by a date '
+          'mismatch between the matrix tab and the real visit.',
+      'Redesigned the per-muscle progress graph: each exercise is now '
+          'indexed to its own previous session\'s volume (weight × reps), '
+          'instead of one shared starting-weight baseline, so switching '
+          'exercises for the same muscle no longer distorts the trend.',
+      'Fixed editing an exercise\'s muscle group sometimes silently failing '
+          'to save when that exercise had never been written to the '
+          'reference tab before.',
+      'Hid the (meaningless) reps field for exercises tracked by time or a '
+          'custom unit.',
+      'Added a "Different machine" option on an exercise tile — logs a '
+          'fully independent history/graph line for that machine variant, '
+          'without losing the original exercise\'s history.',
+      'Added secondary muscles: an exercise can now also credit up to '
+          'several assisting muscle groups (at half weight) toward muscle '
+          'balance, set from the new Manage Exercises screen in Settings.',
+      'Doubled the number of app theme presets to choose from (24 total).',
+    ],
+  ),
+  ChangelogEntry(
     version: '1.4.9',
     date: '2026-10-23',
     changes: [

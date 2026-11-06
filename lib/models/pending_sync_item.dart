@@ -5,6 +5,7 @@ enum PendingSyncPayloadType {
   workoutDay,
   exerciseUnit,
   exerciseMuscle,
+  exerciseSecondaryMuscles,
 }
 
 class PendingSyncItem {

@@ -236,29 +236,14 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
     }
   }
 
-  /// Drops a just-deleted exercise from every bit of local/persisted draft
-  /// state so it stops reappearing — a brand-new, never-yet-logged exercise
-  /// only exists in [_addedExercises]/[_drafts]/[_checked] until a visit is
-  /// published, so deleting it sheet-side alone (which [ExerciseTile]
-  /// already did before calling this) isn't enough to make it disappear.
-  void _removeAddedExercise(String name) {
-    setState(() {
-      _checked.remove(name);
-      _addedExercises.removeWhere((e) => e.name == name);
-      _drafts.remove(name)?.dispose();
-    });
-    _saveDraft();
-  }
-
   /// Drops [name] from "Workout so far" without touching the sheet — just
   /// unchecks it and discards its entered sets, mirroring
-  /// `edit_visit_screen.dart`'s `_removeExercise`. Unlike
-  /// [_removeAddedExercise], the exercise itself isn't deleted (it stays
-  /// available to check again below), only the current draft's progress on
-  /// it is.
+  /// `edit_visit_screen.dart`'s `_removeExercise`. The exercise itself isn't
+  /// deleted (it stays available to check again below), only the current
+  /// draft's progress on it is.
   void _removeFromCompleted(String name) {
-    // Not disposed here (unlike _removeAddedExercise) so the snackbar's
-    // "Undo" can hand the exact same draft — with everything the user
+    // Not disposed, so the snackbar's "Undo" can hand the exact same
+    // draft — with everything the user
     // entered — back without losing anything.
     final removedDraft = _drafts[name];
     setState(() {
@@ -1114,10 +1099,67 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
               _scheduleSaveDraft();
             },
             onFocusLost: _handleFieldBlur,
-            onDeleted: () => _removeAddedExercise(exercise.name),
+            allExerciseNames: ref
+                .watch(allKnownExercisesProvider)
+                .map((e) => e.name)
+                .toList(),
+            onMachineVariantChosen: (newExercise) =>
+                _replaceExerciseWithMachineVariant(exercise, newExercise),
           ),
       ],
     );
+  }
+
+  /// Swaps [oldExercise] for a "different machine" variant [newExercise]
+  /// (see `machine_label_dialog.dart`) — a logically distinct exercise, not
+  /// a rename, so it gets a fresh draft (no carried-over entered sets) and
+  /// is persisted via the same muscle/unit sheet-append path as the
+  /// "Add new exercise" button uses for a brand-new name.
+  Future<void> _replaceExerciseWithMachineVariant(
+    Exercise oldExercise,
+    Exercise newExercise,
+  ) async {
+    setState(() {
+      final wasChecked = _checked.remove(oldExercise.name);
+      _drafts.remove(oldExercise.name);
+      _addedExercises.removeWhere((e) => e.name == oldExercise.name);
+      _addedExercises.add(newExercise);
+      if (wasChecked) _checked.add(newExercise.name);
+    });
+    _saveDraft();
+
+    final columnIndex = ref
+        .read(exerciseMuscleByNameProvider)[oldExercise.name.toLowerCase()]
+        ?.columnIndex;
+    if (columnIndex != null) {
+      final ok = await ref
+          .read(snapshotProvider.notifier)
+          .addExerciseMuscle(
+            exerciseName: newExercise.name,
+            columnIndex: columnIndex,
+          );
+      if (!ok && mounted) {
+        showAppSnackBar(
+          context,
+          "Couldn't reach your sheet — the muscle is queued and will retry automatically.",
+          isError: true,
+        );
+      }
+    }
+    final unitOk = await ref
+        .read(snapshotProvider.notifier)
+        .addExerciseUnit(
+          exerciseName: newExercise.name,
+          unit: newExercise.unit,
+          customLabel: newExercise.customUnitLabel,
+        );
+    if (!unitOk && mounted) {
+      showAppSnackBar(
+        context,
+        "Couldn't reach your sheet — the unit is queued and will retry automatically.",
+        isError: true,
+      );
+    }
   }
 
   /// The already-logged visit on [_selectedDate], if any — used to enforce

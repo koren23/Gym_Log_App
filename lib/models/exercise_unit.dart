@@ -1,33 +1,45 @@
+import '../core/constants/muscle_groups.dart';
+
 /// A resolved unit + optional custom label, e.g. `(custom, 'floors')` or
 /// `(kg, null)`.
 typedef ExerciseUnitAssignment = ({ExerciseUnit unit, String? customLabel});
 
-/// One row of the "Exercises" tab's flat `Exercise`/`Unit` side-table (see
-/// `SheetParser.parseExerciseUnitsTab`), including its row index so an
-/// update-in-place is possible.
+/// One row of the "Exercises" tab's flat `Exercise`/`Unit`/`SecondaryMuscles`
+/// side-table (see `SheetParser.parseExerciseUnitsTab`), including its row
+/// index so an update-in-place is possible.
 typedef ExerciseUnitRow =
-    ({ExerciseUnit unit, String? customLabel, int rowIndex});
+    ({
+      ExerciseUnit unit,
+      String? customLabel,
+      List<MuscleGroup> secondaryMuscles,
+      int rowIndex,
+    });
 
-/// The parsed "Exercises" tab `Exercise`/`Unit` side-table: per-exercise
-/// assignments plus where the table itself lives, so a writer can either
-/// update an existing row or append a new one (and create the header pair
-/// on first use). [exerciseColumnIndex]/[unitColumnIndex] are null when the
-/// header pair doesn't exist yet on the sheet.
+/// The parsed "Exercises" tab `Exercise`/`Unit`/`SecondaryMuscles` side-table:
+/// per-exercise assignments plus where the table itself lives, so a writer
+/// can either update an existing row or append a new one (and create the
+/// header row on first use). [exerciseColumnIndex]/[unitColumnIndex] are null
+/// when the header pair doesn't exist yet on the sheet;
+/// [secondaryMusclesColumnIndex] is null when that column hasn't been added
+/// yet either (independently of the other two, for a sheet written before
+/// this feature existed).
 class ExerciseUnitsTable {
   const ExerciseUnitsTable({
     this.assignments = const {},
     this.exerciseColumnIndex,
     this.unitColumnIndex,
+    this.secondaryMusclesColumnIndex,
     this.headerRowLength = 0,
   });
 
   final Map<String, ExerciseUnitRow> assignments;
   final int? exerciseColumnIndex;
   final int? unitColumnIndex;
+  final int? secondaryMusclesColumnIndex;
 
   /// Number of cells in the tab's header row — where a not-yet-existing
-  /// `Exercise`/`Unit` pair should be placed (appended after everything
-  /// else already there).
+  /// `Exercise`/`Unit`/`SecondaryMuscles` triple should be placed (appended
+  /// after everything else already there).
   final int headerRowLength;
 }
 
@@ -101,3 +113,21 @@ String exerciseUnitToSheetToken(ExerciseUnit unit, {String? customUnitLabel}) {
   }
   return unit.sheetToken;
 }
+
+/// Parses the `SecondaryMuscles` column's cell value: a comma-separated
+/// list of [MuscleGroup.sheetHeader] tokens, e.g. `'Biceps, Forearm'`. An
+/// unrecognized token (typo, or a legacy header) is silently dropped rather
+/// than failing the whole cell. Blank cell -> empty list.
+List<MuscleGroup> secondaryMusclesFromSheetToken(String raw) {
+  if (raw.trim().isEmpty) return const [];
+  return [
+    for (final part in raw.split(','))
+      if (currentMuscleFromSheetHeader(part.trim()) != null)
+        currentMuscleFromSheetHeader(part.trim())!,
+  ];
+}
+
+/// Inverse of [secondaryMusclesFromSheetToken] — produces the exact sheet
+/// cell value to write.
+String secondaryMusclesToSheetToken(List<MuscleGroup> groups) =>
+    groups.map((g) => g.sheetHeader).join(', ');

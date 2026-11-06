@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/analysis/tile_trend.dart';
-import '../core/constants/muscle_groups.dart';
 import '../core/constants/semantic_colors.dart';
 import '../core/constants/sheet_layout.dart';
 import '../core/utils/exercise_value_format.dart';
@@ -13,8 +12,7 @@ import '../models/exercise_unit.dart';
 import '../models/pending_suggestion.dart';
 import '../models/set_feedback.dart';
 import '../models/workout_visit.dart';
-import '../providers/sheet_data_providers.dart';
-import '../screens/log_workout/add_new_exercise_dialog.dart';
+import '../screens/log_workout/machine_label_dialog.dart';
 
 /// Mutable per-exercise editing state used while building up a workout
 /// visit in the log-workout flow. Owns the [TextEditingController]s for
@@ -357,8 +355,9 @@ class ExerciseTile extends ConsumerWidget {
     required this.selected,
     required this.onToggle,
     required this.onChanged,
+    required this.allExerciseNames,
+    required this.onMachineVariantChosen,
     this.onFocusLost,
-    this.onDeleted,
     this.previousWeights = const [],
     this.trend = TileTrend.unknown,
   });
@@ -368,10 +367,16 @@ class ExerciseTile extends ConsumerWidget {
   final ValueChanged<bool> onToggle;
   final VoidCallback onChanged;
 
-  /// Fired after this exercise was successfully deleted from the sheet, so
-  /// the parent screen can drop it from its own local/draft state too (this
-  /// tile has no local state of its own to clean up beyond that).
-  final VoidCallback? onDeleted;
+  /// Every exercise name known across all years — used by the "Different
+  /// machine" chip to offer past labels for this exercise's base name.
+  final List<String> allExerciseNames;
+
+  /// Fired after the user picks a different-machine label for this tile's
+  /// exercise, with the new composed `"<base> [<label>]"` (or the plain
+  /// base name again, if they cleared the label) — the parent screen owns
+  /// swapping it in as a distinct exercise slot (see
+  /// `machine_label_dialog.dart`).
+  final ValueChanged<Exercise> onMachineVariantChosen;
 
   /// Fired when a set field in this tile loses focus (not on every
   /// keystroke) — used to defer UI reflow (e.g. "Workout so far" updating)
@@ -424,16 +429,6 @@ class ExerciseTile extends ConsumerWidget {
                     runSpacing: 4,
                     children: [
                       ActionChip(
-                        avatar: const Icon(Icons.edit_outlined, size: 16),
-                        label: Text(
-                          'Unit: ${_unitName(draft.exercise.unit, draft.exercise.customUnitLabel)}',
-                        ),
-                        tooltip:
-                            'Edit exercise (name / muscle / unit / delete)',
-                        visualDensity: VisualDensity.compact,
-                        onPressed: () => _editExercise(context, ref),
-                      ),
-                      ActionChip(
                         avatar: Icon(
                           draft.note == null || draft.note!.isEmpty
                               ? Icons.note_add_outlined
@@ -448,6 +443,17 @@ class ExerciseTile extends ConsumerWidget {
                         tooltip: "Note on this exercise",
                         visualDensity: VisualDensity.compact,
                         onPressed: () => _editNote(context),
+                      ),
+                      ActionChip(
+                        avatar: const Icon(Icons.swap_horiz, size: 16),
+                        label: Text(
+                          splitMachineLabel(draft.exercise.name).label == null
+                              ? 'Different machine'
+                              : 'Machine: ${splitMachineLabel(draft.exercise.name).label}',
+                        ),
+                        tooltip: "Logging on a different machine?",
+                        visualDensity: VisualDensity.compact,
+                        onPressed: () => _chooseMachineVariant(context),
                       ),
                     ],
                   ),
@@ -482,64 +488,29 @@ class ExerciseTile extends ConsumerWidget {
     onChanged();
   }
 
-  static String _unitName(ExerciseUnit unit, String? customLabel) =>
-      switch (unit) {
-        ExerciseUnit.kg => 'kg',
-        ExerciseUnit.bodyweight => 'bodyweight',
-        ExerciseUnit.time => 'time',
-        ExerciseUnit.custom => customLabel ?? 'custom',
-      };
-
-  Future<void> _editExercise(BuildContext context, WidgetRef ref) async {
-    final old = draft.exercise;
-    final result = await showAddNewExerciseDialog(
+  Future<void> _chooseMachineVariant(BuildContext context) async {
+    final split = splitMachineLabel(draft.exercise.name);
+    final result = await showMachineLabelDialog(
       context,
-      muscleGroupOptions: kCurrentMuscleGroups,
-      allMuscleInfo: ref.read(exerciseMuscleInfoProvider),
-      existing: old,
+      baseExerciseName: split.base,
+      pastLabels: pastMachineLabelsForBaseName(split.base, allExerciseNames),
+      initialLabel: split.label,
     );
     if (result == null) return;
 
-    if (result.deleted) {
-      final ok = await ref.read(snapshotProvider.notifier).deleteExercise(old);
-      if (ok) {
-        onDeleted?.call();
-      } else if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              "Couldn't delete the exercise — check your connection and try again.",
-            ),
-          ),
-        );
-      }
-      return;
-    }
+    final newName = result.isEmpty ? split.base : '${split.base} [$result]';
+    if (newName == draft.exercise.name) return;
 
-    final newExercise = result.exercise!;
-    draft.exercise = newExercise;
-    onChanged();
-    final updateResult = await ref
-        .read(snapshotProvider.notifier)
-        .updateExercise(
-          oldExercise: old,
-          newExercise: newExercise,
-          newMuscleColumnIndex: result.muscleColumnIndex,
-        );
-    if (!updateResult.success && context.mounted) {
-      final onlyUnitFailed =
-          updateResult.failedSteps.length == 1 &&
-          updateResult.failedSteps.single == 'unit';
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            onlyUnitFailed
-                ? "Couldn't reach your sheet — the unit change is queued and will retry automatically."
-                : "Couldn't save: ${updateResult.failedSteps.join(', ')} — check your connection and try again.",
-          ),
-        ),
-      );
-    }
+    onMachineVariantChosen(
+      Exercise(
+        name: newName,
+        muscleGroup: draft.exercise.muscleGroup,
+        muscleGroupKnown: draft.exercise.muscleGroupKnown,
+        unit: draft.exercise.unit,
+        customUnitLabel: draft.exercise.customUnitLabel,
+        secondaryMuscleGroups: draft.exercise.secondaryMuscleGroups,
+      ),
+    );
   }
 }
 
@@ -694,6 +665,12 @@ class _SetEditorRowState extends State<_SetEditorRow> {
     final feedback = draft.setFeedback[i];
     final theme = Theme.of(context);
     final hasNote = draft.setNotes[i] != null && draft.setNotes[i]!.isNotEmpty;
+    // Reps aren't a meaningful concept for a time- or custom-unit exercise
+    // (e.g. Stairmaster measured in floors) — only kg/bodyweight exercises
+    // have a genuine rep count.
+    final showReps =
+        draft.exercise.unit == ExerciseUnit.kg ||
+        draft.exercise.unit == ExerciseUnit.bodyweight;
     return GestureDetector(
       onLongPress: () => _showQuickActions(context),
       child: SizedBox(
@@ -701,13 +678,18 @@ class _SetEditorRowState extends State<_SetEditorRow> {
         child: Row(
           children: [
             Expanded(
+              flex: showReps ? 1 : 2,
               child: TextFormField(
                 controller: draft.weightControllers[i],
                 focusNode: _weightFocus,
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
-                textInputAction: TextInputAction.next,
+                textInputAction: showReps
+                    ? TextInputAction.next
+                    : (i + 1 < draft.weightFocusNodes.length
+                          ? TextInputAction.next
+                          : TextInputAction.done),
                 decoration: InputDecoration(
                   labelText:
                       'Set ${i + 1} (${draft.exercise.unit.labelSuffix(customLabel: draft.exercise.customUnitLabel)})',
@@ -717,36 +699,10 @@ class _SetEditorRowState extends State<_SetEditorRow> {
                   draft.setWeights[i] = double.tryParse(text);
                   widget.onChanged();
                 },
-                onFieldSubmitted: (_) =>
-                    FocusScope.of(context).requestFocus(_repsFocus),
-              ),
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: TextFormField(
-                controller: draft.repsControllers[i],
-                focusNode: _repsFocus,
-                keyboardType: TextInputType.number,
-                textInputAction: i + 1 < draft.weightFocusNodes.length
-                    ? TextInputAction.next
-                    : TextInputAction.done,
-                decoration: InputDecoration(
-                  labelText: 'Reps',
-                  isDense: true,
-                  hintText: '${draft.repsFor(i)}',
-                  suffixIcon: draft.hasSuggestedTarget(i)
-                      ? const Tooltip(
-                          message: 'Target updated from a recent suggestion',
-                          child: Icon(Icons.auto_awesome, size: 16),
-                        )
-                      : null,
-                ),
-                onChanged: (text) {
-                  draft.setReps[i] = int.tryParse(text);
-                  widget.onChanged();
-                },
                 onFieldSubmitted: (_) {
-                  if (i + 1 < draft.weightFocusNodes.length) {
+                  if (showReps) {
+                    FocusScope.of(context).requestFocus(_repsFocus);
+                  } else if (i + 1 < draft.weightFocusNodes.length) {
                     FocusScope.of(
                       context,
                     ).requestFocus(draft.weightFocusNodes[i + 1]);
@@ -756,34 +712,72 @@ class _SetEditorRowState extends State<_SetEditorRow> {
                 },
               ),
             ),
-            const SizedBox(width: 4),
-            Tooltip(
-              message: approx
-                  ? 'Marked approximate'
-                  : 'Mark reps as approximate',
-              child: InkWell(
-                borderRadius: BorderRadius.circular(16),
-                onTap: () {
-                  draft.setApproxReps[i] = !approx;
-                  widget.onChanged();
-                },
-                child: CircleAvatar(
-                  radius: 14,
-                  backgroundColor: approx
-                      ? theme.colorScheme.primaryContainer
-                      : theme.colorScheme.surfaceContainerHighest,
-                  child: Text(
-                    '~',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: approx
-                          ? theme.colorScheme.onPrimaryContainer
-                          : theme.colorScheme.outline,
+            if (showReps) ...[
+              const SizedBox(width: 6),
+              Expanded(
+                child: TextFormField(
+                  controller: draft.repsControllers[i],
+                  focusNode: _repsFocus,
+                  keyboardType: TextInputType.number,
+                  textInputAction: i + 1 < draft.weightFocusNodes.length
+                      ? TextInputAction.next
+                      : TextInputAction.done,
+                  decoration: InputDecoration(
+                    labelText: 'Reps',
+                    isDense: true,
+                    hintText: '${draft.repsFor(i)}',
+                    suffixIcon: draft.hasSuggestedTarget(i)
+                        ? const Tooltip(
+                            message:
+                                'Target updated from a recent suggestion',
+                            child: Icon(Icons.auto_awesome, size: 16),
+                          )
+                        : null,
+                  ),
+                  onChanged: (text) {
+                    draft.setReps[i] = int.tryParse(text);
+                    widget.onChanged();
+                  },
+                  onFieldSubmitted: (_) {
+                    if (i + 1 < draft.weightFocusNodes.length) {
+                      FocusScope.of(
+                        context,
+                      ).requestFocus(draft.weightFocusNodes[i + 1]);
+                    } else {
+                      FocusScope.of(context).unfocus();
+                    }
+                  },
+                ),
+              ),
+              const SizedBox(width: 4),
+              Tooltip(
+                message: approx
+                    ? 'Marked approximate'
+                    : 'Mark reps as approximate',
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(16),
+                  onTap: () {
+                    draft.setApproxReps[i] = !approx;
+                    widget.onChanged();
+                  },
+                  child: CircleAvatar(
+                    radius: 14,
+                    backgroundColor: approx
+                        ? theme.colorScheme.primaryContainer
+                        : theme.colorScheme.surfaceContainerHighest,
+                    child: Text(
+                      '~',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: approx
+                            ? theme.colorScheme.onPrimaryContainer
+                            : theme.colorScheme.outline,
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
+            ],
             const SizedBox(width: 4),
             Tooltip(
               message: feedback == SetFeedback.down

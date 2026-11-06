@@ -766,11 +766,18 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
     final unitChanged =
         oldExercise.unit != newExercise.unit ||
         oldExercise.customUnitLabel != newExercise.customUnitLabel;
-    if (!nameChanged && !muscleChanged && !unitChanged) {
+    final secondaryMusclesChanged =
+        oldExercise.secondaryMuscleGroups.toSet() !=
+        newExercise.secondaryMuscleGroups.toSet();
+    if (!nameChanged &&
+        !muscleChanged &&
+        !unitChanged &&
+        !secondaryMusclesChanged) {
       return (success: true, failedSteps: const <String>[]);
     }
 
     final repository = await ref.read(sheetsRepositoryProvider.future);
+    final queue = ref.read(pendingSyncQueueProvider);
     final failedSteps = <String>[];
     final currentYear = isoWeekYear(DateTime.now());
     final yearData = current.snapshot.yearData[currentYear];
@@ -804,6 +811,7 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
     }
 
     if (muscleChanged && yearData != null) {
+      var muscleOk = true;
       if (yearData.format == MatrixTabFormat.flatV2) {
         final oldEntry = muscleEntryFor(oldExercise.name);
         if (oldEntry != null && newMuscleColumnIndex != null) {
@@ -813,7 +821,17 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
             newColumnIndex: newMuscleColumnIndex,
             exerciseName: newExercise.name,
           );
-          if (r.isErr) failedSteps.add('muscle');
+          muscleOk = r.isOk;
+        } else if (newMuscleColumnIndex != null) {
+          // The exercise has never been logged, so there's no existing
+          // muscle-column entry to move — append a fresh one instead
+          // (same fallback `addExerciseMuscle` uses for a brand-new
+          // exercise), otherwise this silently no-ops.
+          final r = await repository.appendExerciseToMuscleColumn(
+            columnIndex: newMuscleColumnIndex,
+            exerciseName: newExercise.name,
+          );
+          muscleOk = r.isOk;
         }
       } else if (oldExercise.sheetRow != null) {
         final gridId = current.snapshot.gridIdsByTabName[yearData.tabName];
@@ -824,7 +842,25 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
             currentRow: oldExercise.sheetRow!,
             newGroup: newExercise.muscleGroup,
           );
-          if (r.isErr) failedSteps.add('muscle');
+          muscleOk = r.isOk;
+        }
+      } else if (newMuscleColumnIndex != null) {
+        // Never-logged exercise on a grouped-format year: no row to move,
+        // so persist the muscle change to the Exercises reference tab
+        // instead (same fallback as the flatV2 branch above).
+        final r = await repository.appendExerciseToMuscleColumn(
+          columnIndex: newMuscleColumnIndex,
+          exerciseName: newExercise.name,
+        );
+        muscleOk = r.isOk;
+      }
+      if (!muscleOk) {
+        failedSteps.add('muscle');
+        if (newMuscleColumnIndex != null) {
+          await queue.enqueueExerciseMuscle(
+            exerciseName: newExercise.name,
+            columnIndex: newMuscleColumnIndex,
+          );
         }
       }
     }
@@ -845,13 +881,37 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
         ok = r.isOk;
       }
       if (!ok) {
-        final queue = ref.read(pendingSyncQueueProvider);
         await queue.enqueueExerciseUnit(
           exerciseName: newExercise.name,
           unit: newExercise.unit,
           customLabel: newExercise.customUnitLabel,
         );
         failedSteps.add('unit');
+      }
+    }
+
+    if (secondaryMusclesChanged) {
+      var ok = true;
+      if (!current.snapshot.classifiedTabs.hasExercisesTab) {
+        final ensured = await repository.ensureExercisesTab();
+        ok = ensured.isOk;
+      }
+      if (ok) {
+        final r = await repository.setExerciseUnit(
+          exerciseName: newExercise.name,
+          unit: newExercise.unit,
+          customLabel: newExercise.customUnitLabel,
+          secondaryMuscles: newExercise.secondaryMuscleGroups,
+          currentTable: current.snapshot.exerciseUnitsTable,
+        );
+        ok = r.isOk;
+      }
+      if (!ok) {
+        await queue.enqueueExerciseSecondaryMuscles(
+          exerciseName: newExercise.name,
+          secondaryMuscles: newExercise.secondaryMuscleGroups,
+        );
+        failedSteps.add('secondary muscles');
       }
     }
 

@@ -15,6 +15,7 @@ import '../history/history_screen.dart';
 import '../home/home_screen.dart';
 import '../log_workout/log_workout_screen.dart';
 import '../settings/settings_screen.dart';
+import '../stats/stats_screen.dart';
 
 /// Persistent app shell: one AppBar + bottom nav across the Home, Graphs
 /// and History tabs, plus a global "Log workout" FAB. Settings stays a
@@ -29,7 +30,7 @@ class MainShell extends ConsumerStatefulWidget {
 class _MainShellState extends ConsumerState<MainShell> {
   int _selectedIndex = 0;
 
-  static const _tabTitles = ['', 'Progress', 'Workout history'];
+  static const _tabTitles = ['', 'Progress', 'Stats', 'Workout history'];
 
   // Raw swipe-to-change-tabs tracking, mirroring the pinch-zoom approach in
   // SimpleLineChart: a Listener (not a GestureDetector) so it never
@@ -66,7 +67,7 @@ class _MainShellState extends ConsumerState<MainShell> {
     final dy = event.position.dy - _swipeStartY;
     const threshold = 60.0;
     if (dx.abs() < threshold || dx.abs() < dy.abs() * 1.5) return;
-    if (dx < 0 && _selectedIndex < 2) {
+    if (dx < 0 && _selectedIndex < 3) {
       setState(() => _selectedIndex++);
       HapticFeedback.selectionClick();
     } else if (dx > 0 && _selectedIndex > 0) {
@@ -152,6 +153,7 @@ class _MainShellState extends ConsumerState<MainShell> {
           children: [
             const HomeTab(),
             GraphsScreen(onChartInteractionChanged: _onChartInteractionChanged),
+            const StatsScreen(),
             const HistoryScreen(),
           ],
         ),
@@ -167,6 +169,7 @@ class _MainShellState extends ConsumerState<MainShell> {
             label: 'Home',
           ),
           NavigationDestination(icon: Icon(Icons.show_chart), label: 'Graphs'),
+          NavigationDestination(icon: Icon(Icons.insights), label: 'Stats'),
           NavigationDestination(icon: Icon(Icons.history), label: 'History'),
         ],
       ),
