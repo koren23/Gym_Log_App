@@ -16,6 +16,18 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '2.0.3',
+    date: '2026-11-06',
+    changes: [
+      'Redesigned the muscle-balance body diagram again: front and back '
+          'are now shown side by side instead of toggled, each drawn as a '
+          'proper outlined figure with segmented muscle regions (split '
+          'abs, distinct pecs/delts/biceps/triceps/quads/lats/traps/'
+          'glutes/hamstrings/calves) colored by your training score — and '
+          'the whole thing is noticeably more compact.',
+    ],
+  ),
+  ChangelogEntry(
     version: '2.0.2',
     date: '2026-11-06',
     changes: [
