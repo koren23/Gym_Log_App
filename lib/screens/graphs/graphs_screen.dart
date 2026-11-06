@@ -234,6 +234,7 @@ class _GraphsScreenState extends ConsumerState<GraphsScreen> {
               secondaryFloor: 45,
               secondaryCeiling: 100,
               onInteractionChanged: widget.onChartInteractionChanged,
+              primaryUnitSuffix: showingMuscle ? '%' : '',
             ),
           ),
           if (secondaryPoints != null)

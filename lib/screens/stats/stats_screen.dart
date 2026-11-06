@@ -149,7 +149,10 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
         : bodyWeightEntries
               .reduce((a, b) => a.date.isAfter(b.date) ? a : b)
               .weightKg;
-    final estimatedDuration = estimatedWorkoutDuration(mostRecentVisit);
+    final estimatedDuration = estimatedWorkoutDuration(
+      mostRecentVisit,
+      exercisesByName: exercisesByName,
+    );
     final heightCm = ref.watch(appSettingsServiceProvider).heightCm;
 
     final frequency = exerciseFrequency(realEntries).entries.toList()
@@ -236,12 +239,20 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
                   style: theme.textTheme.bodySmall,
                 ),
               if (latestBodyWeightKg != null && heightCm != null)
-                _StatRow(
-                  'BMI',
-                  bmi(
-                    weightKg: latestBodyWeightKg,
-                    heightCm: heightCm,
-                  ).toStringAsFixed(1),
+                Builder(
+                  builder: (context) {
+                    final bmiValue = bmi(
+                      weightKg: latestBodyWeightKg,
+                      heightCm: heightCm,
+                    );
+                    final category = bmiCategory(bmiValue);
+                    return _StatRow(
+                      'BMI',
+                      '${bmiValue.toStringAsFixed(1)} · '
+                          '${kBmiCategoryLabels[category]}',
+                      valueColor: _bmiCategoryColor(category),
+                    );
+                  },
                 )
               else if (latestBodyWeightKg != null)
                 Text(
@@ -468,10 +479,11 @@ class _StatsCard extends StatelessWidget {
 }
 
 class _StatRow extends StatelessWidget {
-  const _StatRow(this.label, this.value);
+  const _StatRow(this.label, this.value, {this.valueColor});
 
   final String label;
   final String value;
+  final Color? valueColor;
 
   @override
   Widget build(BuildContext context) {
@@ -487,6 +499,7 @@ class _StatRow extends StatelessWidget {
             value,
             style: theme.textTheme.bodyMedium?.copyWith(
               fontWeight: FontWeight.w600,
+              color: valueColor,
             ),
             textAlign: TextAlign.right,
           ),
@@ -495,3 +508,12 @@ class _StatRow extends StatelessWidget {
     );
   }
 }
+
+/// "Safe"-reading green for a normal BMI, warmer tones the further a
+/// category drifts from it in either direction.
+Color _bmiCategoryColor(BmiCategory category) => switch (category) {
+  BmiCategory.normal => Colors.green,
+  BmiCategory.underweight => Colors.amber[700]!,
+  BmiCategory.overweight => Colors.orange,
+  BmiCategory.obese => Colors.redAccent,
+};

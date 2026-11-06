@@ -16,6 +16,31 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '2.0.2',
+    date: '2026-11-06',
+    changes: [
+      'BMI now shows which WHO category it falls in (underweight / normal '
+          '/ overweight / obese), colored accordingly.',
+      'Fixed the PWA re-creating your workout days from scratch after you '
+          'deleted them, by no longer treating "still loading" the same as '
+          '"confirmed empty" when deciding whether to seed the defaults.',
+      'The Home streak banner\'s fire icon is now colored like actual fire '
+          '(red to amber) instead of a flat tint.',
+      'Estimated workout duration now also accounts for the actual time '
+          'spent on timed/cardio sets (previously only reps-based sets '
+          'counted toward it), plus a per-exercise setup allowance.',
+      'Redrew the muscle-balance body diagram as a proper anatomical '
+          'silhouette (head, shoulders, chest, core, back, arms, legs) '
+          'instead of blocky rectangles.',
+      'Added a "%" suffix to the muscle-group progress graph\'s axis and '
+          'tooltip so it\'s clear the values are percentages.',
+      'Reduced a case where a muscle-group progress graph could show a '
+          'fake-looking spike right at the point where an exercise\'s '
+          'logging style changed from older averaged data to newer '
+          'per-set data.',
+    ],
+  ),
+  ChangelogEntry(
     version: '2.0.1',
     date: '2026-11-06',
     changes: [

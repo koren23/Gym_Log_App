@@ -1,5 +1,6 @@
 import '../../core/constants/muscle_groups.dart';
 import '../../models/exercise.dart';
+import '../../models/exercise_unit.dart';
 import '../../models/history_entry.dart';
 import 'volume.dart';
 
@@ -61,19 +62,36 @@ double averageRepsOverall(List<HistoryEntry> realEntries) {
 }
 
 /// Rough estimated time spent on [visit] — `Σ_sets(reps*secondsPerRep +
-/// restSeconds)` across every exercise logged in that visit.
+/// restSeconds)` for ordinary rep-based exercises, actual held-time for
+/// `time`-unit ones (a timed plank/cardio set logs its seconds via the
+/// *weight* field, not reps — see `exercise_tile.dart`'s `showReps`), plus a
+/// flat per-exercise setup/transition allowance. [exercisesByName] (lowercase
+/// name -> [Exercise]) resolves each logged exercise's unit; without it (or
+/// for a name with no entry) every exercise is treated as rep-based.
 Duration estimatedWorkoutDuration(
   HistoryEntry visit, {
   double secondsPerRep = 4.0,
   double restSeconds = 150,
+  double transitionSecondsPerExercise = 120,
+  Map<String, Exercise>? exercisesByName,
 }) {
   final meta = visit.metaRow;
   if (meta == null) return Duration.zero;
   var totalSeconds = 0.0;
   for (final range in meta.exercises) {
     final setCount = range.setCount ?? 0;
-    final avgReps = range.avgReps ?? 0;
-    totalSeconds += setCount * (avgReps * secondsPerRep + restSeconds);
+    if (setCount == 0) continue;
+    totalSeconds += transitionSecondsPerExercise;
+    final unit = exercisesByName?[range.exerciseName.toLowerCase()]?.unit;
+    if (unit == ExerciseUnit.time) {
+      final heldSeconds = range.actualWeights.isNotEmpty
+          ? range.actualWeights.fold<double>(0, (sum, s) => sum + s)
+          : setCount * 30;
+      totalSeconds += heldSeconds + setCount * restSeconds;
+    } else {
+      final avgReps = range.avgReps ?? 0;
+      totalSeconds += setCount * (avgReps * secondsPerRep + restSeconds);
+    }
   }
   return Duration(seconds: totalSeconds.round());
 }
@@ -82,6 +100,23 @@ Duration estimatedWorkoutDuration(
 double bmi({required double weightKg, required double heightCm}) {
   final heightM = heightCm / 100;
   return weightKg / (heightM * heightM);
+}
+
+/// Standard WHO adult BMI category for a given [bmi] value.
+enum BmiCategory { underweight, normal, overweight, obese }
+
+const Map<BmiCategory, String> kBmiCategoryLabels = {
+  BmiCategory.underweight: 'Underweight',
+  BmiCategory.normal: 'Normal',
+  BmiCategory.overweight: 'Overweight',
+  BmiCategory.obese: 'Obese',
+};
+
+BmiCategory bmiCategory(double bmi) {
+  if (bmi < 18.5) return BmiCategory.underweight;
+  if (bmi < 25) return BmiCategory.normal;
+  if (bmi < 30) return BmiCategory.overweight;
+  return BmiCategory.obese;
 }
 
 /// Rough calorie estimate for a workout of [duration], via the standard

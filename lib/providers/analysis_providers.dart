@@ -236,6 +236,7 @@ List<ChartPoint> buildMuscleProgressPoints({
   final points = <ChartPoint>[];
   for (final name in matchingNames) {
     double? previousVolume;
+    VolumeMethod? previousMethod;
     for (final visit in realVisits) {
       final meta = visit.metaRow!;
       LoggedExerciseRepRange? range;
@@ -254,10 +255,22 @@ List<ChartPoint> buildMuscleProgressPoints({
           ? year!.cellValues[CellKey(exercise!.sheetRow!, col)]
           : null;
 
-      final volume = instanceVolume(range, matrixCellWeight: matrixCellWeight);
-      if (volume == null) continue;
+      final result = instanceVolumeDetailed(
+        range,
+        matrixCellWeight: matrixCellWeight,
+      );
+      if (result == null) continue;
+      final volume = result.volume;
 
-      if (previousVolume != null && previousVolume != 0) {
+      // The proxy (matrix-cell) and exact (per-set) computations aren't on a
+      // perfectly comparable scale — a visit logged just before/after the
+      // user started per-set tracking can otherwise read as a huge fake
+      // spike or crash purely from the method switching, not real training
+      // change. Skip emitting a point across that one transition, but keep
+      // tracking forward so later same-method comparisons are unaffected.
+      if (previousVolume != null &&
+          previousVolume != 0 &&
+          previousMethod == result.method) {
         points.add(
           ChartPoint(
             date: visit.date,
@@ -267,6 +280,7 @@ List<ChartPoint> buildMuscleProgressPoints({
         );
       }
       previousVolume = volume;
+      previousMethod = result.method;
     }
   }
 

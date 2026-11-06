@@ -41,7 +41,17 @@ class StreakBanner extends ConsumerWidget {
       ),
       child: Row(
         children: [
-          Icon(Icons.local_fire_department, color: color),
+          streak > 0
+              ? ShaderMask(
+                  blendMode: BlendMode.srcIn,
+                  shaderCallback: (bounds) => const LinearGradient(
+                    begin: Alignment.bottomCenter,
+                    end: Alignment.topCenter,
+                    colors: [Colors.red, Colors.deepOrange, Colors.amber],
+                  ).createShader(bounds),
+                  child: const Icon(Icons.local_fire_department),
+                )
+              : Icon(Icons.local_fire_department, color: color),
           const SizedBox(width: 10),
           Expanded(
             child: Text(

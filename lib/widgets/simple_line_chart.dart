@@ -133,12 +133,18 @@ class SimpleLineChart extends StatefulWidget {
     this.secondaryFloor,
     this.secondaryCeiling,
     this.onInteractionChanged,
+    this.primaryUnitSuffix = '',
   });
 
   final List<ChartPoint> points;
   final Color color;
   final List<ChartPoint>? secondaryPoints;
   final Color? secondaryColor;
+
+  /// Appended to every primary-axis tick label and tooltip value (e.g.
+  /// `'%'` for a muscle-group % volume-change series) — empty for a plain
+  /// numeric series like weight-lifted or body weight.
+  final String primaryUnitSuffix;
 
   /// Called with `true` while any pointer is down directly on the chart
   /// (pinch-zoom, pan, or just a tooltip-scrub touch) and `false` once all
@@ -519,7 +525,7 @@ class _SimpleLineChartState extends State<SimpleLineChart> {
                                 }
                                 lastLeftTick = value;
                                 return Text(
-                                  value.toStringAsFixed(0),
+                                  '${value.toStringAsFixed(0)}${widget.primaryUnitSuffix}',
                                   style: TextStyle(
                                     fontSize: 11,
                                     color: axisLabelColor,
@@ -626,8 +632,11 @@ class _SimpleLineChartState extends State<SimpleLineChart> {
                               final setsLabel = isSecondary
                                   ? null
                                   : point?.setsLabel;
+                              final valueSuffix = isSecondary
+                                  ? ''
+                                  : widget.primaryUnitSuffix;
                               var text =
-                                  '$label\n${displayValue.toStringAsFixed(1)}';
+                                  '$label\n${displayValue.toStringAsFixed(1)}$valueSuffix';
                               if (setsLabel != null && setsLabel.isNotEmpty) {
                                 text += '\n🔁 $setsLabel';
                               }

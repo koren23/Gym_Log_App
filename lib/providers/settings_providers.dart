@@ -135,18 +135,32 @@ final workoutDefaultsProvider =
 class WorkoutDayDefsNotifier extends Notifier<List<WorkoutDayDef>> {
   @override
   List<WorkoutDayDef> build() {
+    // `sheetWorkoutDayDefsProvider` collapses "snapshot still loading" and
+    // "snapshot loaded, sheet confirmed empty" into the same `[]` — only
+    // `hasValue` tells the two apart. Without this check, every reload
+    // raced this against the real fetch: on web/PWA, where the fetch is
+    // slow enough to lose that race far more often than native, `sheetDays`
+    // read as empty *before* the real (non-empty) data arrived, so this
+    // branch re-seeded Push/Pull/Legs/Full Body on top of the ones already
+    // on the sheet — the "it keeps making new workouts" bug.
+    final snapshotLoaded = ref.watch(snapshotProvider).hasValue;
     final sheetDays = ref.watch(sheetWorkoutDayDefsProvider);
     final localPending = ref
         .watch(appSettingsServiceProvider)
         .customWorkoutDayDefs
         .where((d) => sheetDays.every((s) => s.id != d.id));
 
-    if (sheetDays.isEmpty && localPending.isEmpty) {
+    if (snapshotLoaded && sheetDays.isEmpty && localPending.isEmpty) {
       // Nothing on the sheet yet and nothing pending locally either — seed
       // the classic 3 days + Full Body once. Fire-and-forget: if this
       // fails (offline/first load), it'll simply try again next time
       // build() re-runs with still-empty state.
       Future.microtask(() => _seedIfStillEmpty());
+      return kWorkoutDaySeed;
+    }
+    if (!snapshotLoaded && sheetDays.isEmpty && localPending.isEmpty) {
+      // Still loading and nothing local yet either — show the seed set as
+      // a placeholder only; never seed off of this state.
       return kWorkoutDaySeed;
     }
     // Defense in depth against duplicate rows (e.g. ones left over from
