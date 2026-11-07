@@ -71,11 +71,14 @@ double? _totalVolume(HistoryEntry entry) {
 
 /// Computes [visit]'s XP breakdown. [realEntries] must include [visit]
 /// itself, and [prHistory] must be `prsByExercise(realEntries)` — same
-/// inputs the caller already has on hand for [computeXp].
+/// inputs the caller already has on hand for [computeXp]. [allVisitDates],
+/// if provided, is used for the streak bonus in place of [realEntries]'
+/// dates, so Sheets-only-logged workouts also keep a streak alive.
 WorkoutXpBreakdown computeWorkoutXp({
   required HistoryEntry visit,
   required List<HistoryEntry> realEntries,
   required PrsByExercise prHistory,
+  List<DateTime>? allVisitDates,
 }) {
   final ranges = visit.metaRow?.exercises ?? const [];
   var setCount = 0;
@@ -92,7 +95,7 @@ WorkoutXpBreakdown computeWorkoutXp({
       .length;
   final prBonus = 25 * weightPrs + 15 * volumePrs;
 
-  final visitDates = realEntries.map((e) => e.date).toList();
+  final visitDates = allVisitDates ?? realEntries.map((e) => e.date).toList();
   final streakWeeks = currentStreakWeeks(visitDates);
   final streakBonus = streakWeeks >= 2 ? 10 * streakWeeks.clamp(0, 8) : 0;
 

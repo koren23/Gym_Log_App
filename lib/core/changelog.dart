@@ -16,6 +16,20 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '2.4.0',
+    date: '2026-11-07',
+    changes: [
+      'Records: PRs now require reps (instead of an optional volume field).',
+      'Fixed a text-layout glitch in the Overview card\'s "Most logged" row.',
+      'Your streak now also counts workouts logged by typing weights '
+          'straight into the Google Sheet, not just ones logged in the app.',
+      'Muscle balance now explains what the red/orange/green colors mean.',
+      'Body & calories: added a maintenance-calorie calculator (BMR/TDEE), '
+          'plus calorie targets for losing/gaining 0.25kg and 0.5kg per '
+          'week — needs your sex and birth date set in Settings.',
+    ],
+  ),
+  ChangelogEntry(
     version: '2.3.0',
     date: '2026-11-07',
     changes: [

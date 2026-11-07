@@ -7,6 +7,7 @@ import '../../models/app_colors.dart';
 import '../../providers/auth_providers.dart';
 import '../../providers/settings_providers.dart';
 import '../../providers/sheet_data_providers.dart';
+import '../../services/settings/app_settings_service.dart';
 import '../../widgets/app_snack_bar.dart';
 import 'add_workout_day_dialog.dart';
 import 'algorithms_info_screen.dart';
@@ -118,6 +119,41 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     setState(() {});
   }
 
+  Future<void> _editSex() async {
+    final settings = ref.read(appSettingsServiceProvider);
+    final result = await showDialog<BiologicalSex?>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('Sex'),
+        children: [
+          for (final sex in BiologicalSex.values)
+            SimpleDialogOption(
+              onPressed: () => Navigator.of(context).pop(sex),
+              child: Text(sex == BiologicalSex.male ? 'Male' : 'Female'),
+            ),
+        ],
+      ),
+    );
+    if (result == null || !mounted) return;
+    await settings.setBiologicalSex(result);
+    setState(() {});
+  }
+
+  Future<void> _editBirthDate() async {
+    final settings = ref.read(appSettingsServiceProvider);
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: settings.birthDate ?? DateTime(now.year - 25),
+      firstDate: DateTime(1900),
+      lastDate: now,
+      helpText: 'When were you born?',
+    );
+    if (picked == null || !mounted) return;
+    await settings.setBirthDate(picked);
+    setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authStateProvider);
@@ -199,6 +235,49 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               await ref
                                   .read(appSettingsServiceProvider)
                                   .setTrainingStartDate(null);
+                              setState(() {});
+                            },
+                          ),
+                  );
+                },
+              ),
+              ListTile(
+                title: const Text('Sex'),
+                subtitle: Text(
+                  switch (ref.watch(appSettingsServiceProvider).biologicalSex) {
+                    null =>
+                      'Not set — needed for the maintenance-calorie calculator',
+                    BiologicalSex.male => 'Male',
+                    BiologicalSex.female => 'Female',
+                  },
+                ),
+                leading: const Icon(Icons.wc),
+                onTap: _editSex,
+              ),
+              Builder(
+                builder: (context) {
+                  final birthDate = ref
+                      .watch(appSettingsServiceProvider)
+                      .birthDate;
+                  return ListTile(
+                    title: const Text('Birth date'),
+                    subtitle: Text(
+                      birthDate == null
+                          ? 'Not set — needed for the maintenance-calorie '
+                                'calculator'
+                          : _dateFormat.format(birthDate),
+                    ),
+                    leading: const Icon(Icons.cake_outlined),
+                    onTap: _editBirthDate,
+                    trailing: birthDate == null
+                        ? null
+                        : IconButton(
+                            icon: const Icon(Icons.clear),
+                            tooltip: 'Clear',
+                            onPressed: () async {
+                              await ref
+                                  .read(appSettingsServiceProvider)
+                                  .setBirthDate(null);
                               setState(() {});
                             },
                           ),

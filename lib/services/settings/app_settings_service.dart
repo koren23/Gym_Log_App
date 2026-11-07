@@ -16,6 +16,10 @@ import '../../models/workout_day_def.dart';
 /// screen, which the user can personalize via Settings.
 const String kDefaultAppDisplayName = "Koren's Gym Log";
 
+/// Used only for the Mifflin-St Jeor BMR term (`+5` male, `-161` female) —
+/// not a general gender field.
+enum BiologicalSex { male, female }
+
 /// Thin wrapper around [SharedPreferences] for the app's small set of local
 /// scalar settings. Sheets is the database — this is not a general-purpose
 /// local store.
@@ -58,6 +62,8 @@ class AppSettingsService {
   static const _kHeightCm = 'height_cm';
   static const _kTrainingStartDate = 'training_start_date';
   static const _kPersonalRecords = 'personal_records_v1';
+  static const _kBiologicalSex = 'biological_sex';
+  static const _kBirthDate = 'birth_date';
 
   static Future<AppSettingsService> create() async {
     final prefs = await SharedPreferences.getInstance();
@@ -394,4 +400,42 @@ class AppSettingsService {
   Future<void> deletePersonalRecord(String id) => _setPersonalRecords(
     personalRecords.where((r) => r.id != id).toList(),
   );
+
+  /// Used only for the Stats tab's maintenance-calorie calculator (Mifflin-
+  /// St Jeor BMR). Null until set in Settings.
+  BiologicalSex? get biologicalSex {
+    final raw = _prefs.getString(_kBiologicalSex);
+    if (raw == null) return null;
+    for (final sex in BiologicalSex.values) {
+      if (sex.name == raw) return sex;
+    }
+    return null;
+  }
+
+  Future<void> setBiologicalSex(BiologicalSex? value) async {
+    if (value == null) {
+      await _prefs.remove(_kBiologicalSex);
+    } else {
+      await _prefs.setString(_kBiologicalSex, value.name);
+    }
+  }
+
+  /// Used only for the Stats tab's maintenance-calorie calculator (age, for
+  /// Mifflin-St Jeor BMR). Null until set in Settings.
+  DateTime? get birthDate {
+    final raw = _prefs.getString(_kBirthDate);
+    if (raw == null) return null;
+    return DateTime.tryParse(raw);
+  }
+
+  Future<void> setBirthDate(DateTime? value) async {
+    if (value == null) {
+      await _prefs.remove(_kBirthDate);
+    } else {
+      await _prefs.setString(
+        _kBirthDate,
+        DateTime(value.year, value.month, value.day).toIso8601String(),
+      );
+    }
+  }
 }

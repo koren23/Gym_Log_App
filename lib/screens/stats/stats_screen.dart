@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 import '../../core/constants/body_zones.dart';
 import '../../core/constants/muscle_groups.dart';
 import '../../core/utils/exercise_muscle_resolution.dart';
+import '../../models/history_entry.dart';
 import '../../models/personal_record.dart';
 import '../../providers/analysis_providers.dart';
 import '../../providers/settings_providers.dart';
@@ -13,6 +14,7 @@ import '../../providers/sheet_data_providers.dart';
 import '../../services/analysis/muscle_balance.dart';
 import '../../services/analysis/stats_engine.dart';
 import '../../services/analysis/xp_engine.dart';
+import '../../services/settings/app_settings_service.dart';
 import '../../widgets/barbell_progress_bar.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/loading_skeleton.dart';
@@ -23,9 +25,7 @@ final _dateFormat = DateFormat.yMMMd();
 /// Whole-history derived stats: frequency, PRs, streaks, muscle balance
 /// (per-zone list), long-term goal nudges, and the XP/League progress bar —
 /// everything here is recomputed from already-loaded history on every
-/// build, nothing is written to the sheet. See `stats_engine.dart`'s doc
-/// comment for the deliberately-deferred BMI/BMR/TDEE calorie-planning
-/// scope note.
+/// build, nothing is written to the sheet.
 class StatsScreen extends ConsumerStatefulWidget {
   const StatsScreen({super.key});
 
@@ -90,6 +90,9 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
 
     final prs = prsByExercise(realEntries);
     final visitDates = realEntries.map((e) => e.date).toList();
+    final allVisitDates = buildHistoryEntries(yearsAscending)
+        .map((e) => e.date)
+        .toList();
     final xp = computeXp(realEntries: realEntries, prHistory: prs);
     final tier = xpTierFor(xp);
     final tierProgress = xpTierProgress(xp);
@@ -115,6 +118,7 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
       realEntries: realEntries,
       recentVolumeTotals: recentTotals,
       previousVolumeTotals: previousTotals,
+      allVisitDates: allVisitDates,
     );
 
     final zoneScores = zoneCurrentLevelScores(
@@ -139,6 +143,8 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
       exercisesByName: exercisesByName,
     );
     final heightCm = ref.watch(appSettingsServiceProvider).heightCm;
+    final biologicalSex = ref.watch(appSettingsServiceProvider).biologicalSex;
+    final birthDate = ref.watch(appSettingsServiceProvider).birthDate;
     final trainingStartDate =
         ref.watch(appSettingsServiceProvider).trainingStartDate ??
         workingOutSince(realEntries)!;
@@ -247,6 +253,32 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
                   'Set your height in Settings to see your BMI.',
                   style: theme.textTheme.bodySmall,
                 ),
+              const SizedBox(height: 8),
+              if (latestBodyWeightKg != null &&
+                  heightCm != null &&
+                  biologicalSex != null &&
+                  birthDate != null)
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: () => _showCalorieCalculator(
+                      context,
+                      weightKg: latestBodyWeightKg,
+                      heightCm: heightCm,
+                      sex: biologicalSex,
+                      birthDate: birthDate,
+                      realEntries: realEntries,
+                    ),
+                    icon: const Icon(Icons.calculate_outlined),
+                    label: const Text('Maintenance calories'),
+                  ),
+                )
+              else
+                Text(
+                  'Set your height, sex, birth date and a body weight '
+                  'entry in Settings to see your maintenance calories.',
+                  style: theme.textTheme.bodySmall,
+                ),
             ],
           ),
           _StatsCard(
@@ -276,7 +308,7 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
                     [
                       if (record.weightKg != null)
                         '${record.weightKg!.toStringAsFixed(1)} kg',
-                      if (record.volume != null) '${record.volume!.round()} vol',
+                      '${record.reps} reps',
                     ].join(' · '),
                     onDelete: () => _deletePersonalRecord(record.id),
                   ),
@@ -285,8 +317,8 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
           _StatsCard(
             title: 'Consistency',
             icon: Icons.local_fire_department_outlined,
-            accentColor: streakColor(currentStreakWeeks(visitDates)),
-            headline: '${currentStreakWeeks(visitDates)}-week streak',
+            accentColor: streakColor(currentStreakWeeks(allVisitDates)),
+            headline: '${currentStreakWeeks(allVisitDates)}-week streak',
             children: [
               _StatRow('Longest streak', '${longestStreakWeeks(visitDates)} weeks'),
               _StatRow(
@@ -306,6 +338,8 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
                   score: zoneScores[zone],
                   onTap: () => _showZoneBreakdown(context, zone, muscleTotals),
                 ),
+              const SizedBox(height: 8),
+              const _MuscleBalanceLegend(),
             ],
           ),
           if (goals.isNotEmpty)
@@ -384,6 +418,65 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
       ),
     );
   }
+
+  void _showCalorieCalculator(
+    BuildContext context, {
+    required double weightKg,
+    required double heightCm,
+    required BiologicalSex sex,
+    required DateTime birthDate,
+    required List<HistoryEntry> realEntries,
+  }) {
+    final age = ageYears(birthDate);
+    final bmrValue = bmr(
+      weightKg: weightKg,
+      heightCm: heightCm,
+      age: age,
+      sex: sex,
+    );
+    final frequency = workoutsPerWeek(realEntries);
+    final activityLevel = activityLevelFor(frequency);
+    final targets = calorieTargets(
+      bmrValue: bmrValue,
+      activityLevel: activityLevel,
+    );
+
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Maintenance calories'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Based on ${activityLevel.label.toLowerCase()} '
+              '(${frequency.toStringAsFixed(1)} workouts/week).',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            _StatRow('Maintenance', '${targets.maintenance.round()} kcal/day'),
+            _StatRow(
+              'Lose 0.25 kg/week',
+              '${targets.mildLoss.round()} kcal/day',
+            ),
+            _StatRow('Lose 0.5 kg/week', '${targets.loss.round()} kcal/day'),
+            _StatRow(
+              'Gain 0.25 kg/week',
+              '${targets.mildGain.round()} kcal/day',
+            ),
+            _StatRow('Gain 0.5 kg/week', '${targets.gain.round()} kcal/day'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 /// One tappable muscle-zone row: a score-colored dot, the zone's label, and
@@ -445,6 +538,67 @@ class _ZoneScoreRow extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Explains what the zone-score percentage and dot colors above actually
+/// mean: this zone's last-4-weeks average weekly volume as a percentage of
+/// its own all-time average weekly volume (`zoneCurrentLevelScores`,
+/// clamped to 0-200%) — never an absolute measure against anyone else.
+class _MuscleBalanceLegend extends StatelessWidget {
+  const _MuscleBalanceLegend();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    Widget dot(Color color) => Container(
+      width: 8,
+      height: 8,
+      margin: const EdgeInsets.only(right: 4),
+      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 12,
+          runSpacing: 4,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                dot(Colors.redAccent),
+                Text('Below your average', style: theme.textTheme.bodySmall),
+              ],
+            ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                dot(Colors.orange),
+                Text('At your average', style: theme.textTheme.bodySmall),
+              ],
+            ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                dot(Colors.green),
+                Text('Above your average', style: theme.textTheme.bodySmall),
+              ],
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Each zone\'s % is its recent 4-week volume vs. its own '
+          'all-time average — not a comparison to anyone else. '
+          '"No data" means gray: not enough history yet.',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.outline,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -543,15 +697,21 @@ class _StatRow extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(child: Text(label, style: theme.textTheme.bodyMedium)),
+          Expanded(
+            flex: 2,
+            child: Text(label, style: theme.textTheme.bodyMedium),
+          ),
           const SizedBox(width: 12),
-          Text(
-            value,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              fontWeight: FontWeight.w600,
-              color: valueColor,
+          Flexible(
+            flex: 3,
+            child: Text(
+              value,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: valueColor,
+              ),
+              textAlign: TextAlign.right,
             ),
-            textAlign: TextAlign.right,
           ),
           if (onDelete != null)
             InkWell(
@@ -571,8 +731,8 @@ class _StatRow extends StatelessWidget {
   }
 }
 
-/// A small form for manually logging a PR — exercise name, an optional
-/// weight and/or volume, and a date (defaulting to today). Returns the new
+/// A small form for manually logging a PR — exercise name, required reps,
+/// an optional weight, and a date (defaulting to today). Returns the new
 /// [PersonalRecord] via [Navigator.pop], or null if cancelled.
 class _AddPersonalRecordDialog extends StatefulWidget {
   const _AddPersonalRecordDialog();
@@ -583,16 +743,17 @@ class _AddPersonalRecordDialog extends StatefulWidget {
 }
 
 class _AddPersonalRecordDialogState extends State<_AddPersonalRecordDialog> {
+  final _formKey = GlobalKey<FormState>();
   final _exerciseController = TextEditingController();
   final _weightController = TextEditingController();
-  final _volumeController = TextEditingController();
+  final _repsController = TextEditingController();
   DateTime _date = DateTime.now();
 
   @override
   void dispose() {
     _exerciseController.dispose();
     _weightController.dispose();
-    _volumeController.dispose();
+    _repsController.dispose();
     super.dispose();
   }
 
@@ -607,17 +768,17 @@ class _AddPersonalRecordDialogState extends State<_AddPersonalRecordDialog> {
   }
 
   void _submit() {
+    if (!_formKey.currentState!.validate()) return;
     final name = _exerciseController.text.trim();
-    if (name.isEmpty) return;
     final weight = double.tryParse(_weightController.text.trim());
-    final volume = double.tryParse(_volumeController.text.trim());
+    final reps = int.parse(_repsController.text.trim());
     Navigator.of(context).pop(
       PersonalRecord(
         id: const Uuid().v4(),
         exerciseName: name,
         date: _date,
+        reps: reps,
         weightKg: weight,
-        volume: volume,
       ),
     );
   }
@@ -626,36 +787,52 @@ class _AddPersonalRecordDialogState extends State<_AddPersonalRecordDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Log a PR'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(
-            controller: _exerciseController,
-            autofocus: true,
-            decoration: const InputDecoration(labelText: 'Exercise'),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _weightController,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(labelText: 'Weight (kg, optional)'),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _volumeController,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(labelText: 'Volume (optional)'),
-          ),
-          const SizedBox(height: 12),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton.icon(
-              onPressed: _pickDate,
-              icon: const Icon(Icons.calendar_today, size: 18),
-              label: Text(DateFormat.yMMMd().format(_date)),
+      content: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextFormField(
+              controller: _exerciseController,
+              autofocus: true,
+              decoration: const InputDecoration(labelText: 'Exercise'),
+              validator: (value) =>
+                  (value == null || value.trim().isEmpty)
+                  ? 'Required'
+                  : null,
             ),
-          ),
-        ],
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _repsController,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'Reps'),
+              validator: (value) {
+                final reps = int.tryParse((value ?? '').trim());
+                if (reps == null || reps <= 0) return 'Required';
+                return null;
+              },
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _weightController,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              decoration: const InputDecoration(
+                labelText: 'Weight (kg, optional)',
+              ),
+            ),
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: _pickDate,
+                icon: const Icon(Icons.calendar_today, size: 18),
+                label: Text(DateFormat.yMMMd().format(_date)),
+              ),
+            ),
+          ],
+        ),
       ),
       actions: [
         TextButton(

@@ -22,7 +22,6 @@ class StreakBanner extends ConsumerWidget {
     }
 
     final visitDates = buildHistoryEntries(yearsAscending)
-        .where((e) => e.metaRow != null)
         .map((e) => e.date)
         .toList();
     if (visitDates.isEmpty) return const SizedBox.shrink();

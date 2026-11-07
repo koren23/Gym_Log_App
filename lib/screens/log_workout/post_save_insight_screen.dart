@@ -62,10 +62,14 @@ class PostSaveInsightScreen extends ConsumerWidget {
         }
       }
       if (thisEntry != null) {
+        final allVisitDates = buildHistoryEntries(yearsAscending)
+            .map((e) => e.date)
+            .toList();
         xpBreakdown = computeWorkoutXp(
           visit: thisEntry,
           realEntries: realEntries,
           prHistory: prsByExercise(realEntries),
+          allVisitDates: allVisitDates,
         );
       }
     }

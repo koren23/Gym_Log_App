@@ -2,6 +2,7 @@ import '../../core/constants/muscle_groups.dart';
 import '../../models/exercise.dart';
 import '../../models/exercise_unit.dart';
 import '../../models/history_entry.dart';
+import '../settings/app_settings_service.dart';
 import 'volume.dart';
 
 /// Pure stats helpers for the Stats tab — same style as `AnalysisEngine`,
@@ -9,11 +10,6 @@ import 'volume.dart';
 /// data. Nothing here writes to the sheet; every value is recomputed from
 /// history on every load, exactly like the rest of this app's derived
 /// stats, so a retroactive log edit is always reflected immediately.
-///
-/// Scope note: this intentionally omits BMR/TDEE calorie-target planning
-/// (it needs new, sensitive Profile inputs — birth date, sex — and is fully
-/// decoupled from everything else here); BMI itself (added in v2.0.1) only
-/// needed height, so it's in scope below.
 const double kResistanceTrainingMet = 5.0;
 
 /// Earliest real (app-logged) visit date — "working out since" — or null
@@ -151,6 +147,95 @@ BmiCategory bmiCategory(double bmi) {
   if (bmi < 25) return BmiCategory.normal;
   if (bmi < 30) return BmiCategory.overweight;
   return BmiCategory.obese;
+}
+
+/// Age in whole years as of [now] (defaults to today).
+int ageYears(DateTime birthDate, {DateTime? now}) {
+  final today = now ?? DateTime.now();
+  var age = today.year - birthDate.year;
+  if (today.month < birthDate.month ||
+      (today.month == birthDate.month && today.day < birthDate.day)) {
+    age--;
+  }
+  return age;
+}
+
+/// Basal metabolic rate via the Mifflin-St Jeor equation — the same
+/// formula calculator.net's calorie calculator uses.
+double bmr({
+  required double weightKg,
+  required double heightCm,
+  required int age,
+  required BiologicalSex sex,
+}) {
+  final base = 10 * weightKg + 6.25 * heightCm - 5 * age;
+  return sex == BiologicalSex.male ? base + 5 : base - 161;
+}
+
+/// Standard activity tiers (calculator.net's multiplier scale) used to turn
+/// BMR into maintenance calories (TDEE).
+enum ActivityLevel {
+  sedentary(1.2, 'Sedentary'),
+  light(1.375, 'Lightly active'),
+  moderate(1.55, 'Moderately active'),
+  veryActive(1.725, 'Very active'),
+  extraActive(1.9, 'Extra active');
+
+  const ActivityLevel(this.multiplier, this.label);
+  final double multiplier;
+  final String label;
+}
+
+/// Maps a workouts-per-week frequency (see [workoutsPerWeek]) onto an
+/// [ActivityLevel] tier — a rough but reasonable proxy, since this app has
+/// no other activity-tracking input.
+ActivityLevel activityLevelFor(double workoutsPerWeek) {
+  if (workoutsPerWeek < 1) return ActivityLevel.sedentary;
+  if (workoutsPerWeek < 3) return ActivityLevel.light;
+  if (workoutsPerWeek < 5) return ActivityLevel.moderate;
+  if (workoutsPerWeek < 6) return ActivityLevel.veryActive;
+  return ActivityLevel.extraActive;
+}
+
+/// Maintenance calories plus the four lose/gain targets calculator.net
+/// shows, derived from [bmr] (`kg` of body fat ≈ 7700 kcal).
+class CalorieTargets {
+  const CalorieTargets({
+    required this.maintenance,
+    required this.mildLoss,
+    required this.loss,
+    required this.mildGain,
+    required this.gain,
+  });
+
+  /// Maintenance calories/day (`bmr * activity multiplier`).
+  final double maintenance;
+
+  /// To lose ~0.25kg/week.
+  final double mildLoss;
+
+  /// To lose ~0.5kg/week.
+  final double loss;
+
+  /// To gain ~0.25kg/week.
+  final double mildGain;
+
+  /// To gain ~0.5kg/week.
+  final double gain;
+}
+
+CalorieTargets calorieTargets({
+  required double bmrValue,
+  required ActivityLevel activityLevel,
+}) {
+  final maintenance = bmrValue * activityLevel.multiplier;
+  return CalorieTargets(
+    maintenance: maintenance,
+    mildLoss: maintenance - 275,
+    loss: maintenance - 550,
+    mildGain: maintenance + 275,
+    gain: maintenance + 550,
+  );
 }
 
 /// Rough calorie estimate for a workout of [duration], via the standard
@@ -334,6 +419,7 @@ List<GoalNudge> longTermGoals({
   required List<HistoryEntry> realEntries,
   required Map<MuscleGroup, double> recentVolumeTotals,
   required Map<MuscleGroup, double> previousVolumeTotals,
+  List<DateTime>? allVisitDates,
 }) {
   final goals = <GoalNudge>[];
   final visitDates = realEntries.map((e) => e.date).toList();
@@ -348,7 +434,7 @@ List<GoalNudge> longTermGoals({
     );
   }
 
-  final streak = currentStreakWeeks(visitDates);
+  final streak = currentStreakWeeks(allVisitDates ?? visitDates);
   if (streak >= 2) {
     goals.add(
       GoalNudge(
