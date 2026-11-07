@@ -47,7 +47,8 @@ enum MuscleGroup {
   glutes('glutes'),
   hamstrings('hamstrings'),
   calves('calves'),
-  lowerBack('lower back');
+  lowerBack('lower back'),
+  cardio('cardio');
 
   const MuscleGroup(this.sheetHeader, {this.legacy = false});
 

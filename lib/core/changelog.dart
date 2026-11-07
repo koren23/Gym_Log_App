@@ -16,6 +16,14 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '2.4.1',
+    date: '2026-11-07',
+    changes: [
+      'Simplified the exercise editor: removed the "also works" secondary '
+          'muscle picker, and added a Cardio option alongside muscle groups.',
+    ],
+  ),
+  ChangelogEntry(
     version: '2.4.0',
     date: '2026-11-07',
     changes: [
