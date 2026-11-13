@@ -87,13 +87,20 @@ List<HistoryPoint> buildExerciseHistory({
       final loggedRange = meta?.exercises.firstWhere(
         (e) => e.exerciseName.toLowerCase() == exerciseName.toLowerCase(),
       );
+      final actualWeights = loggedRange?.actualWeights ?? const <double>[];
+      // Prefer the true per-visit average of what was actually logged over
+      // the sheet matrix cell, which re-blends across repeat same-week logs
+      // (sheet_writer.dart) and so double-averages when per-set data exists.
+      final avgWeight = actualWeights.isNotEmpty
+          ? actualWeights.reduce((a, b) => a + b) / actualWeights.length
+          : weight;
 
       points.add(
         HistoryPoint(
           isoYear: yearData.year,
           isoWeek: week,
           date: meta?.date ?? approximateDateForIsoWeek(yearData.year, week),
-          avgWeight: weight,
+          avgWeight: avgWeight,
           repRangeLow: loggedRange?.repRangeLow ?? kDefaultRepRangeLow,
           repRangeHigh: loggedRange?.repRangeHigh ?? kDefaultRepRangeHigh,
           rating: meta?.rating,
@@ -112,7 +119,7 @@ List<HistoryPoint> buildExerciseHistory({
                   .length ??
               0,
           actualRepsPerSet: loggedRange?.actualReps ?? const [],
-          actualWeightsPerSet: loggedRange?.actualWeights ?? const [],
+          actualWeightsPerSet: actualWeights,
           perSetFeedback: loggedRange?.setFeedback ?? const [],
           approxRepsPerSet: loggedRange?.approxReps ?? const [],
         ),

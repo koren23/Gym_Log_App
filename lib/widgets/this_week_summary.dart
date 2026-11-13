@@ -230,6 +230,32 @@ class _ExerciseRow extends StatelessWidget {
         : yearsAscending.last.findExercise(name);
     final unit = exercise?.unit ?? ExerciseUnit.kg;
 
+    String? latestText;
+    if (history.isNotEmpty) {
+      final perSet = history.last.actualWeightsPerSet;
+      if (perSet.isEmpty) {
+        latestText = latestWeight == null
+            ? null
+            : formatExerciseValue(
+                unit,
+                latestWeight,
+                customLabel: exercise?.customUnitLabel,
+              );
+      } else if (perSet.every((w) => w == perSet.first)) {
+        latestText = formatExerciseValue(
+          unit,
+          perSet.first,
+          customLabel: exercise?.customUnitLabel,
+        );
+      } else {
+        latestText = formatExerciseValuesPerSet(
+          unit,
+          perSet,
+          customLabel: exercise?.customUnitLabel,
+        );
+      }
+    }
+
     return ListTile(
       dense: true,
       visualDensity: const VisualDensity(vertical: -4),
@@ -238,14 +264,7 @@ class _ExerciseRow extends StatelessWidget {
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (latestWeight != null)
-            Text(
-              formatExerciseValue(
-                unit,
-                latestWeight,
-                customLabel: exercise?.customUnitLabel,
-              ),
-            ),
+          if (latestText != null) Text(latestText),
           const SizedBox(width: 6),
           Icon(trendIcon, size: 16, color: trendColor),
         ],

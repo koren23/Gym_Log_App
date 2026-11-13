@@ -1,3 +1,4 @@
+import '../../models/body_weight_entry.dart';
 import '../../models/history_entry.dart';
 import 'stats_engine.dart';
 import 'volume.dart';
@@ -8,6 +9,7 @@ import 'volume.dart';
 int computeXp({
   required List<HistoryEntry> realEntries,
   required PrsByExercise prHistory,
+  List<BodyWeightEntry> bodyWeightEntries = const [],
 }) {
   final totalRealVisits = realEntries.length;
   var totalSetsLoggedAllTime = 0;
@@ -22,7 +24,29 @@ int computeXp({
   return 10 * totalRealVisits +
       2 * totalSetsLoggedAllTime +
       25 * prHistory.weightPrCount +
-      15 * prHistory.volumePrCount;
+      15 * prHistory.volumePrCount +
+      bodyWeightPrXp(bodyWeightEntries);
+}
+
+/// XP for all-time body-weight PRs: `+20` for each new all-time low or
+/// high, walked chronologically. The first entry ever logged only seeds
+/// the running min/max — it's a baseline, not a PR.
+int bodyWeightPrXp(List<BodyWeightEntry> entries) {
+  if (entries.isEmpty) return 0;
+  final ascending = [...entries]..sort((a, b) => a.date.compareTo(b.date));
+  var min = ascending.first.weightKg;
+  var max = ascending.first.weightKg;
+  var xp = 0;
+  for (final entry in ascending.skip(1)) {
+    if (entry.weightKg < min) {
+      min = entry.weightKg;
+      xp += 20;
+    } else if (entry.weightKg > max) {
+      max = entry.weightKg;
+      xp += 20;
+    }
+  }
+  return xp;
 }
 
 /// XP earned for one just-logged [HistoryEntry], broken into the same

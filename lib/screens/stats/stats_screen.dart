@@ -93,7 +93,11 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
     final allVisitDates = buildHistoryEntries(yearsAscending)
         .map((e) => e.date)
         .toList();
-    final xp = computeXp(realEntries: realEntries, prHistory: prs);
+    final xp = computeXp(
+      realEntries: realEntries,
+      prHistory: prs,
+      bodyWeightEntries: bodyWeightEntries,
+    );
     final tier = xpTierFor(xp);
     final tierProgress = xpTierProgress(xp);
 

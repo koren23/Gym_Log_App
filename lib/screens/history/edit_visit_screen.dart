@@ -300,6 +300,9 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
         approxReps: entry.sets.map((s) => s.approxReps).toList(),
         actualWeights: entry.sets.map((s) => s.weight).toList(),
         setFeedback: entry.sets.map((s) => s.feedback).toList(),
+        targetLowPerSet: entry.targetRepRangeLowPerSet,
+        targetHighPerSet: entry.targetRepRangeHighPerSet,
+        targetWeightPerSet: entry.targetWeightPerSet,
       );
 
   Future<void> _save() async {

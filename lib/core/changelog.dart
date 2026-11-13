@@ -16,6 +16,19 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '2.5.0',
+    date: '2026-11-13',
+    changes: [
+      'Fixed home-screen weights for pyramid/varied-weight sets showing a '
+          'blended average instead of what you actually logged — it now '
+          'shows the real per-set list (e.g. "60/55/50kg").',
+      'Fixed editing a logged visit silently dropping any per-set target '
+          'weight/rep-range override you had set.',
+      'Logging an all-time-high or all-time-low body weight now shows a '
+          'celebratory +20 XP alert.',
+    ],
+  ),
+  ChangelogEntry(
     version: '2.4.1',
     date: '2026-11-07',
     changes: [
