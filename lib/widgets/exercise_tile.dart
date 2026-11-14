@@ -12,7 +12,10 @@ import '../models/exercise_unit.dart';
 import '../models/pending_suggestion.dart';
 import '../models/set_feedback.dart';
 import '../models/workout_visit.dart';
+import '../providers/db_providers.dart';
+import '../providers/local_history_providers.dart';
 import '../screens/log_workout/machine_label_dialog.dart';
+import '../services/exercise_photo_api.dart';
 import 'exercise_photo.dart';
 
 /// Mutable per-exercise editing state used while building up a workout
@@ -463,7 +466,7 @@ class ExerciseTile extends ConsumerWidget {
                           label: const Text('Details'),
                           tooltip: 'Exercise notes and photo',
                           visualDensity: VisualDensity.compact,
-                          onPressed: () => _showExerciseDetails(context),
+                          onPressed: () => _showExerciseDetails(context, ref),
                         ),
                     ],
                   ),
@@ -498,32 +501,15 @@ class ExerciseTile extends ConsumerWidget {
     onChanged();
   }
 
-  Future<void> _showExerciseDetails(BuildContext context) {
+  Future<void> _showExerciseDetails(BuildContext context, WidgetRef ref) {
     final exercise = draft.exercise;
     return showModalBottomSheet(
       context: context,
       showDragHandle: true,
-      builder: (context) => Padding(
-        padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(exercise.name, style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 12),
-            if (exercise.photoAssetKey != null)
-              Center(
-                child: ExercisePhoto(
-                  photoAssetKey: exercise.photoAssetKey,
-                  size: 220,
-                  borderRadius: 12,
-                ),
-              ),
-            if (exercise.notes != null) ...[
-              const SizedBox(height: 16),
-              Text(exercise.notes!),
-            ],
-          ],
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+          child: _ExerciseDetailsSheetBody(exercise: exercise, ref: ref),
         ),
       ),
     );
@@ -551,6 +537,75 @@ class ExerciseTile extends ConsumerWidget {
         customUnitLabel: draft.exercise.customUnitLabel,
         secondaryMuscleGroups: draft.exercise.secondaryMuscleGroups,
       ),
+    );
+  }
+}
+
+/// Body of the exercise Details bottom sheet. If [exercise] has no
+/// [Exercise.photoAssetKey] yet, fetches one from the wger.de exercise API
+/// in the background and, once found, both displays it immediately and
+/// persists it to the local DB (only if the exercise still has no photo by
+/// the time the fetch completes, so it can never clobber a photo the user
+/// set manually in the meantime) so it's never re-fetched again.
+class _ExerciseDetailsSheetBody extends StatefulWidget {
+  const _ExerciseDetailsSheetBody({required this.exercise, required this.ref});
+
+  final Exercise exercise;
+  final WidgetRef ref;
+
+  @override
+  State<_ExerciseDetailsSheetBody> createState() =>
+      _ExerciseDetailsSheetBodyState();
+}
+
+class _ExerciseDetailsSheetBodyState
+    extends State<_ExerciseDetailsSheetBody> {
+  String? _fetchedPhotoUrl;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.exercise.photoAssetKey == null) {
+      _fetchAndCachePhoto();
+    }
+  }
+
+  Future<void> _fetchAndCachePhoto() async {
+    final url = await fetchExercisePhotoUrl(widget.exercise.name);
+    if (url == null) return;
+    if (mounted) setState(() => _fetchedPhotoUrl = url);
+
+    final dao = widget.ref.read(exerciseDaoProvider);
+    final current = await dao.getByName(widget.exercise.name);
+    if (current != null && current.photoAssetKey == null) {
+      await dao.update(current.copyWith(photoAssetKey: url));
+      await widget.ref.read(localExercisesProvider.notifier).refresh();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final exercise = widget.exercise;
+    final photoKey = exercise.photoAssetKey ?? _fetchedPhotoUrl;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(exercise.name, style: Theme.of(context).textTheme.titleLarge),
+        const SizedBox(height: 12),
+        if (photoKey != null)
+          Center(
+            child: ExercisePhoto(
+              photoAssetKey: photoKey,
+              size: 220,
+              borderRadius: 12,
+            ),
+          ),
+        if (exercise.notes != null) ...[
+          const SizedBox(height: 16),
+          Text(exercise.notes!),
+        ],
+      ],
     );
   }
 }

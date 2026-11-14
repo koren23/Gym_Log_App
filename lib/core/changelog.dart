@@ -16,6 +16,16 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '3.2.0',
+    date: '2026-11-14',
+    changes: [
+      'Exercises without a pre-loaded photo now fetch one automatically '
+          'the first time you open their Details.',
+      'Fixed the Details sheet overlapping the phone\'s on-screen '
+          'navigation buttons.',
+    ],
+  ),
+  ChangelogEntry(
     version: '3.1.2',
     date: '2026-11-14',
     changes: [

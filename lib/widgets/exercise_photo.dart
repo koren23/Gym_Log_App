@@ -4,10 +4,13 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 /// Renders an exercise's [photoAssetKey] — a bundled asset path (seeded
-/// starter exercises, e.g. `assets/exercise_photos/bench_press.jpg`) or an
-/// on-device file path (user-picked via Settings). Bundled keys always
-/// start with `assets/` so the two can be told apart without hitting disk;
-/// a leftover file path to a since-deleted file falls back to [placeholder].
+/// starter exercises, e.g. `assets/exercise_photos/bench_press.jpg`), an
+/// on-device file path (user-picked via Settings), or an `http(s)://` URL
+/// (auto-fetched from the wger.de exercise API — see
+/// `services/exercise_photo_api.dart`). Bundled keys always start with
+/// `assets/` so the cases can be told apart without hitting disk; a
+/// leftover file path to a since-deleted file, or a URL that fails to
+/// load, falls back to [placeholder].
 class ExercisePhoto extends StatelessWidget {
   const ExercisePhoto({
     super.key,
@@ -31,6 +34,16 @@ class ExercisePhoto extends StatelessWidget {
             width: size,
             height: size,
             fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => _placeholder(context),
+          )
+        : key.startsWith('http://') || key.startsWith('https://')
+        ? Image.network(
+            key,
+            width: size,
+            height: size,
+            fit: BoxFit.cover,
+            loadingBuilder: (context, child, progress) =>
+                progress == null ? child : _placeholder(context),
             errorBuilder: (_, __, ___) => _placeholder(context),
           )
         : (kIsWeb
