@@ -57,9 +57,12 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
         .value
         ?.snapshot
         .yearData[widget.metaRow.isoYear];
-    final muscleGroupByName = {
+    final knownByName = {
       for (final e in ref.read(allKnownExercisesProvider))
-        e.name.toLowerCase(): e.muscleGroup,
+        e.name.toLowerCase(): e,
+    };
+    final muscleGroupByName = {
+      for (final entry in knownByName.entries) entry.key: entry.value.muscleGroup,
     };
 
     final weekColumn = yearData?.weekColumns[widget.metaRow.isoWeek];
@@ -70,6 +73,7 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
           ? yearData.cellValues[CellKey(exercise!.sheetRow!, weekColumn)]
           : null;
 
+      final known = knownByName[logged.exerciseName.toLowerCase()];
       final draft = ExerciseDraft(
         Exercise(
           name: logged.exerciseName,
@@ -81,6 +85,8 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
           ),
           unit: exercise?.unit ?? ExerciseUnit.kg,
           customUnitLabel: exercise?.customUnitLabel,
+          notes: known?.notes,
+          photoAssetKey: known?.photoAssetKey,
         ),
       );
 

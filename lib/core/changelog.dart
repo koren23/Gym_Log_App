@@ -16,6 +16,16 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '3.1.1',
+    date: '2026-11-14',
+    changes: [
+      'Fixed exercise notes and photos not showing up: a resumed in-'
+          'progress workout, an edited past visit, and the very first '
+          'launch after updating could all keep showing exercises without '
+          'their notes/photo even after they\'d been filled in.',
+    ],
+  ),
+  ChangelogEntry(
     version: '3.1.0',
     date: '2026-11-14',
     changes: [

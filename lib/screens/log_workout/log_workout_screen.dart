@@ -110,6 +110,12 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
     if (raw == null) return;
     try {
       final json = jsonDecode(raw) as Map<String, dynamic>;
+      // A restored draft's exercises are reconstructed from this screen's
+      // own minimal save shape (name/muscleGroup/unit only) — this map
+      // backfills notes/photoAssetKey from the current local DB record so
+      // a resumed workout doesn't lose its "Details" chip for exercises
+      // that were already added before the app was closed.
+      final muscleByName = ref.read(exerciseMuscleByNameProvider);
 
       final dayId = json['day'] as String?;
       if (dayId != null) {
@@ -136,11 +142,18 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
 
       for (final raw in (json['addedExercises'] as List?) ?? const []) {
         final m = raw as Map<String, dynamic>;
+        final name = m['name'] as String;
         final group = MuscleGroup.values.firstWhere(
           (g) => g.name == m['muscleGroup'],
         );
+        final looked = muscleByName[name.toLowerCase()];
         _addedExercises.add(
-          Exercise(name: m['name'] as String, muscleGroup: group),
+          Exercise(
+            name: name,
+            muscleGroup: group,
+            notes: looked?.notes,
+            photoAssetKey: looked?.photoAssetKey,
+          ),
         );
       }
 
@@ -159,12 +172,15 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
           (u) => u.name == data['unit'],
           orElse: () => ExerciseUnit.kg,
         );
+        final looked = muscleByName[entry.key.toLowerCase()];
         final draft = ExerciseDraft(
           Exercise(
             name: entry.key,
             muscleGroup: group,
             unit: unit,
             customUnitLabel: data['customUnitLabel'] as String?,
+            notes: looked?.notes,
+            photoAssetKey: looked?.photoAssetKey,
           ),
         );
         draft.loadSets(

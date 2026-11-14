@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'providers/auth_providers.dart';
 import 'providers/db_providers.dart';
+import 'providers/local_history_providers.dart';
 import 'providers/settings_providers.dart';
 import 'providers/sheet_data_providers.dart';
 import 'screens/onboarding/sign_in_screen.dart';
@@ -115,6 +116,11 @@ class _RootScreenState extends ConsumerState<_RootScreen> {
     if (settings.hasSeededDefaultExerciseDetails) return;
     try {
       await seedDefaultExerciseDetails(ref.read(exerciseDaoProvider));
+      // seedDefaultExerciseDetails writes straight to the DB via ExerciseDao,
+      // bypassing LocalExercisesNotifier's cache — without this, every
+      // screen reading allKnownExercisesProvider keeps the pre-seed snapshot
+      // (no notes/photos) until something unrelated happens to invalidate it.
+      await ref.read(localExercisesProvider.notifier).refresh();
       await settings.setHasSeededDefaultExerciseDetails(true);
     } catch (_) {
       // Best-effort — the flag stays unset, so this safely retries on the
