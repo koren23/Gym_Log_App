@@ -63,8 +63,10 @@ class AppSettingsService {
   static const _kBiologicalSex = 'biological_sex';
   static const _kBirthDate = 'birth_date';
   static const _kHasMigratedToLocalDb = 'has_migrated_to_local_db_v1';
+  // v2: bumped to force one re-seed past users whose notes/photos were
+  // wiped by the sheet-sync bug fixed in ExerciseDao.upsert — see v3.1.2.
   static const _kHasSeededDefaultExerciseDetails =
-      'has_seeded_default_exercise_details_v1';
+      'has_seeded_default_exercise_details_v2';
 
   static Future<AppSettingsService> create() async {
     final prefs = await SharedPreferences.getInstance();

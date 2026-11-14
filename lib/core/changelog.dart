@@ -16,6 +16,15 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '3.1.2',
+    date: '2026-11-14',
+    changes: [
+      'Fixed exercise notes and photos getting wiped out by Google Sheets '
+          'sync — syncing no longer resets them to blank, and a one-time '
+          'fix-up restores any that were already lost this way.',
+    ],
+  ),
+  ChangelogEntry(
     version: '3.1.1',
     date: '2026-11-14',
     changes: [

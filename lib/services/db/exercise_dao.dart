@@ -39,11 +39,29 @@ class ExerciseDao {
     );
   }
 
-  /// Upsert used by import/reconcile — sheet data always wins on conflict.
+  /// Upsert used by import/reconcile — sheet data always wins on conflict,
+  /// except `notes`/`photoAssetKey`: the sheet has no column for either, so
+  /// a sheet-derived [exercise] always carries them as null and must not be
+  /// allowed to blank out values already set locally (seeded or
+  /// user-entered).
   Future<void> upsert(Exercise exercise) async {
+    final existing = await getByName(exercise.name);
+    final toWrite = existing == null
+        ? exercise
+        : Exercise(
+            name: exercise.name,
+            muscleGroup: exercise.muscleGroup,
+            sheetRow: exercise.sheetRow,
+            muscleGroupKnown: exercise.muscleGroupKnown,
+            unit: exercise.unit,
+            customUnitLabel: exercise.customUnitLabel,
+            secondaryMuscleGroups: exercise.secondaryMuscleGroups,
+            notes: exercise.notes ?? existing.notes,
+            photoAssetKey: exercise.photoAssetKey ?? existing.photoAssetKey,
+          );
     await _db.db.insert(
       'exercises',
-      exerciseToRow(exercise),
+      exerciseToRow(toWrite),
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
