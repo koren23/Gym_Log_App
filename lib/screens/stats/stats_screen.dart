@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../core/app_page_route.dart';
 import '../../core/constants/body_zones.dart';
 import '../../core/constants/muscle_groups.dart';
 import '../../core/utils/exercise_muscle_resolution.dart';
@@ -20,6 +21,8 @@ import '../../widgets/barbell_progress_bar.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/loading_skeleton.dart';
 import '../../widgets/streak_color.dart';
+
+import 'trophy_room_screen.dart';
 
 final _dateFormat = DateFormat.yMMMd();
 
@@ -140,10 +143,14 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
         : bodyWeightEntries
               .reduce((a, b) => a.date.isAfter(b.date) ? a : b)
               .weightKg;
-    final estimatedDuration = estimatedWorkoutDuration(
-      mostRecentVisit,
-      exercisesByName: exercisesByName,
-    );
+    var mostRecentVisitReps = 0;
+    var mostRecentVisitSets = 0;
+    for (final range in mostRecentVisit.metaRow.exercises) {
+      for (final reps in range.actualReps) {
+        mostRecentVisitReps += reps;
+        mostRecentVisitSets++;
+      }
+    }
     final heightCm = ref.watch(appSettingsServiceProvider).heightCm;
     final biologicalSex = ref.watch(appSettingsServiceProvider).biologicalSex;
     final birthDate = ref.watch(appSettingsServiceProvider).birthDate;
@@ -221,15 +228,14 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
             title: 'Body & calories',
             icon: Icons.local_fire_department,
             accentColor: Colors.deepOrange,
-            headline: '${estimatedDuration.inMinutes} min',
-            headlineLabel: 'Last workout, estimated duration',
+            headline: latestBodyWeightKg == null
+                ? null
+                : '${estimatedCaloriesBurned(bodyWeightKg: latestBodyWeightKg, totalReps: mostRecentVisitReps, totalSets: mostRecentVisitSets).round()} kcal',
+            headlineLabel: latestBodyWeightKg == null
+                ? null
+                : 'Last workout, rough calorie estimate',
             children: [
-              if (latestBodyWeightKg != null)
-                _StatRow(
-                  'Last workout, rough calorie estimate',
-                  '${estimatedCaloriesBurned(bodyWeightKg: latestBodyWeightKg, duration: estimatedDuration).round()} kcal',
-                )
-              else
+              if (latestBodyWeightKg == null)
                 Text(
                   'Log a body weight entry to see a rough calorie estimate.',
                   style: theme.textTheme.bodySmall,
@@ -292,10 +298,24 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
             children: [
               Align(
                 alignment: Alignment.centerRight,
-                child: TextButton.icon(
-                  onPressed: () => _addPersonalRecord(context),
-                  icon: const Icon(Icons.add),
-                  label: const Text('Log a PR'),
+                child: Wrap(
+                  alignment: WrapAlignment.end,
+                  children: [
+                    TextButton.icon(
+                      onPressed: () => Navigator.of(context).push(
+                        AppPageRoute(
+                          builder: (_) => const TrophyRoomScreen(),
+                        ),
+                      ),
+                      icon: const Icon(Icons.emoji_events_outlined),
+                      label: const Text('Trophy room'),
+                    ),
+                    TextButton.icon(
+                      onPressed: () => _addPersonalRecord(context),
+                      icon: const Icon(Icons.add),
+                      label: const Text('Log a PR'),
+                    ),
+                  ],
                 ),
               ),
               if (personalRecords.isEmpty)

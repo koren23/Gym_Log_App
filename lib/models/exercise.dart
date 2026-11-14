@@ -10,6 +10,8 @@ class Exercise {
     this.unit = ExerciseUnit.kg,
     this.customUnitLabel,
     this.secondaryMuscleGroups = const [],
+    this.notes,
+    this.photoAssetKey,
   });
 
   final String name;
@@ -40,11 +42,27 @@ class Exercise {
   /// aggregation. Empty for most exercises.
   final List<MuscleGroup> secondaryMuscleGroups;
 
+  /// Free-form user- or seed-provided notes about this exercise (form cues,
+  /// machine settings, etc.) — editable from Settings, shown read-only in
+  /// the log-workout screen. Null for most exercises until set.
+  final String? notes;
+
+  /// Either a bundled asset path under `assets/exercise_photos/` (seeded
+  /// starter exercises) or an on-device file path (user-picked via
+  /// Settings) — the display widget tells which by checking whether the
+  /// file exists on disk, falling back to asset lookup otherwise. Null if
+  /// no photo has been set.
+  final String? photoAssetKey;
+
   Exercise copyWith({
     int? sheetRow,
     ExerciseUnit? unit,
     String? customUnitLabel,
     List<MuscleGroup>? secondaryMuscleGroups,
+    String? notes,
+    bool clearNotes = false,
+    String? photoAssetKey,
+    bool clearPhotoAssetKey = false,
   }) => Exercise(
     name: name,
     muscleGroup: muscleGroup,
@@ -53,6 +71,10 @@ class Exercise {
     unit: unit ?? this.unit,
     customUnitLabel: customUnitLabel ?? this.customUnitLabel,
     secondaryMuscleGroups: secondaryMuscleGroups ?? this.secondaryMuscleGroups,
+    notes: clearNotes ? null : (notes ?? this.notes),
+    photoAssetKey: clearPhotoAssetKey
+        ? null
+        : (photoAssetKey ?? this.photoAssetKey),
   );
 
   @override

@@ -63,6 +63,8 @@ class AppSettingsService {
   static const _kBiologicalSex = 'biological_sex';
   static const _kBirthDate = 'birth_date';
   static const _kHasMigratedToLocalDb = 'has_migrated_to_local_db_v1';
+  static const _kHasSeededDefaultExerciseDetails =
+      'has_seeded_default_exercise_details_v1';
 
   static Future<AppSettingsService> create() async {
     final prefs = await SharedPreferences.getInstance();
@@ -422,4 +424,14 @@ class AppSettingsService {
 
   Future<void> setHasMigratedToLocalDb(bool value) =>
       _prefs.setBool(_kHasMigratedToLocalDb, value);
+
+  /// Guards the one-time curated-starter-exercise notes/photo seed (see
+  /// `seedDefaultExerciseDetails`) — set only after it completes, so a kill
+  /// mid-seed safely retries on next launch rather than leaving some
+  /// exercises half-filled forever.
+  bool get hasSeededDefaultExerciseDetails =>
+      _prefs.getBool(_kHasSeededDefaultExerciseDetails) ?? false;
+
+  Future<void> setHasSeededDefaultExerciseDetails(bool value) =>
+      _prefs.setBool(_kHasSeededDefaultExerciseDetails, value);
 }

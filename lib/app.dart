@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'providers/auth_providers.dart';
+import 'providers/db_providers.dart';
 import 'providers/settings_providers.dart';
 import 'providers/sheet_data_providers.dart';
 import 'screens/onboarding/sign_in_screen.dart';
 import 'screens/root/main_shell.dart';
+import 'services/db/default_exercise_details_seeder.dart';
 
 class GymTrackerApp extends ConsumerWidget {
   const GymTrackerApp({super.key});
@@ -103,6 +105,23 @@ class _RootScreenState extends ConsumerState<_RootScreen> {
     }
   }
 
+  // Guards the one-time curated-starter-exercise notes/photo seed (see
+  // AppSettingsService.hasSeededDefaultExerciseDetails) — fired right
+  // alongside the v3.0.0 migration above, same once-per-launch gating.
+  bool _exerciseDetailsSeedAttempted = false;
+
+  Future<void> _seedDefaultExerciseDetailsIfNeeded() async {
+    final settings = ref.read(appSettingsServiceProvider);
+    if (settings.hasSeededDefaultExerciseDetails) return;
+    try {
+      await seedDefaultExerciseDetails(ref.read(exerciseDaoProvider));
+      await settings.setHasSeededDefaultExerciseDetails(true);
+    } catch (_) {
+      // Best-effort — the flag stays unset, so this safely retries on the
+      // next launch rather than ever being skipped.
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     // A connected sheet is optional (v3.0.0: local DB is the source of
@@ -136,6 +155,13 @@ class _RootScreenState extends ConsumerState<_RootScreen> {
       _migrationAttempted = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _runMigrationIfNeeded();
+      });
+    }
+
+    if (!_exerciseDetailsSeedAttempted) {
+      _exerciseDetailsSeedAttempted = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _seedDefaultExerciseDetailsIfNeeded();
       });
     }
 

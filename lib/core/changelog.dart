@@ -16,6 +16,28 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '3.1.0',
+    date: '2026-11-14',
+    changes: [
+      'Fixed the home screen sometimes showing a stale date for a Push/'
+          'Pull/Legs section when a logged workout didn\'t fit entirely '
+          'inside one day\'s declared muscle groups.',
+      'Stats: removed the estimated workout duration stat. The rough '
+          'calorie estimate stays, now based on your reps and sets instead '
+          'of estimated time.',
+      'Added a count-up rest timer to the log-workout screen — start it '
+          'between any two sets, stop it whenever you\'re ready to go '
+          'again.',
+      'New Trophy room: an auto-computed, always-up-to-date board of your '
+          'all-time best weight and volume per exercise, from your actual '
+          'logged history. Open it from the Records card on Stats.',
+      'Every exercise can now have its own notes and a photo, editable '
+          'from Settings and shown read-only while logging. Starter '
+          'exercises come with notes/photos pre-filled from wger.de '
+          '(CC BY-SA 4.0) where a good match existed.',
+    ],
+  ),
+  ChangelogEntry(
     version: '3.0.0',
     date: '2026-11-14',
     changes: [

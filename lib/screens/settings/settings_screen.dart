@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
+import '../../data/default_exercises_seed.dart';
 import '../../models/app_colors.dart';
 import '../../providers/auth_providers.dart';
 import '../../providers/settings_providers.dart';
@@ -528,6 +529,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const ChangelogScreen()),
                 ),
+              ),
+              ListTile(
+                title: const Text('Data attribution'),
+                subtitle: const Text(kWgerAttribution),
+                leading: const Icon(Icons.copyright_outlined),
               ),
             ],
           ),

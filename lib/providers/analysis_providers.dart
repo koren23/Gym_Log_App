@@ -321,14 +321,15 @@ WorkoutDay? workoutDayForGroupLabels(List<String> labels) {
 /// Otherwise, two rules are tried and OR'd together per candidate day:
 ///  - Legacy rule: [entry]'s labels resolve to the exact same legacy
 ///    [WorkoutDay] as the candidate's [WorkoutDayDef.legacyDay].
-///  - Current rule: every muscle group [entry] trained (resolved via the
-///    current taxonomy) is within the candidate's declared set (subset
-///    match).
-/// Among every day satisfying either rule, the one with the fewest declared
-/// muscle groups wins — so a broader day (e.g. "Upper Body") never "steals"
-/// a visit/entry a narrower day (e.g. "Arms") already accounts for, since a
-/// narrower day's declared groups are themselves always a subset of a
-/// broader day's. Ties broken by [allDays] order.
+///  - Current rule: at least one muscle group [entry] trained (resolved via
+///    the current taxonomy) is within the candidate's declared set (overlap
+///    match — a visit doesn't need to fit *entirely* inside one day to count
+///    toward it, since an extra exercise outside every day's declared set
+///    would otherwise make the whole visit unmatchable to any day at all).
+/// Among every day satisfying either rule, the one with the largest overlap
+/// wins (ties broken by fewest declared muscle groups, then [allDays]
+/// order) — so a broader day (e.g. "Upper Body") still doesn't "steal" a
+/// visit/entry a narrower day (e.g. "Arms") more specifically accounts for.
 WorkoutDayDef? bestMatchingDayForEntry(
   HistoryEntry entry,
   List<WorkoutDayDef> allDays,
@@ -348,13 +349,19 @@ WorkoutDayDef? bestMatchingDayForEntry(
   final legacyMatch = workoutDayForGroupLabels(entry.muscleGroups);
 
   WorkoutDayDef? best;
+  var bestOverlap = -1;
   for (final day in allDays) {
-    final currentMatch =
-        resolved.isNotEmpty && resolved.every(day.muscleGroups.contains);
+    final overlap = resolved.where(day.muscleGroups.contains).length;
     final legacyOk = day.legacyDay != null && day.legacyDay == legacyMatch;
-    if (!currentMatch && !legacyOk) continue;
-    if (best == null || day.muscleGroups.length < best.muscleGroups.length) {
+    if (overlap == 0 && !legacyOk) continue;
+    final better =
+        best == null ||
+        overlap > bestOverlap ||
+        (overlap == bestOverlap &&
+            day.muscleGroups.length < best.muscleGroups.length);
+    if (better) {
       best = day;
+      bestOverlap = overlap;
     }
   }
   return best;

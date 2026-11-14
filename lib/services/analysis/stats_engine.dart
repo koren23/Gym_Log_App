@@ -1,6 +1,5 @@
 import '../../core/constants/muscle_groups.dart';
 import '../../models/exercise.dart';
-import '../../models/exercise_unit.dart';
 import '../../models/history_entry.dart';
 import '../settings/app_settings_service.dart';
 import 'volume.dart';
@@ -10,7 +9,6 @@ import 'volume.dart';
 /// data. Nothing here writes to the sheet; every value is recomputed from
 /// history on every load, exactly like the rest of this app's derived
 /// stats, so a retroactive log edit is always reflected immediately.
-const double kResistanceTrainingMet = 5.0;
 
 /// Earliest real (app-logged) visit date — "working out since" — or null
 /// if there are no real visits yet.
@@ -89,41 +87,6 @@ double averageRepsOverall(List<HistoryEntry> realEntries) {
     }
   }
   return totalSets == 0 ? 0 : totalReps / totalSets;
-}
-
-/// Rough estimated time spent on [visit] — `Σ_sets(reps*secondsPerRep +
-/// restSeconds)` for ordinary rep-based exercises, actual held-time for
-/// `time`-unit ones (a timed plank/cardio set logs its seconds via the
-/// *weight* field, not reps — see `exercise_tile.dart`'s `showReps`), plus a
-/// flat per-exercise setup/transition allowance. [exercisesByName] (lowercase
-/// name -> [Exercise]) resolves each logged exercise's unit; without it (or
-/// for a name with no entry) every exercise is treated as rep-based.
-Duration estimatedWorkoutDuration(
-  HistoryEntry visit, {
-  double secondsPerRep = 4.0,
-  double restSeconds = 150,
-  double transitionSecondsPerExercise = 120,
-  Map<String, Exercise>? exercisesByName,
-}) {
-  final meta = visit.metaRow;
-  if (meta == null) return Duration.zero;
-  var totalSeconds = 0.0;
-  for (final range in meta.exercises) {
-    final setCount = range.setCount ?? 0;
-    if (setCount == 0) continue;
-    totalSeconds += transitionSecondsPerExercise;
-    final unit = exercisesByName?[range.exerciseName.toLowerCase()]?.unit;
-    if (unit == ExerciseUnit.time) {
-      final heldSeconds = range.actualWeights.isNotEmpty
-          ? range.actualWeights.fold<double>(0, (sum, s) => sum + s)
-          : setCount * 30;
-      totalSeconds += heldSeconds + setCount * restSeconds;
-    } else {
-      final avgReps = range.avgReps ?? 0;
-      totalSeconds += setCount * (avgReps * secondsPerRep + restSeconds);
-    }
-  }
-  return Duration(seconds: totalSeconds.round());
 }
 
 /// Standard BMI (`kg / (m)^2`) from body weight and height.
@@ -238,14 +201,19 @@ CalorieTargets calorieTargets({
   );
 }
 
-/// Rough calorie estimate for a workout of [duration], via the standard
-/// MET formula: `kcal = MET * weightKg * durationHours`. Labelled "rough
-/// estimate" in the UI — this is not a precise metabolic measurement.
+/// Rough calorie estimate from training volume rather than time: every rep
+/// has a small fixed cost, every set adds a flat under-tension/transition
+/// cost, both scaled by body weight against a 70kg reference. Labelled
+/// "rough estimate" in the UI — this is not a precise metabolic measurement.
 double estimatedCaloriesBurned({
   required double bodyWeightKg,
-  required Duration duration,
-  double met = kResistanceTrainingMet,
-}) => met * bodyWeightKg * (duration.inSeconds / 3600.0);
+  required int totalReps,
+  required int totalSets,
+  double kcalPerRep = 0.5,
+  double kcalPerSetOverhead = 2.0,
+}) =>
+    (kcalPerRep * totalReps + kcalPerSetOverhead * totalSets) *
+    (bodyWeightKg / 70.0);
 
 /// Running-max PRs per exercise across every real visit, walked
 /// chronologically — a PR is a new running max, either in heaviest single

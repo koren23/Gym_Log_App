@@ -42,6 +42,13 @@ class AppDatabase {
             await db.execute(statement);
           }
         },
+        onUpgrade: (db, oldVersion, newVersion) async {
+          for (var version = oldVersion + 1; version <= newVersion; version++) {
+            for (final statement in kSchemaUpgrades[version] ?? const []) {
+              await db.execute(statement);
+            }
+          }
+        },
       ),
     );
     return AppDatabase._(db);

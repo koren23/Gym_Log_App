@@ -3,7 +3,7 @@
 /// `sheet_import_service.dart`. No incremental-sync cursors — this is a
 /// single user's dataset (low thousands of rows at most), so a full
 /// reconcile pass on import is simple and fast enough.
-const int kSchemaVersion = 1;
+const int kSchemaVersion = 2;
 
 const List<String> kSchemaStatements = [
   '''
@@ -16,6 +16,8 @@ const List<String> kSchemaStatements = [
     unit TEXT NOT NULL DEFAULT 'kg',
     custom_unit_label TEXT,
     secondary_muscle_groups TEXT NOT NULL DEFAULT '',
+    notes TEXT,
+    photo_asset_key TEXT,
     deleted_at TEXT
   )
   ''',
@@ -109,3 +111,15 @@ const List<String> kSchemaStatements = [
   )
   ''',
 ];
+
+/// Upgrade statements keyed by the version being upgraded *to*. Applied in
+/// order for every version between the database's current version and
+/// [kSchemaVersion] — see `AppDatabase._openNew`'s `onUpgrade`. A fresh
+/// install never runs these; it gets the current shape straight from
+/// [kSchemaStatements].
+const Map<int, List<String>> kSchemaUpgrades = {
+  2: [
+    'ALTER TABLE exercises ADD COLUMN notes TEXT',
+    'ALTER TABLE exercises ADD COLUMN photo_asset_key TEXT',
+  ],
+};

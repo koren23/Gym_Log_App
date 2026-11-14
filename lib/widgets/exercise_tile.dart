@@ -13,6 +13,7 @@ import '../models/pending_suggestion.dart';
 import '../models/set_feedback.dart';
 import '../models/workout_visit.dart';
 import '../screens/log_workout/machine_label_dialog.dart';
+import 'exercise_photo.dart';
 
 /// Mutable per-exercise editing state used while building up a workout
 /// visit in the log-workout flow. Owns the [TextEditingController]s for
@@ -455,6 +456,15 @@ class ExerciseTile extends ConsumerWidget {
                         visualDensity: VisualDensity.compact,
                         onPressed: () => _chooseMachineVariant(context),
                       ),
+                      if (draft.exercise.notes != null ||
+                          draft.exercise.photoAssetKey != null)
+                        ActionChip(
+                          avatar: const Icon(Icons.info_outline, size: 16),
+                          label: const Text('Details'),
+                          tooltip: 'Exercise notes and photo',
+                          visualDensity: VisualDensity.compact,
+                          onPressed: () => _showExerciseDetails(context),
+                        ),
                     ],
                   ),
                 ],
@@ -486,6 +496,37 @@ class ExerciseTile extends ConsumerWidget {
     if (result == null) return;
     draft.note = result.isEmpty ? null : result;
     onChanged();
+  }
+
+  Future<void> _showExerciseDetails(BuildContext context) {
+    final exercise = draft.exercise;
+    return showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(exercise.name, style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 12),
+            if (exercise.photoAssetKey != null)
+              Center(
+                child: ExercisePhoto(
+                  photoAssetKey: exercise.photoAssetKey,
+                  size: 220,
+                  borderRadius: 12,
+                ),
+              ),
+            if (exercise.notes != null) ...[
+              const SizedBox(height: 16),
+              Text(exercise.notes!),
+            ],
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _chooseMachineVariant(BuildContext context) async {

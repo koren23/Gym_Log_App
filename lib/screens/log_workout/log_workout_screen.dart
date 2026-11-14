@@ -24,6 +24,7 @@ import '../../models/workout_visit.dart';
 import '../../models/year_sheet_data.dart';
 import '../../providers/analysis_providers.dart';
 import '../../providers/local_history_providers.dart';
+import '../../providers/rest_timer_provider.dart';
 import '../../providers/settings_providers.dart';
 import '../../providers/sheet_data_providers.dart';
 import '../../widgets/app_snack_bar.dart';
@@ -687,8 +688,31 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
       for (final f in findings) f.subjectName: classifyTrend(f),
     };
 
+    final restTimer = ref.watch(restTimerProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('Log workout')),
+      floatingActionButton: FloatingActionButton.extended(
+        icon: Icon(restTimer.isRunning ? Icons.stop : Icons.timer_outlined),
+        label: Text(
+          restTimer.isRunning
+              ? _formatRestTimer(restTimer.elapsed)
+              : 'Rest timer',
+        ),
+        backgroundColor: restTimer.isRunning
+            ? Theme.of(context).colorScheme.errorContainer
+            : null,
+        foregroundColor: restTimer.isRunning
+            ? Theme.of(context).colorScheme.onErrorContainer
+            : null,
+        onPressed: () {
+          final notifier = ref.read(restTimerProvider.notifier);
+          if (restTimer.isRunning) {
+            notifier.stop();
+          } else {
+            notifier.start();
+          }
+        },
+      ),
       body: Column(
         children: [
           Expanded(
@@ -897,6 +921,12 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
         ],
       ),
     );
+  }
+
+  String _formatRestTimer(Duration elapsed) {
+    final minutes = elapsed.inMinutes.toString().padLeft(2, '0');
+    final seconds = (elapsed.inSeconds % 60).toString().padLeft(2, '0');
+    return '$minutes:$seconds';
   }
 
   /// All of the selected day's exercises (every known exercise whose
