@@ -14,9 +14,7 @@ int computeXp({
   final totalRealVisits = realEntries.length;
   var totalSetsLoggedAllTime = 0;
   for (final entry in realEntries) {
-    final meta = entry.metaRow;
-    if (meta == null) continue;
-    for (final range in meta.exercises) {
+    for (final range in entry.metaRow.exercises) {
       totalSetsLoggedAllTime += range.setCount ?? 0;
     }
   }
@@ -82,10 +80,8 @@ bool _isSameDay(DateTime a, DateTime b) =>
     a.year == b.year && a.month == b.month && a.day == b.day;
 
 double? _totalVolume(HistoryEntry entry) {
-  final meta = entry.metaRow;
-  if (meta == null) return null;
   double? total;
-  for (final range in meta.exercises) {
+  for (final range in entry.metaRow.exercises) {
     final volume = instanceVolume(range);
     if (volume == null) continue;
     total = (total ?? 0) + volume;
@@ -104,7 +100,7 @@ WorkoutXpBreakdown computeWorkoutXp({
   required PrsByExercise prHistory,
   List<DateTime>? allVisitDates,
 }) {
-  final ranges = visit.metaRow?.exercises ?? const [];
+  final ranges = visit.metaRow.exercises;
   var setCount = 0;
   for (final range in ranges) {
     setCount += range.setCount ?? 0;

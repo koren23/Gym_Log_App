@@ -4,10 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/constants/muscle_groups.dart';
 import '../../core/utils/exercise_value_format.dart';
-import '../../core/utils/iso_week.dart';
 import '../../core/utils/text.dart';
 import '../../models/exercise.dart';
-import '../../models/exercise_muscle_info.dart';
 import '../../models/exercise_unit.dart';
 import '../../models/exercise_note.dart';
 import '../../models/rating_relevance.dart';
@@ -15,6 +13,7 @@ import '../../models/set_feedback.dart';
 import '../../models/workout_visit.dart';
 import '../../models/year_sheet_data.dart';
 import '../../providers/analysis_providers.dart';
+import '../../providers/local_history_providers.dart';
 import '../../providers/sheet_data_providers.dart';
 import '../../widgets/app_snack_bar.dart';
 import '../../widgets/exercise_tile.dart';
@@ -59,7 +58,7 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
         ?.snapshot
         .yearData[widget.metaRow.isoYear];
     final muscleGroupByName = {
-      for (final e in yearData?.allExercises ?? const <Exercise>[])
+      for (final e in ref.read(allKnownExercisesProvider))
         e.name.toLowerCase(): e.muscleGroup,
     };
 
@@ -188,7 +187,6 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
     final result = await showAddNewExerciseDialog(
       context,
       muscleGroupOptions: kCurrentMuscleGroups,
-      allMuscleInfo: ref.read(exerciseMuscleInfoProvider),
       existing: old,
     );
     if (result == null) return;
@@ -224,11 +222,7 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
 
     final updateResult = await ref
         .read(snapshotProvider.notifier)
-        .updateExercise(
-          oldExercise: old,
-          newExercise: newExercise,
-          newMuscleColumnIndex: result.muscleColumnIndex,
-        );
+        .updateExercise(oldExercise: old, newExercise: newExercise);
     if (!updateResult.success && mounted) {
       showAppSnackBar(
         context,
@@ -246,36 +240,21 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
   /// preview of itself. Falls back to the single pre-averaged value for a
   /// legacy visit logged before per-set tracking existed.
   List<double> _previousWeightsFor(String exerciseName) {
-    final yearsAscending = ref
-        .read(snapshotProvider)
-        .value
-        ?.snapshot
-        .yearData
-        .values
-        .toList();
-    if (yearsAscending == null) return const [];
-    yearsAscending.sort((a, b) => a.year.compareTo(b.year));
+    final visits = ref.read(localVisitsProvider).value;
+    if (visits == null) return const [];
     return previousActualWeights(
-      yearsAscending: yearsAscending,
+      visits: visits,
       exerciseName: exerciseName,
       beforeDate: widget.metaRow.date,
     );
   }
 
-  /// Exercises this visit's year already has a matrix-tab row for, minus
-  /// ones already in this visit — only these are safely addable without a
-  /// heavier structural sheet write (see [_showAddExerciseSheet]).
+  /// Every known exercise minus ones already in this visit.
   List<Exercise> _addableExercises() {
-    final yearData = ref
-        .read(snapshotProvider)
-        .value
-        ?.snapshot
-        .yearData[widget.metaRow.isoYear];
-    if (yearData == null) return const [];
     final already = _exerciseOrder.toSet();
     return [
-      for (final e in yearData.allExercises)
-        if (e.sheetRow != null && !already.contains(e.name)) e,
+      for (final e in ref.read(allKnownExercisesProvider))
+        if (!already.contains(e.name)) e,
     ];
   }
 
@@ -291,46 +270,19 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
     if (selected != null) _addExercise(selected);
   }
 
-  LoggedExerciseRepRange _toLoggedRange(ExerciseEntry entry) =>
-      LoggedExerciseRepRange(
-        exerciseName: entry.exercise.name,
-        repRangeLow: entry.targetRepRangeLow,
-        repRangeHigh: entry.targetRepRangeHigh,
-        actualReps: entry.sets.map((s) => s.reps).toList(),
-        approxReps: entry.sets.map((s) => s.approxReps).toList(),
-        actualWeights: entry.sets.map((s) => s.weight).toList(),
-        setFeedback: entry.sets.map((s) => s.feedback).toList(),
-        targetLowPerSet: entry.targetRepRangeLowPerSet,
-        targetHighPerSet: entry.targetRepRangeHighPerSet,
-        targetWeightPerSet: entry.targetWeightPerSet,
-      );
-
   Future<void> _save() async {
     setState(() => _saving = true);
     final notifier = ref.read(snapshotProvider.notifier);
 
-    // The date change spans potentially multiple tabs and must land before
-    // anything else touches this visit's row — it's the only save step
-    // that requires a live connection (not offline-queueable).
     var metaRow = widget.metaRow;
     if (!DateUtils.isSameDay(_date, metaRow.date)) {
-      final dateOk = await notifier.updateVisitDate(metaRow, _date);
-      if (!dateOk) {
-        if (!mounted) return;
-        setState(() => _saving = false);
-        showAppSnackBar(
-          context,
-          "Couldn't change the date — check your connection and try again.",
-          isError: true,
-        );
-        return;
-      }
-      // Re-locate the row after the move: it may have a new rowIndex, and
-      // if it moved to a different year, a different meta tab entirely.
-      final refreshed = ref.read(snapshotProvider).value?.snapshot;
-      final newYearData = refreshed?.yearData[isoWeekYear(_date)];
+      await notifier.updateVisitDate(metaRow, _date);
+      // Re-locate the row after the move: it's local-first now, so this
+      // always succeeds — just refresh and re-find it by visitId.
+      await ref.read(localVisitsProvider.notifier).refresh();
+      final refreshed = ref.read(localVisitsProvider).value ?? const <MetaRow>[];
       MetaRow? located;
-      for (final m in newYearData?.metaRows ?? const <MetaRow>[]) {
+      for (final m in refreshed) {
         if (m.visitId == metaRow.visitId) {
           located = m;
           break;
@@ -408,22 +360,14 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
       exerciseNotes,
     );
 
-    final newWeights = {
-      for (final entry in entries) entry.exercise.name: entry.averageWeight,
-    };
-    final weightsOk = await notifier.updateVisitWeights(metaRow, newWeights);
-
-    final setsOk = await notifier.updateVisitExerciseOrder(metaRow, [
-      for (final entry in entries) _toLoggedRange(entry),
-    ]);
+    final setsOk = await notifier.updateVisitEntries(metaRow, entries);
 
     var ratingOk = true;
     final ratingChanged = _rating != (metaRow.rating ?? 0);
     final relevanceChanged = _ratingRelevance != metaRow.ratingRelevance;
     if (ratingChanged || relevanceChanged) {
       final outcome = await notifier.saveRating(
-        isoYear: metaRow.isoYear,
-        metaRowIndex: metaRow.rowIndex,
+        metaRow: metaRow,
         rating: _rating,
         ratingRelevance: relevanceChanged ? _ratingRelevance : null,
       );
@@ -433,7 +377,7 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
     if (!mounted) return;
     setState(() => _saving = false);
 
-    if (!(weightsOk && setsOk && ratingOk && noteOk && notesOk)) {
+    if (!(setsOk && ratingOk && noteOk && notesOk)) {
       showAppSnackBar(
         context,
         'Some changes failed to save — check your connection.',
@@ -761,7 +705,7 @@ class _AddExerciseSheet extends StatefulWidget {
   });
 
   final List<Exercise> candidates;
-  final Map<String, ExerciseMuscleInfo> muscleByName;
+  final Map<String, Exercise> muscleByName;
 
   @override
   State<_AddExerciseSheet> createState() => _AddExerciseSheetState();

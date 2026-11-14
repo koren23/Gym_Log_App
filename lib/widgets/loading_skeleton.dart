@@ -52,32 +52,6 @@ class _ShimmerBoxState extends State<ShimmerBox>
   }
 }
 
-/// Skeleton shown while [HomeTab] is waiting on its first Sheets fetch —
-/// mirrors the shape of the real insight box + "this week" list so the
-/// loading state doesn't jump/reflow once data arrives.
-class HomeSkeleton extends StatelessWidget {
-  const HomeSkeleton({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const ShimmerBox(height: 140, borderRadius: 16),
-          const SizedBox(height: 16),
-          for (var i = 0; i < 4; i++)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: ShimmerBox(height: 64, borderRadius: 12),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
 /// Skeleton for Graphs/History while the initial snapshot is still loading
 /// (as opposed to having loaded and genuinely being empty).
 class ChartScreenSkeleton extends StatelessWidget {
@@ -85,7 +59,7 @@ class ChartScreenSkeleton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
+    return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

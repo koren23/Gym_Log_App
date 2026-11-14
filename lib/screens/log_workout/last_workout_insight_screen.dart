@@ -6,20 +6,21 @@ import '../../models/analysis_result.dart';
 import '../../models/exercise.dart';
 import '../../models/exercise_unit.dart';
 import '../../models/workout_day_def.dart';
-import '../../models/year_sheet_data.dart';
 import '../../providers/analysis_providers.dart';
+import '../../providers/local_history_providers.dart';
 import '../../providers/sheet_data_providers.dart';
 import '../../providers/settings_providers.dart';
 import '../../widgets/insight_summary.dart';
 import '../../widgets/read_only_exercise_sets.dart';
 import '../../widgets/star_rating_input.dart';
 
-/// Looks up [name]'s resolved [Exercise] (for its unit) in the most recent
-/// loaded year — null if [yearsAscending] is empty/unavailable or the name
-/// isn't found there.
-Exercise? _resolveExercise(List<YearSheetData>? yearsAscending, String name) {
-  if (yearsAscending == null || yearsAscending.isEmpty) return null;
-  return yearsAscending.last.findExercise(name);
+/// Looks up [name]'s resolved [Exercise] (for its unit) among the user's
+/// known exercises — null if not found there.
+Exercise? _resolveExercise(List<Exercise> exercises, String name) {
+  for (final e in exercises) {
+    if (e.name.toLowerCase() == name.toLowerCase()) return e;
+  }
+  return null;
 }
 
 /// Read-only preview of the most recent real [day] workout — exercise
@@ -35,22 +36,18 @@ class LastWorkoutInsightScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    final snapshot = ref.watch(snapshotProvider).value?.snapshot;
-    final yearsAscending = snapshot?.yearData.values.toList()
-      ?..sort((a, b) => a.year.compareTo(b.year));
+    final visits = ref.watch(localVisitsProvider).value;
     final dayDefs = ref.watch(workoutDayDefsProvider);
+    final exercises = ref.watch(allKnownExercisesProvider);
 
-    final entry = yearsAscending == null
+    final entry = visits == null
         ? null
-        : mostRecentRealVisitForDay(
-            buildHistoryEntries(yearsAscending, workoutDays: dayDefs),
-            day,
-            dayDefs,
-          );
-    final findings = (entry == null || yearsAscending == null)
+        : mostRecentRealVisitForDay(buildHistoryEntries(visits), day, dayDefs);
+    final findings = (entry == null || visits == null)
         ? const <AnalysisFinding>[]
         : analyzeExercises(
-            yearsAscending: yearsAscending,
+            visits: visits,
+            exercises: exercises,
             exerciseNames: entry.exerciseNames,
             bodyWeightEntries: ref.watch(bodyWeightEntriesProvider),
           );
@@ -72,17 +69,17 @@ class LastWorkoutInsightScreen extends ConsumerWidget {
                       style: theme.textTheme.titleMedium,
                     ),
                     const SizedBox(height: 12),
-                    for (final ex in entry.metaRow!.exercises)
+                    for (final ex in entry.metaRow.exercises)
                       ReadOnlyExerciseSets(
                         exercise: ex,
                         unit:
                             _resolveExercise(
-                              yearsAscending,
+                              exercises,
                               ex.exerciseName,
                             )?.unit ??
                             ExerciseUnit.kg,
                         customUnitLabel: _resolveExercise(
-                          yearsAscending,
+                          exercises,
                           ex.exerciseName,
                         )?.customUnitLabel,
                       ),
@@ -90,18 +87,18 @@ class LastWorkoutInsightScreen extends ConsumerWidget {
                     Row(
                       children: [
                         Text('Rating: ', style: theme.textTheme.bodyMedium),
-                        if (entry.metaRow!.rating != null)
-                          ReadOnlyStarRating(value: entry.metaRow!.rating!)
+                        if (entry.metaRow.rating != null)
+                          ReadOnlyStarRating(value: entry.metaRow.rating!)
                         else
                           Text('Not rated', style: theme.textTheme.bodySmall),
                       ],
                     ),
-                    if (entry.metaRow!.note != null &&
-                        entry.metaRow!.note!.isNotEmpty)
+                    if (entry.metaRow.note != null &&
+                        entry.metaRow.note!.isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.only(top: 8),
                         child: Text(
-                          '📝 ${entry.metaRow!.note}',
+                          '📝 ${entry.metaRow.note}',
                           style: theme.textTheme.bodySmall?.copyWith(
                             fontStyle: FontStyle.italic,
                             color: theme.colorScheme.outline,

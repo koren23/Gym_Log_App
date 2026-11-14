@@ -9,6 +9,8 @@
 /// to be swapped for that scheme instead.
 library;
 
+import '../constants/muscle_groups.dart';
+
 /// Returns the ISO-8601 week number (1-53) for [date].
 int isoWeekNumber(DateTime date) {
   final thursday = _thursdayOfSameIsoWeek(date);
@@ -29,6 +31,20 @@ DateTime approximateDateForIsoWeek(int isoYear, int isoWeek) {
   final jan4IsoWeekday = jan4.weekday;
   final mondayOfWeek1 = jan4.subtract(Duration(days: jan4IsoWeekday - 1));
   return mondayOfWeek1.add(Duration(days: (isoWeek - 1) * 7));
+}
+
+/// Best-effort date for ([isoYear], [isoWeek], [day]) — a synthetic
+/// (hand-typed-in-sheet, no metadata row) legacy visit's placeholder date,
+/// offset from that week's Monday by [day]'s usual slot in the push/pull/legs
+/// rotation.
+DateTime approximateDateForWorkoutDay(int isoYear, int isoWeek, WorkoutDay day) {
+  final monday = approximateDateForIsoWeek(isoYear, isoWeek);
+  final offsetFromMonday = switch (day) {
+    WorkoutDay.push => 6,
+    WorkoutDay.pull => 1,
+    WorkoutDay.legs => 3,
+  };
+  return monday.add(Duration(days: offsetFromMonday));
 }
 
 DateTime _thursdayOfSameIsoWeek(DateTime date) {

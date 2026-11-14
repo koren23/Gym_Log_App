@@ -9,6 +9,7 @@ import '../models/workout_day_def.dart';
 import '../models/workout_defaults.dart';
 import '../services/settings/app_settings_service.dart';
 import '../services/sync/pending_sync_queue.dart';
+import 'db_providers.dart';
 import 'sheet_data_providers.dart';
 
 /// Overridden in `main.dart` after `AppSettingsService.create()` resolves,
@@ -127,62 +128,19 @@ final workoutDefaultsProvider =
       WorkoutDefaultsNotifier.new,
     );
 
-/// All workout days are sheet-backed (`WorkoutDays` tab) and fully
-/// user-editable — no more "built-in, protected" days. [build] combines
-/// whatever the sheet already confirms with any locally-pending day not
-/// yet confirmed synced (deduped by id), and seeds Push/Pull/Legs/Full Body
-/// exactly once if the sheet has no workout days at all yet.
+/// Local-DB-backed (`workout_day_defs` table) as of v3.0.0 — a sheet, if
+/// connected, is a best-effort mirror, not where this reads from. Stays a
+/// plain synchronous `Notifier<List<WorkoutDayDef>>` (not `AsyncNotifier`)
+/// because its initial state is resolved once, synchronously, in `main()`
+/// before `runApp` and handed in via `overrideWith` — see the
+/// `appDatabaseProvider`/DAO-provider pattern in `db_providers.dart` for why.
 class WorkoutDayDefsNotifier extends Notifier<List<WorkoutDayDef>> {
+  WorkoutDayDefsNotifier([this._initial]);
+
+  final List<WorkoutDayDef>? _initial;
+
   @override
-  List<WorkoutDayDef> build() {
-    // `sheetWorkoutDayDefsProvider` collapses "snapshot still loading" and
-    // "snapshot loaded, sheet confirmed empty" into the same `[]` — only
-    // `hasValue` tells the two apart. Without this check, every reload
-    // raced this against the real fetch: on web/PWA, where the fetch is
-    // slow enough to lose that race far more often than native, `sheetDays`
-    // read as empty *before* the real (non-empty) data arrived, so this
-    // branch re-seeded Push/Pull/Legs/Full Body on top of the ones already
-    // on the sheet — the "it keeps making new workouts" bug.
-    final snapshotLoaded = ref.watch(snapshotProvider).hasValue;
-    final sheetDays = ref.watch(sheetWorkoutDayDefsProvider);
-    final localPending = ref
-        .watch(appSettingsServiceProvider)
-        .customWorkoutDayDefs
-        .where((d) => sheetDays.every((s) => s.id != d.id));
-
-    if (snapshotLoaded && sheetDays.isEmpty && localPending.isEmpty) {
-      // Nothing on the sheet yet and nothing pending locally either — seed
-      // the classic 3 days + Full Body once. Fire-and-forget: if this
-      // fails (offline/first load), it'll simply try again next time
-      // build() re-runs with still-empty state.
-      Future.microtask(() => _seedIfStillEmpty());
-      return kWorkoutDaySeed;
-    }
-    if (!snapshotLoaded && sheetDays.isEmpty && localPending.isEmpty) {
-      // Still loading and nothing local yet either — show the seed set as
-      // a placeholder only; never seed off of this state.
-      return kWorkoutDaySeed;
-    }
-    // Defense in depth against duplicate rows (e.g. ones left over from
-    // before the durable seed guard below existed, until the one-time sheet
-    // cleanup gets to them): never show/use more than one entry per id.
-    return mergeDuplicateWorkoutDays([...sheetDays, ...localPending]);
-  }
-
-  Future<void> _seedIfStillEmpty() async {
-    if (state.isNotEmpty && state != kWorkoutDaySeed) return;
-    final settings = ref.read(appSettingsServiceProvider);
-    // Set *before* writing, not after — so a reload or a racing refresh()
-    // mid-sequence (Sheets' read-after-write lag can make the just-seeded
-    // tab briefly read back as empty, re-entering this method) can never
-    // append a second duplicate set of rows.
-    if (settings.hasSeededWorkoutDays) return;
-    await settings.setHasSeededWorkoutDays(true);
-    final notifier = ref.read(snapshotProvider.notifier);
-    for (final def in kWorkoutDaySeed) {
-      await notifier.addWorkoutDayToSheet(def);
-    }
-  }
+  List<WorkoutDayDef> build() => _initial ?? kWorkoutDaySeed;
 
   Future<void> addCustomDay(String label, List<MuscleGroup> groups) async {
     final def = WorkoutDayDef(
@@ -190,13 +148,13 @@ class WorkoutDayDefsNotifier extends Notifier<List<WorkoutDayDef>> {
       label: label,
       muscleGroups: groups,
     );
-    // Instant local UI update; the sheet write happens alongside it.
-    final localCustoms = ref.read(appSettingsServiceProvider).customWorkoutDayDefs;
-    await ref
-        .read(appSettingsServiceProvider)
-        .setCustomWorkoutDayDefs([...localCustoms, def]);
+    await ref.read(workoutDayDaoProvider).upsert(def);
     state = [...state, def];
-    await ref.read(snapshotProvider.notifier).addWorkoutDayToSheet(def);
+    try {
+      await ref.read(snapshotProvider.notifier).addWorkoutDayToSheet(def);
+    } catch (_) {
+      // Best-effort sheet mirror — the local save above already succeeded.
+    }
   }
 
   /// Genuinely edits an existing day's label/muscle set in place (as
@@ -224,15 +182,20 @@ class WorkoutDayDefsNotifier extends Notifier<List<WorkoutDayDef>> {
       legacyDay: existing.legacyDay,
       sheetRowIndex: existing.sheetRowIndex,
     );
+    await ref.read(workoutDayDaoProvider).upsert(updated);
     state = [for (final d in state) d.id == id ? updated : d];
-
-    final localCustoms = ref.read(appSettingsServiceProvider).customWorkoutDayDefs;
-    if (localCustoms.any((d) => d.id == id)) {
-      await ref.read(appSettingsServiceProvider).setCustomWorkoutDayDefs([
-        for (final d in localCustoms) d.id == id ? updated : d,
-      ]);
+    try {
+      await ref.read(snapshotProvider.notifier).updateWorkoutDayOnSheet(updated);
+    } catch (_) {
+      // Best-effort sheet mirror — the local save above already succeeded.
     }
-    await ref.read(snapshotProvider.notifier).updateWorkoutDayOnSheet(updated);
+  }
+
+  /// Replaces the in-memory list from the DB directly — called once, right
+  /// after [SheetImportService.importAndReconcile] writes fresh rows into
+  /// `workout_day_defs` by a path other than this notifier's own mutators.
+  Future<void> reloadFromDb() async {
+    state = await ref.read(workoutDayDaoProvider).getAll();
   }
 
   Future<void> removeCustomDay(String id) async {
@@ -243,15 +206,13 @@ class WorkoutDayDefsNotifier extends Notifier<List<WorkoutDayDef>> {
         break;
       }
     }
+    if (def == null) return;
+    await ref.read(workoutDayDaoProvider).softDelete(id);
     state = state.where((d) => d.id != id).toList();
-    final localCustoms = ref
-        .read(appSettingsServiceProvider)
-        .customWorkoutDayDefs
-        .where((d) => d.id != id)
-        .toList();
-    await ref.read(appSettingsServiceProvider).setCustomWorkoutDayDefs(localCustoms);
-    if (def != null) {
+    try {
       await ref.read(snapshotProvider.notifier).removeWorkoutDayFromSheet(def);
+    } catch (_) {
+      // Best-effort sheet mirror — the local delete above already succeeded.
     }
   }
 }

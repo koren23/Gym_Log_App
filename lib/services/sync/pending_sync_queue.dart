@@ -26,6 +26,20 @@ typedef YearContextResolver =
 /// cache — row indices may have shifted since the write was queued.
 typedef ExerciseUnitsTableResolver = Future<Result<ExerciseUnitsTable>> Function();
 
+/// Re-reads the current local-DB state of a queued workout-visit push at
+/// replay time, rather than replaying a snapshot captured when the push
+/// was first queued — so an edit made before the first push ever succeeds
+/// pushes the latest state, not a stale capture. Returns null if the
+/// visit no longer exists locally (e.g. deleted since being queued),
+/// which the replay treats as "nothing left to push."
+typedef WorkoutVisitResolver = Future<WorkoutVisit?> Function(String visitId);
+
+/// Records that a workout visit successfully reached the sheet (whether
+/// just now, or on an earlier attempt whose success response was lost),
+/// so the local row's dirty flag and sheet row index stay in sync.
+typedef MarkWorkoutVisitPushed =
+    Future<void> Function(String visitId, int sheetMetaRowIndex);
+
 class YearWriteContext {
   const YearWriteContext({
     required this.yearData,
@@ -64,8 +78,10 @@ class PendingSyncQueue {
     );
   }
 
-  Future<void> enqueueWorkoutVisit(WorkoutVisit visit) =>
-      _enqueue(PendingSyncPayloadType.workoutVisit, jsonEncode(visit.toJson()));
+  Future<void> enqueueWorkoutVisit(String visitId) => _enqueue(
+    PendingSyncPayloadType.workoutVisit,
+    jsonEncode({'visitId': visitId}),
+  );
 
   Future<void> enqueueRating({
     required String metaTabName,
@@ -174,6 +190,8 @@ class PendingSyncQueue {
     required SheetsRepository repository,
     required YearContextResolver resolveYearContext,
     required ExerciseUnitsTableResolver resolveExerciseUnitsTable,
+    required WorkoutVisitResolver resolveWorkoutVisit,
+    required MarkWorkoutVisitPushed markWorkoutVisitPushed,
   }) async {
     final items = getAll();
     var syncedCount = 0;
@@ -184,6 +202,8 @@ class PendingSyncQueue {
         repository: repository,
         resolveYearContext: resolveYearContext,
         resolveExerciseUnitsTable: resolveExerciseUnitsTable,
+        resolveWorkoutVisit: resolveWorkoutVisit,
+        markWorkoutVisitPushed: markWorkoutVisitPushed,
       );
       final remaining = getAll();
 
@@ -216,12 +236,21 @@ class PendingSyncQueue {
     required SheetsRepository repository,
     required YearContextResolver resolveYearContext,
     required ExerciseUnitsTableResolver resolveExerciseUnitsTable,
+    required WorkoutVisitResolver resolveWorkoutVisit,
+    required MarkWorkoutVisitPushed markWorkoutVisitPushed,
   }) async {
     switch (item.payloadType) {
       case PendingSyncPayloadType.workoutVisit:
-        final visit = WorkoutVisit.fromJson(
-          jsonDecode(item.serializedPayload) as Map<String, dynamic>,
-        );
+        final json = jsonDecode(item.serializedPayload) as Map<String, dynamic>;
+        final visitId = json['visitId'] as String;
+        // Re-read the current row rather than a snapshot captured when
+        // this push was first queued, so an edit made in the meantime
+        // pushes the latest state, not a stale capture.
+        final visit = await resolveWorkoutVisit(visitId);
+        if (visit == null) {
+          // Deleted locally since being queued — nothing left to push.
+          return const Result.ok(null);
+        }
         final contextResult = await resolveYearContext(visit.isoYear);
         if (contextResult is Err<YearWriteContext>) {
           return Result.err(contextResult.error, contextResult.stackTrace);
@@ -232,10 +261,20 @@ class PendingSyncQueue {
         // write was already applied — more common on web/PWA) — appending
         // again would create a genuine duplicate "phantom" workout. If a
         // meta row for this visit already exists, treat it as synced.
-        final alreadySynced = context.yearData.metaRows.any(
-          (m) => m.visitId == visit.visitId,
-        );
-        if (alreadySynced) {
+        MetaRow? alreadySyncedRow;
+        for (final m in context.yearData.metaRows) {
+          if (m.visitId == visit.visitId) {
+            alreadySyncedRow = m;
+            break;
+          }
+        }
+        if (alreadySyncedRow != null) {
+          if (alreadySyncedRow.rowIndex >= 0) {
+            await markWorkoutVisitPushed(
+              visit.visitId,
+              alreadySyncedRow.rowIndex,
+            );
+          }
           return const Result.ok(null);
         }
         final writeResult = await repository.writeVisit(
@@ -247,6 +286,10 @@ class PendingSyncQueue {
         if (writeResult is Err<int>) {
           return Result.err(writeResult.error, writeResult.stackTrace);
         }
+        await markWorkoutVisitPushed(
+          visit.visitId,
+          (writeResult as Ok<int>).value,
+        );
         return const Result.ok(null);
 
       case PendingSyncPayloadType.rating:

@@ -9,6 +9,7 @@ import '../../providers/settings_providers.dart';
 import '../../providers/sheet_data_providers.dart';
 import '../../services/settings/app_settings_service.dart';
 import '../../widgets/app_snack_bar.dart';
+import '../onboarding/sheet_url_entry_screen.dart';
 import 'add_workout_day_dialog.dart';
 import 'algorithms_info_screen.dart';
 import 'changelog_screen.dart';
@@ -25,6 +26,27 @@ class SettingsScreen extends ConsumerStatefulWidget {
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _backfilling = false;
+  bool _syncing = false;
+
+  /// Manual "Sync now" — runs the same "sheet wins" reconciliation pass as
+  /// first-connecting a sheet (see [SnapshotNotifier.importFromSheet]), for
+  /// pulling in changes made directly on the sheet since the last sync.
+  Future<void> _syncNow() async {
+    setState(() => _syncing = true);
+    String? error;
+    try {
+      await ref.read(snapshotProvider.notifier).importFromSheet();
+    } catch (e) {
+      error = e.toString();
+    }
+    if (!mounted) return;
+    setState(() => _syncing = false);
+    showAppSnackBar(
+      context,
+      error == null ? 'Synced with sheet.' : 'Sync failed: $error',
+      isError: error != null,
+    );
+  }
 
   Future<void> _confirmBackfillExerciseInfo() async {
     final confirmed = await showDialog<bool>(
@@ -183,10 +205,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 subtitle: Text(spreadsheetUrl ?? 'Not set'),
               ),
               ListTile(
-                title: const Text('Change sheet'),
+                title: Text(
+                  spreadsheetUrl == null ? 'Connect a sheet' : 'Change sheet',
+                ),
                 leading: const Icon(Icons.swap_horiz),
                 onTap: () async {
-                  await ref.read(spreadsheetIdProvider.notifier).clear();
+                  if (spreadsheetUrl != null) {
+                    await ref.read(spreadsheetIdProvider.notifier).clear();
+                  }
+                  if (!context.mounted) return;
+                  await Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const SheetUrlEntryScreen(),
+                    ),
+                  );
                 },
               ),
               ListTile(
@@ -289,6 +321,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           _SettingsSection(
             title: 'Sync',
             children: [
+              if (spreadsheetUrl != null)
+                ListTile(
+                  title: const Text('Sync now'),
+                  subtitle: const Text(
+                    'Pull in any changes made directly on the sheet',
+                  ),
+                  leading: const Icon(Icons.sync),
+                  trailing: _syncing
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : null,
+                  onTap: _syncing ? null : _syncNow,
+                ),
               ListTile(
                 title: Text('Pending syncs: ${pendingItems.length}'),
                 trailing: pendingItems.isEmpty

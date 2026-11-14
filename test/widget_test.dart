@@ -8,24 +8,30 @@ import 'package:gym_tracker/services/settings/app_settings_service.dart';
 import 'package:gym_tracker/services/sync/pending_sync_queue.dart';
 
 void main() {
-  testWidgets('shows onboarding when no spreadsheet is configured', (
-    tester,
-  ) async {
-    SharedPreferences.setMockInitialValues({});
-    final prefs = await SharedPreferences.getInstance();
+  testWidgets(
+    'goes straight to the main app when no spreadsheet is configured '
+    '(Sheets is optional, not a gate)',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await SharedPreferences.getInstance();
 
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          appSettingsServiceProvider.overrideWithValue(
-            AppSettingsService(prefs),
-          ),
-          pendingSyncQueueProvider.overrideWithValue(PendingSyncQueue(prefs)),
-        ],
-        child: const GymTrackerApp(),
-      ),
-    );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            appSettingsServiceProvider.overrideWithValue(
+              AppSettingsService(prefs),
+            ),
+            pendingSyncQueueProvider.overrideWithValue(
+              PendingSyncQueue(prefs),
+            ),
+          ],
+          child: const GymTrackerApp(),
+        ),
+      );
+      await tester.pump();
 
-    expect(find.text('Connect your sheet'), findsOneWidget);
-  });
+      expect(find.text('Home'), findsOneWidget);
+      expect(find.text('Graphs'), findsOneWidget);
+    },
+  );
 }

@@ -3,20 +3,13 @@ import 'package:flutter/material.dart';
 import '../../core/constants/muscle_groups.dart';
 import '../../core/utils/text.dart';
 import '../../models/exercise.dart';
-import '../../models/exercise_muscle_info.dart';
 import '../../models/exercise_unit.dart';
 import '../../widgets/delete_exercise_confirmation.dart';
 
-/// Result of the add-exercise dialog: either an add/edit ([exercise] set) —
-/// carrying the target "Exercises" tab muscle-column index, if known, for
-/// wherever [exercise]'s current muscle group should live — or a delete
-/// ([deleted] true, [exercise] null). Cancel resolves the whole future to
-/// `null` instead.
-typedef NewExerciseResult = ({
-  Exercise? exercise,
-  int? muscleColumnIndex,
-  bool deleted,
-});
+/// Result of the add-exercise dialog: either an add/edit ([exercise] set) or
+/// a delete ([deleted] true, [exercise] null). Cancel resolves the whole
+/// future to `null` instead.
+typedef NewExerciseResult = ({Exercise? exercise, bool deleted});
 
 /// Shows the add-exercise dialog, or — when [existing] is given — the same
 /// dialog pre-filled for editing that exercise's name, muscle, and unit,
@@ -25,7 +18,6 @@ typedef NewExerciseResult = ({
 Future<NewExerciseResult?> showAddNewExerciseDialog(
   BuildContext context, {
   required List<MuscleGroup> muscleGroupOptions,
-  required List<ExerciseMuscleInfo> allMuscleInfo,
   Exercise? existing,
 }) {
   final isEditing = existing != null;
@@ -115,11 +107,7 @@ Future<NewExerciseResult?> showAddNewExerciseDialog(
                     existing.name,
                   );
                   if (confirmed && context.mounted) {
-                    Navigator.of(context).pop((
-                      exercise: null,
-                      muscleColumnIndex: null,
-                      deleted: true,
-                    ));
+                    Navigator.of(context).pop((exercise: null, deleted: true));
                   }
                 },
                 child: const Text('Delete'),
@@ -137,13 +125,6 @@ Future<NewExerciseResult?> showAddNewExerciseDialog(
                           selectedUnit == ExerciseUnit.custom
                               ? customLabelController.text.trim()
                               : null;
-                      int? columnIndex;
-                      for (final info in allMuscleInfo) {
-                        if (info.muscleGroup == selectedGroup) {
-                          columnIndex = info.columnIndex;
-                          break;
-                        }
-                      }
                       Navigator.of(context).pop((
                         exercise: Exercise(
                           name: name,
@@ -152,7 +133,6 @@ Future<NewExerciseResult?> showAddNewExerciseDialog(
                           customUnitLabel: customLabel,
                           secondaryMuscleGroups: preservedSecondary,
                         ),
-                        muscleColumnIndex: columnIndex,
                         deleted: false,
                       ));
                     },

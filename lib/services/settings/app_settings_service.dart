@@ -9,7 +9,6 @@ import '../../models/app_colors.dart';
 import '../../models/pending_suggestion.dart';
 import '../../models/personal_record.dart';
 import '../../models/recent_suggestion_record.dart';
-import '../../models/workout_day_def.dart';
 
 /// The Android launcher icon/label is fixed at "Koren's Gym Log" (baked
 /// into the app package) — this is just the in-app display name shown on
@@ -53,7 +52,6 @@ class AppSettingsService {
   static const _kWorkoutDraft = 'workout_draft';
   static const _kDefaultRepRangeLow = 'default_rep_range_low';
   static const _kDefaultRepRangeHigh = 'default_rep_range_high';
-  static const _kCustomWorkoutDays = 'custom_workout_days';
   static const _kHasSeededWorkoutDays = 'has_seeded_workout_days';
   static const _kHasCleanedUpDuplicateWorkoutDays =
       'has_cleaned_up_duplicate_workout_days';
@@ -64,6 +62,7 @@ class AppSettingsService {
   static const _kPersonalRecords = 'personal_records_v1';
   static const _kBiologicalSex = 'biological_sex';
   static const _kBirthDate = 'birth_date';
+  static const _kHasMigratedToLocalDb = 'has_migrated_to_local_db_v1';
 
   static Future<AppSettingsService> create() async {
     final prefs = await SharedPreferences.getInstance();
@@ -281,35 +280,10 @@ class AppSettingsService {
   Future<void> setDefaultRepRangeHigh(int value) =>
       _prefs.setInt(_kDefaultRepRangeHigh, value);
 
-  /// Workout days pending local storage until confirmed synced to the
-  /// sheet-backed `WorkoutDays` tab (see `WorkoutDayDefsNotifier`) — an
-  /// offline staging area, not the source of truth once a day is synced.
-  List<WorkoutDayDef> get customWorkoutDayDefs {
-    final raw = _prefs.getString(_kCustomWorkoutDays);
-    if (raw == null) return const [];
-    try {
-      final list = jsonDecode(raw) as List;
-      return [
-        for (final e in list)
-          WorkoutDayDef.fromJson(e as Map<String, dynamic>),
-      ];
-    } catch (_) {
-      return const [];
-    }
-  }
-
-  Future<void> setCustomWorkoutDayDefs(List<WorkoutDayDef> defs) =>
-      _prefs.setString(
-        _kCustomWorkoutDays,
-        jsonEncode([for (final d in defs) d.toJson()]),
-      );
-
-  /// Guards the one-time Push/Pull/Legs/Full Body seed in
-  /// `WorkoutDayDefsNotifier._seedIfStillEmpty` — set *before* that seed's
-  /// writes go out, not after, so a reload or a racing `refresh()`
-  /// mid-sequence (Google Sheets' read-after-write lag can make a
-  /// freshly-seeded tab briefly read back as empty) can never re-enter it
-  /// and append a duplicate set of rows.
+  /// Guards the one-time Push/Pull/Legs/Full Body seed done in `main()`
+  /// before the local `workout_day_defs` table has any rows — set before
+  /// the seed write, not after, so a crash mid-write can never re-seed a
+  /// duplicate set of rows on next launch.
   bool get hasSeededWorkoutDays =>
       _prefs.getBool(_kHasSeededWorkoutDays) ?? false;
 
@@ -438,4 +412,14 @@ class AppSettingsService {
       );
     }
   }
+
+  /// Guards the one-time v3.0.0 upgrade migration (drain the pending sync
+  /// queue, then import/reconcile from the sheet if one's connected) — set
+  /// only after both steps succeed, so a kill mid-migration safely retries
+  /// on next launch.
+  bool get hasMigratedToLocalDb =>
+      _prefs.getBool(_kHasMigratedToLocalDb) ?? false;
+
+  Future<void> setHasMigratedToLocalDb(bool value) =>
+      _prefs.setBool(_kHasMigratedToLocalDb, value);
 }

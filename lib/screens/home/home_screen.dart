@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../providers/local_history_providers.dart';
+import '../../providers/settings_providers.dart';
 import '../../providers/sheet_data_providers.dart';
-import '../../widgets/loading_skeleton.dart';
 import '../../widgets/streak_banner.dart';
 import '../../widgets/this_week_summary.dart';
 import '../../widgets/weekly_insight_box.dart';
@@ -29,9 +30,17 @@ class _HomeTabState extends ConsumerState<HomeTab> {
 
   @override
   Widget build(BuildContext context) {
-    final snapshotAsync = ref.watch(snapshotProvider);
+    // The local DB is the source of truth (v3.0.0) — every widget below
+    // reads it directly (via localVisitsProvider) and handles its own
+    // loading/empty state, so this tab's layout never waits on a sheet.
+    // snapshotProvider is only consulted here for the optional best-effort
+    // sheet mirror: retrying a queued push, and pull-to-refresh.
+    final spreadsheetId = ref.watch(spreadsheetIdProvider);
+    final snapshotAsync = spreadsheetId != null
+        ? ref.watch(snapshotProvider)
+        : null;
 
-    final pendingCount = snapshotAsync.value?.pendingCount ?? 0;
+    final pendingCount = snapshotAsync?.value?.pendingCount ?? 0;
     if (!_autoRetried && pendingCount > 0) {
       _autoRetried = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -42,61 +51,39 @@ class _HomeTabState extends ConsumerState<HomeTab> {
     final screenHeight = MediaQuery.sizeOf(context).height;
 
     return RefreshIndicator(
-      onRefresh: () => ref.read(snapshotProvider.notifier).refresh(),
-      child: snapshotAsync.when(
-        loading: () => const HomeSkeleton(),
-        error: (e, st) => ListView(
+      onRefresh: () async {
+        if (spreadsheetId != null) {
+          await ref.read(snapshotProvider.notifier).refresh();
+        }
+        await ref.read(localVisitsProvider.notifier).refresh();
+      },
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+        child: Column(
           children: [
-            const SizedBox(height: 80),
-            Center(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Text(
-                  'Failed to load spreadsheet:\n$e',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-              ),
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              height: _expandedDayId != null ? 56 : screenHeight * 0.3,
+              child: WeeklyInsightBox(minimized: _expandedDayId != null),
             ),
-            const SizedBox(height: 16),
-            Center(
-              child: FilledButton(
-                onPressed: () => ref.read(snapshotProvider.notifier).refresh(),
-                child: const Text('Retry'),
+            SizedBox(height: _expandedDayId != null ? 8 : 16),
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 200),
+              child: _expandedDayId != null
+                  ? const SizedBox.shrink()
+                  : const Padding(
+                      padding: EdgeInsets.only(bottom: 8),
+                      child: StreakBanner(),
+                    ),
+            ),
+            Expanded(
+              child: ThisWeekSummary(
+                expandedDayId: _expandedDayId,
+                onDayToggled: (id) => setState(() => _expandedDayId = id),
               ),
             ),
           ],
         ),
-        data: (snapshotState) {
-          return Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
-            child: Column(
-              children: [
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  height: _expandedDayId != null ? 56 : screenHeight * 0.3,
-                  child: WeeklyInsightBox(minimized: _expandedDayId != null),
-                ),
-                SizedBox(height: _expandedDayId != null ? 8 : 16),
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 200),
-                  child: _expandedDayId != null
-                      ? const SizedBox.shrink()
-                      : const Padding(
-                          padding: EdgeInsets.only(bottom: 8),
-                          child: StreakBanner(),
-                        ),
-                ),
-                Expanded(
-                  child: ThisWeekSummary(
-                    expandedDayId: _expandedDayId,
-                    onDayToggled: (id) => setState(() => _expandedDayId = id),
-                  ),
-                ),
-              ],
-            ),
-          );
-        },
       ),
     );
   }

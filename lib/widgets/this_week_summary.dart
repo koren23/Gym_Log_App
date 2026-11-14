@@ -3,12 +3,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../core/utils/exercise_value_format.dart';
+import '../models/exercise.dart';
 import '../models/exercise_unit.dart';
 import '../models/history_entry.dart';
 import '../models/rating_relevance.dart';
 import '../models/workout_day_def.dart';
 import '../models/year_sheet_data.dart';
 import '../providers/analysis_providers.dart';
+import '../providers/local_history_providers.dart';
 import '../providers/settings_providers.dart';
 import '../providers/sheet_data_providers.dart';
 import 'simple_line_chart.dart' show approximateWeekLabel;
@@ -35,21 +37,16 @@ class ThisWeekSummary extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final snapshotState = ref.watch(snapshotProvider).value;
+    final visits = ref.watch(localVisitsProvider).value;
     final theme = Theme.of(context);
     final dayDefs = ref.watch(workoutDayDefsProvider);
+    final exercises = ref.watch(allKnownExercisesProvider);
 
-    if (snapshotState == null) {
+    if (visits == null) {
       return const SizedBox.shrink();
     }
 
-    final yearsAscending = snapshotState.snapshot.yearData.values.toList()
-      ..sort((a, b) => a.year.compareTo(b.year));
-
-    final allEntries = buildHistoryEntries(
-      yearsAscending,
-      workoutDays: dayDefs,
-    );
+    final allEntries = buildHistoryEntries(visits);
 
     if (allEntries.isEmpty) {
       return Card(
@@ -72,7 +69,8 @@ class ThisWeekSummary extends ConsumerWidget {
                   child: _DaySection(
                     day: day,
                     entry: _latestEntryForDay(allEntries, day, dayDefs),
-                    yearsAscending: yearsAscending,
+                    visits: visits,
+                    exercises: exercises,
                     expanded: true,
                     onToggle: () => onDayToggled(null),
                   ),
@@ -80,7 +78,8 @@ class ThisWeekSummary extends ConsumerWidget {
               : _DaySection(
                   day: day,
                   entry: _latestEntryForDay(allEntries, day, dayDefs),
-                  yearsAscending: yearsAscending,
+                  visits: visits,
+                  exercises: exercises,
                   expanded: false,
                   onToggle: () => onDayToggled(day.id),
                 ),
@@ -100,7 +99,7 @@ class ThisWeekSummary extends ConsumerWidget {
     List<WorkoutDayDef> allDays,
   ) {
     for (final entry in entries) {
-      if (entry.metaRow?.ratingRelevance == RatingRelevance.unrelated) {
+      if (entry.metaRow.ratingRelevance == RatingRelevance.unrelated) {
         continue;
       }
       if (historyEntryBelongsToDay(entry, day, allDays)) return entry;
@@ -113,14 +112,16 @@ class _DaySection extends StatelessWidget {
   const _DaySection({
     required this.day,
     required this.entry,
-    required this.yearsAscending,
+    required this.visits,
+    required this.exercises,
     required this.expanded,
     required this.onToggle,
   });
 
   final WorkoutDayDef day;
   final HistoryEntry? entry;
-  final List<YearSheetData> yearsAscending;
+  final List<MetaRow> visits;
+  final List<Exercise> exercises;
   final bool expanded;
   final VoidCallback onToggle;
 
@@ -186,7 +187,8 @@ class _DaySection extends StatelessWidget {
                         for (final name in entry.exerciseNames)
                           _ExerciseRow(
                             name: name,
-                            yearsAscending: yearsAscending,
+                            visits: visits,
+                            exercises: exercises,
                           ),
                       ],
                     ),
@@ -198,15 +200,20 @@ class _DaySection extends StatelessWidget {
 }
 
 class _ExerciseRow extends StatelessWidget {
-  const _ExerciseRow({required this.name, required this.yearsAscending});
+  const _ExerciseRow({
+    required this.name,
+    required this.visits,
+    required this.exercises,
+  });
 
   final String name;
-  final List<YearSheetData> yearsAscending;
+  final List<MetaRow> visits;
+  final List<Exercise> exercises;
 
   @override
   Widget build(BuildContext context) {
     final history = buildExerciseHistory(
-      yearsAscending: yearsAscending,
+      visits: visits,
       exerciseName: name,
     );
 
@@ -225,9 +232,13 @@ class _ExerciseRow extends StatelessWidget {
     }
 
     final latestWeight = history.isEmpty ? null : history.last.avgWeight;
-    final exercise = yearsAscending.isEmpty
-        ? null
-        : yearsAscending.last.findExercise(name);
+    Exercise? exercise;
+    for (final e in exercises) {
+      if (e.name.toLowerCase() == name.toLowerCase()) {
+        exercise = e;
+        break;
+      }
+    }
     final unit = exercise?.unit ?? ExerciseUnit.kg;
 
     String? latestText;

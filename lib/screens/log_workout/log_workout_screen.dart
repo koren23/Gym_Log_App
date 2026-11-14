@@ -15,7 +15,6 @@ import '../../core/utils/iso_week.dart';
 import '../../core/utils/text.dart';
 import '../../models/analysis_result.dart';
 import '../../models/exercise.dart';
-import '../../models/exercise_muscle_info.dart';
 import '../../models/exercise_note.dart';
 import '../../models/exercise_unit.dart';
 import '../../models/history_entry.dart';
@@ -24,6 +23,7 @@ import '../../models/workout_day_def.dart';
 import '../../models/workout_visit.dart';
 import '../../models/year_sheet_data.dart';
 import '../../providers/analysis_providers.dart';
+import '../../providers/local_history_providers.dart';
 import '../../providers/settings_providers.dart';
 import '../../providers/sheet_data_providers.dart';
 import '../../widgets/app_snack_bar.dart';
@@ -340,15 +340,13 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
   /// Works for any day (legacy-linked or a fully custom muscle set) via
   /// [historyEntryBelongsToDay].
   List<HistoryEntry> _recentVisitsFor(WorkoutDayDef day) {
-    final snapshot = ref.read(snapshotProvider).value?.snapshot;
-    if (snapshot == null) return const [];
-    final yearsAscending = snapshot.yearData.values.toList()
-      ..sort((a, b) => a.year.compareTo(b.year));
+    final visits = ref.read(localVisitsProvider).value;
+    if (visits == null) return const [];
     final dayDefs = ref.read(workoutDayDefsProvider);
-    return buildHistoryEntries(
-      yearsAscending,
-      workoutDays: dayDefs,
-    ).where((e) => historyEntryBelongsToDay(e, day, dayDefs)).take(2).toList();
+    return buildHistoryEntries(visits)
+        .where((e) => historyEntryBelongsToDay(e, day, dayDefs))
+        .take(2)
+        .toList();
   }
 
   /// The most frequent name in [names]; ties broken by whichever occurs in
@@ -413,17 +411,14 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
     return order;
   }
 
-  /// The muscle group [name] trains, preferring the "Exercises" reference
-  /// tab's per-exercise mapping (when it exists) and falling back to the
-  /// exercise's own [Exercise.muscleGroup] otherwise — the exact precedence
-  /// [_fallbackFirstUnchecked] already uses, needed because
-  /// [muscleByName] is empty whenever the optional Exercises tab doesn't
-  /// exist (the common case for legacy/grouped years, where muscle group is
-  /// already authoritative from section headers).
+  /// The muscle group [name] trains — [Exercise.muscleGroup] is already
+  /// the single authoritative source as of v3.0.0 (resolved once at sheet
+  /// import time), so [muscleByName] only needs consulting for exercises
+  /// outside [availableExercises] itself.
   MuscleGroup? _muscleGroupOf(
     String name,
     List<Exercise> availableExercises,
-    Map<String, ExerciseMuscleInfo> muscleByName,
+    Map<String, Exercise> muscleByName,
   ) {
     final exercise = _findByName(availableExercises, name);
     if (exercise == null) return null;
@@ -436,7 +431,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
   /// even if it isn't the usual exercise for that slot.
   Set<MuscleGroup> _coveredMuscleGroupsThisSession(
     List<Exercise> availableExercises,
-    Map<String, ExerciseMuscleInfo> muscleByName,
+    Map<String, Exercise> muscleByName,
   ) {
     final completedNames = _checked.where(_completedSnapshot.contains);
     final covered = <MuscleGroup>{};
@@ -466,7 +461,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
   String? _suggestedNextExerciseName(
     WorkoutDayDef day,
     List<Exercise> availableExercises,
-    Map<String, ExerciseMuscleInfo> muscleByName,
+    Map<String, Exercise> muscleByName,
   ) {
     final recentVisits = _recentVisitsFor(day);
 
@@ -497,7 +492,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
   /// the checklist itself renders in.
   String? _fallbackFirstUnchecked(
     List<Exercise> availableExercises,
-    Map<String, ExerciseMuscleInfo> muscleByName,
+    Map<String, Exercise> muscleByName,
   ) {
     final sorted = List<Exercise>.of(availableExercises)
       ..sort((a, b) {
@@ -530,7 +525,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
   String? _resolveSuggestion(
     WorkoutDayDef day,
     List<Exercise> availableExercises,
-    Map<String, ExerciseMuscleInfo> muscleByName,
+    Map<String, Exercise> muscleByName,
   ) {
     final pinned = _pinnedSuggestionName;
     if (pinned != null &&
@@ -575,11 +570,11 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
 
   ExerciseDraft _draftFor(
     Exercise exercise,
-    List<YearSheetData> yearsAscending,
+    List<MetaRow> visits,
   ) => _drafts.putIfAbsent(exercise.name, () {
     final defaults = ref.read(workoutDefaultsProvider);
     final historicalSetCount = historicalAverageSetCount(
-      yearsAscending: yearsAscending,
+      visits: visits,
       exerciseName: exercise.name,
     );
     final draft = ExerciseDraft(
@@ -632,10 +627,10 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
   /// per-set tracking existed (empty `actualWeightsPerSet`).
   List<double> _previousWeightsFor(
     String exerciseName,
-    List<YearSheetData> yearsAscending,
+    List<MetaRow> visits,
   ) {
     return previousActualWeights(
-      yearsAscending: yearsAscending,
+      visits: visits,
       exerciseName: exerciseName,
     );
   }
@@ -656,12 +651,9 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final yearData = ref.watch(currentYearDataProvider);
     final muscleByName = ref.watch(exerciseMuscleByNameProvider);
-    final exerciseMuscleInfo = ref.watch(exerciseMuscleInfoProvider);
-    final snapshotState = ref.watch(snapshotProvider).value;
-    final yearsAscending = snapshotState?.snapshot.yearData.values.toList()
-      ?..sort((a, b) => a.year.compareTo(b.year));
+    final visits = ref.watch(localVisitsProvider).value;
+    final exercises = ref.watch(allKnownExercisesProvider);
     final day = _selectedDay;
     final groups = day?.muscleGroups ?? const <MuscleGroup>[];
     final dayDefs = ref.watch(workoutDayDefsProvider);
@@ -670,7 +662,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
 
     final availableExercises = day == null
         ? const <Exercise>[]
-        : _exercisesForDay(yearData, groups, exerciseMuscleInfo);
+        : _exercisesForDay(exercises, groups);
     _reconcileDraftUnitsWithSnapshot(availableExercises);
     final suggestedNextName = day == null
         ? null
@@ -683,13 +675,16 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
     // Computed once per build (not per tile) — the trend stripe on each
     // ExerciseTile. Reuses analyzeExercises, the same batch analysis entry
     // point the post-save/last-workout insight screens already use.
+    final findings = visits == null
+        ? const <AnalysisFinding>[]
+        : analyzeExercises(
+            visits: visits,
+            exercises: exercises,
+            exerciseNames: [for (final e in availableExercises) e.name],
+            bodyWeightEntries: ref.watch(bodyWeightEntriesProvider),
+          );
     final trendByName = <String, TileTrend>{
-      for (final f in analyzeExercises(
-        yearsAscending: yearsAscending ?? const <YearSheetData>[],
-        exerciseNames: [for (final e in availableExercises) e.name],
-        bodyWeightEntries: ref.watch(bodyWeightEntriesProvider),
-      ))
-        f.subjectName: classifyTrend(f),
+      for (final f in findings) f.subjectName: classifyTrend(f),
     };
 
     return Scaffold(
@@ -772,7 +767,6 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
                                   final result = await showAddNewExerciseDialog(
                                     context,
                                     muscleGroupOptions: day.muscleGroups,
-                                    allMuscleInfo: muscleByName.values.toList(),
                                   );
                                   // This call site never passes `existing:`,
                                   // so the dialog can't return a delete here.
@@ -783,37 +777,9 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
                                   );
                                   _saveDraft();
 
-                                  final columnIndex = result!.muscleColumnIndex;
-                                  if (columnIndex != null) {
-                                    final ok = await ref
-                                        .read(snapshotProvider.notifier)
-                                        .addExerciseMuscle(
-                                          exerciseName: newExercise.name,
-                                          columnIndex: columnIndex,
-                                        );
-                                    if (!ok && context.mounted) {
-                                      showAppSnackBar(
-                                        context,
-                                        "Couldn't reach your sheet — the muscle is queued and will retry automatically.",
-                                        isError: true,
-                                      );
-                                    }
-                                  }
-                                  final unitOk = await ref
+                                  await ref
                                       .read(snapshotProvider.notifier)
-                                      .addExerciseUnit(
-                                        exerciseName: newExercise.name,
-                                        unit: newExercise.unit,
-                                        customLabel:
-                                            newExercise.customUnitLabel,
-                                      );
-                                  if (!unitOk && context.mounted) {
-                                    showAppSnackBar(
-                                      context,
-                                      "Couldn't reach your sheet — the unit is queued and will retry automatically.",
-                                      isError: true,
-                                    );
-                                  }
+                                      .addExercise(newExercise);
                                 },
                               ),
                               const Spacer(),
@@ -886,7 +852,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
                             context,
                             'Suggested next',
                             [suggestedExercise],
-                            yearsAscending ?? const <YearSheetData>[],
+                            visits ?? const <MetaRow>[],
                             trendByName,
                             sectionKey: const ValueKey('section_suggested'),
                           ),
@@ -894,7 +860,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
                           context,
                           availableExercises,
                           muscleByName,
-                          yearsAscending ?? const <YearSheetData>[],
+                          visits ?? const <MetaRow>[],
                           trendByName,
                           // Already shown above under "Suggested next" — don't
                           // also render it here, so the list's shape doesn't
@@ -933,20 +899,22 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
     );
   }
 
-  /// All of the selected day's exercises (sheet-known + custom-added +
-  /// muscle-tagged extras from other days), not yet filtered by search.
-  /// Also pulls in exercises whose muscle (per the Exercises tab) is
-  /// shared with another day — e.g. "Abdominals" listed under both Push
-  /// and Legs — so an exercise like Crunches can be logged from either
-  /// day and still accumulate into the same weight history/graph, even
-  /// though its own matrix section only lives under one [MuscleGroup].
+  /// All of the selected day's exercises (every known exercise whose
+  /// resolved [Exercise.muscleGroup] is one of [groups], plus whatever's
+  /// been added this session but not yet persisted), not yet filtered by
+  /// search. [Exercise.muscleGroup] is already the single authoritative
+  /// muscle source as of v3.0.0 (resolved once at sheet import time), so
+  /// this needs no separate "Exercises tab" bonus-inclusion pass anymore.
   List<Exercise> _exercisesForDay(
-    YearSheetData? yearData,
+    List<Exercise> allExercises,
     List<MuscleGroup> groups,
-    List<ExerciseMuscleInfo> exerciseMuscleInfo,
   ) {
     final exercises = <Exercise>[
-      for (final group in groups) ...?yearData?.muscleGroupSections[group],
+      for (final e in allExercises)
+        if (e.muscleGroupKnown &&
+            !e.muscleGroup.legacy &&
+            groups.contains(e.muscleGroup))
+          e,
     ];
     final existingNames = exercises.map((e) => e.name.toLowerCase()).toSet();
     for (final added in _addedExercises) {
@@ -954,20 +922,6 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
       if (existingNames.contains(added.name.toLowerCase())) continue;
       exercises.add(added);
       existingNames.add(added.name.toLowerCase());
-    }
-
-    // Bonus inclusion: any exercise whose muscle (per the Exercises tab) is
-    // one of this day's muscle groups, even if the matrix tab itself hasn't
-    // filed it under the same group yet (e.g. newly added but not yet
-    // logged) — works uniformly for built-in and custom days alike now
-    // that a day's muscle groups and the Exercises tab share one taxonomy.
-    for (final info in exerciseMuscleInfo) {
-      if (!groups.contains(info.muscleGroup)) continue;
-      if (existingNames.contains(info.exerciseName.toLowerCase())) continue;
-      final exercise = yearData?.findExercise(info.exerciseName);
-      if (exercise == null) continue;
-      exercises.add(exercise);
-      existingNames.add(info.exerciseName.toLowerCase());
     }
 
     // A pending SuggestionKind.changeExercise swap: substitute the accepted
@@ -1012,8 +966,8 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
   List<Widget> _buildMuscleSections(
     BuildContext context,
     List<Exercise> exercises,
-    Map<String, ExerciseMuscleInfo> muscleByName,
-    List<YearSheetData> yearsAscending,
+    Map<String, Exercise> muscleByName,
+    List<MetaRow> visits,
     Map<String, TileTrend> trendByName, {
     String? excludeName,
   }) {
@@ -1039,7 +993,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
           context,
           muscle,
           byMuscle[muscle]!,
-          yearsAscending,
+          visits,
           trendByName,
           sectionKey: ValueKey('section_$muscle'),
         ),
@@ -1050,7 +1004,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
     BuildContext context,
     String muscle,
     List<Exercise> exercises,
-    List<YearSheetData> yearsAscending,
+    List<MetaRow> visits,
     Map<String, TileTrend> trendByName, {
     Key? sectionKey,
   }) {
@@ -1077,8 +1031,8 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
             // the keystroke. Safe as a GlobalKey since _buildMuscleSections
             // already excludes the pinned exercise from the normal list.
             key: GlobalObjectKey(exercise.name),
-            draft: _draftFor(exercise, yearsAscending),
-            previousWeights: _previousWeightsFor(exercise.name, yearsAscending),
+            draft: _draftFor(exercise, visits),
+            previousWeights: _previousWeightsFor(exercise.name, visits),
             trend: trendByName[exercise.name] ?? TileTrend.unknown,
             selected: _checked.contains(exercise.name),
             onToggle: (v) {
@@ -1128,38 +1082,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
     });
     _saveDraft();
 
-    final columnIndex = ref
-        .read(exerciseMuscleByNameProvider)[oldExercise.name.toLowerCase()]
-        ?.columnIndex;
-    if (columnIndex != null) {
-      final ok = await ref
-          .read(snapshotProvider.notifier)
-          .addExerciseMuscle(
-            exerciseName: newExercise.name,
-            columnIndex: columnIndex,
-          );
-      if (!ok && mounted) {
-        showAppSnackBar(
-          context,
-          "Couldn't reach your sheet — the muscle is queued and will retry automatically.",
-          isError: true,
-        );
-      }
-    }
-    final unitOk = await ref
-        .read(snapshotProvider.notifier)
-        .addExerciseUnit(
-          exerciseName: newExercise.name,
-          unit: newExercise.unit,
-          customLabel: newExercise.customUnitLabel,
-        );
-    if (!unitOk && mounted) {
-      showAppSnackBar(
-        context,
-        "Couldn't reach your sheet — the unit is queued and will retry automatically.",
-        isError: true,
-      );
-    }
+    await ref.read(snapshotProvider.notifier).addExercise(newExercise);
   }
 
   /// The already-logged visit on [_selectedDate], if any — used to enforce

@@ -9,6 +9,7 @@ import '../../core/utils/exercise_muscle_resolution.dart';
 import '../../models/history_entry.dart';
 import '../../models/personal_record.dart';
 import '../../providers/analysis_providers.dart';
+import '../../providers/local_history_providers.dart';
 import '../../providers/settings_providers.dart';
 import '../../providers/sheet_data_providers.dart';
 import '../../services/analysis/muscle_balance.dart';
@@ -36,18 +37,16 @@ class StatsScreen extends ConsumerStatefulWidget {
 class _StatsScreenState extends ConsumerState<StatsScreen> {
   @override
   Widget build(BuildContext context) {
-    final snapshotAsync = ref.watch(snapshotProvider);
-    final snapshotState = snapshotAsync.value;
-    final yearsAscending = snapshotState?.snapshot.yearData.values.toList()
-      ?..sort((a, b) => a.year.compareTo(b.year));
+    final visitsAsync = ref.watch(localVisitsProvider);
+    final visits = visitsAsync.value;
 
-    if (snapshotAsync.isLoading && snapshotState == null) {
+    if (visitsAsync.isLoading && visits == null) {
       return const ChartScreenSkeleton();
     }
 
-    if (yearsAscending == null || yearsAscending.isEmpty) {
+    if (visits == null || visits.isEmpty) {
       return RefreshIndicator(
-        onRefresh: () => ref.read(snapshotProvider.notifier).refresh(),
+        onRefresh: () => ref.read(localVisitsProvider.notifier).refresh(),
         child: const SingleChildScrollView(
           physics: AlwaysScrollableScrollPhysics(),
           child: Padding(
@@ -61,13 +60,13 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
       );
     }
 
-    final realEntries = buildHistoryEntries(yearsAscending)
-        .where((e) => e.metaRow != null)
+    final realEntries = buildHistoryEntries(visits)
+        .where((e) => !e.isSynthetic)
         .toList();
 
     if (realEntries.isEmpty) {
       return RefreshIndicator(
-        onRefresh: () => ref.read(snapshotProvider.notifier).refresh(),
+        onRefresh: () => ref.read(localVisitsProvider.notifier).refresh(),
         child: const SingleChildScrollView(
           physics: AlwaysScrollableScrollPhysics(),
           child: Padding(
@@ -82,15 +81,14 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
     }
 
     final exercisesByName = resolvedExercisesByName(
-      exercises: ref.watch(allKnownExercisesProvider),
-      exerciseMuscleInfo: ref.watch(exerciseMuscleInfoProvider),
+      ref.watch(allKnownExercisesProvider),
     );
     final bodyWeightEntries = ref.watch(bodyWeightEntriesProvider);
     final theme = Theme.of(context);
 
     final prs = prsByExercise(realEntries);
     final visitDates = realEntries.map((e) => e.date).toList();
-    final allVisitDates = buildHistoryEntries(yearsAscending)
+    final allVisitDates = buildHistoryEntries(visits)
         .map((e) => e.date)
         .toList();
     final xp = computeXp(
@@ -162,7 +160,7 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
     ]..sort((a, b) => b.date.compareTo(a.date));
 
     return RefreshIndicator(
-      onRefresh: () => ref.read(snapshotProvider.notifier).refresh(),
+      onRefresh: () => ref.read(localVisitsProvider.notifier).refresh(),
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),

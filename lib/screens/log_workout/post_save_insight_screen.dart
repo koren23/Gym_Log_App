@@ -6,6 +6,7 @@ import '../../models/history_entry.dart';
 import '../../models/workout_day_def.dart';
 import '../../models/workout_visit.dart';
 import '../../providers/analysis_providers.dart';
+import '../../providers/local_history_providers.dart';
 import '../../providers/settings_providers.dart';
 import '../../providers/sheet_data_providers.dart';
 import '../../services/analysis/stats_engine.dart';
@@ -24,9 +25,8 @@ class PostSaveInsightScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    final snapshotState = ref.watch(snapshotProvider).value;
-    final yearsAscending = snapshotState?.snapshot.yearData.values.toList()
-      ?..sort((a, b) => a.year.compareTo(b.year));
+    final visits = ref.watch(localVisitsProvider).value;
+    final exercises = ref.watch(allKnownExercisesProvider);
 
     final workoutDays = ref.watch(workoutDayDefsProvider);
     WorkoutDayDef? day;
@@ -39,10 +39,11 @@ class PostSaveInsightScreen extends ConsumerWidget {
       }
     }
 
-    final findings = yearsAscending == null
+    final findings = visits == null
         ? const <AnalysisFinding>[]
         : analyzeExercises(
-            yearsAscending: yearsAscending,
+            visits: visits,
+            exercises: exercises,
             exerciseNames: visit.entries.map((e) => e.exercise.name).toList(),
             bodyWeightEntries: ref.watch(bodyWeightEntriesProvider),
             settings: ref.watch(appSettingsServiceProvider),
@@ -50,19 +51,19 @@ class PostSaveInsightScreen extends ConsumerWidget {
           );
 
     WorkoutXpBreakdown? xpBreakdown;
-    if (yearsAscending != null) {
-      final realEntries = buildHistoryEntries(yearsAscending)
-          .where((e) => e.metaRow != null)
+    if (visits != null) {
+      final realEntries = buildHistoryEntries(visits)
+          .where((e) => !e.isSynthetic)
           .toList();
       HistoryEntry? thisEntry;
       for (final entry in realEntries) {
-        if (entry.metaRow?.visitId == visit.visitId) {
+        if (entry.metaRow.visitId == visit.visitId) {
           thisEntry = entry;
           break;
         }
       }
       if (thisEntry != null) {
-        final allVisitDates = buildHistoryEntries(yearsAscending)
+        final allVisitDates = buildHistoryEntries(visits)
             .map((e) => e.date)
             .toList();
         xpBreakdown = computeWorkoutXp(

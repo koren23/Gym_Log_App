@@ -15,10 +15,13 @@ import '../models/rating_relevance.dart';
 import '../models/workout_day_def.dart';
 import '../models/workout_visit.dart';
 import '../models/year_sheet_data.dart';
+import '../services/db/workout_mappers.dart';
 import '../services/sheets/sheet_writer.dart';
 import '../services/sheets/sheets_repository.dart';
 import '../services/sync/pending_sync_queue.dart';
 import 'auth_providers.dart';
+import 'db_providers.dart';
+import 'local_history_providers.dart';
 import 'settings_providers.dart';
 
 final sheetsApiProvider = FutureProvider<SheetsApi>((ref) async {
@@ -39,6 +42,9 @@ final sheetsRepositoryProvider = FutureProvider<SheetsRepository>((ref) async {
 /// Outcome of a save attempt from the UI's point of view: either it made
 /// it to the sheet, or it's safely queued locally to retry later.
 enum SaveOutcome { synced, queuedOffline }
+
+bool _isSameDay(DateTime a, DateTime b) =>
+    a.year == b.year && a.month == b.month && a.day == b.day;
 
 class SnapshotState {
   const SnapshotState({required this.snapshot, this.pendingCount = 0});
@@ -119,13 +125,18 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
   /// row index (needed for the follow-up rating write) alongside whether
   /// it synced live or was queued for later.
   Future<(SaveOutcome, int?)> logVisit(WorkoutVisit visit) async {
-    final repository = await ref.read(sheetsRepositoryProvider.future);
+    // Local DB is the source of truth — this always succeeds, regardless
+    // of whether a sheet is connected or reachable.
+    await ref.read(workoutDaoProvider).insertVisit(visit);
+    ref.invalidate(localVisitsProvider);
+
     final queue = ref.read(pendingSyncQueueProvider);
     final current = state.value;
     if (current == null) {
-      await queue.enqueueWorkoutVisit(visit);
+      await queue.enqueueWorkoutVisit(visit.visitId);
       return (SaveOutcome.queuedOffline, null);
     }
+    final repository = await ref.read(sheetsRepositoryProvider.future);
 
     final contextResult = await _resolveOrCreateYearContext(
       repository: repository,
@@ -135,7 +146,7 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
     );
 
     if (contextResult.isErr) {
-      await queue.enqueueWorkoutVisit(visit);
+      await queue.enqueueWorkoutVisit(visit.visitId);
       state = AsyncData(
         SnapshotState(
           snapshot: current.snapshot,
@@ -154,7 +165,7 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
     );
 
     if (writeResult.isErr) {
-      await queue.enqueueWorkoutVisit(visit);
+      await queue.enqueueWorkoutVisit(visit.visitId);
       state = AsyncData(
         SnapshotState(
           snapshot: current.snapshot,
@@ -202,6 +213,9 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
 
     await refresh();
     final metaRowIndex = (writeResult as Ok<int>).value;
+    await ref
+        .read(workoutDaoProvider)
+        .markSheetPushed(visit.visitId, sheetMetaRowIndex: metaRowIndex);
     return (SaveOutcome.synced, metaRowIndex);
   }
 
@@ -212,102 +226,115 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
   /// failure here doesn't undo that, matching how the visit-level note's
   /// header-row mirror is treated in [logVisit].
   Future<bool> saveNotesForVisit(String visitId, List<ExerciseNote> notes) async {
-    final current = state.value;
-    if (current == null) return false;
-    final repository = await ref.read(sheetsRepositoryProvider.future);
-
-    if (!current.snapshot.classifiedTabs.hasNotesTab) {
-      if (notes.isEmpty) return true;
-      final ensured = await repository.ensureNotesTab();
-      if (ensured.isErr) return false;
+    // Local DB first — always succeeds, with no sheet dependency.
+    final noteDao = ref.read(exerciseNoteDaoProvider);
+    final existing = await noteDao.getForVisit(visitId);
+    for (final n in existing) {
+      final stillPresent = notes.any(
+        (nn) => nn.exerciseName == n.exerciseName && nn.setIndex == n.setIndex,
+      );
+      if (!stillPresent) {
+        await noteDao.deleteForVisitAndExercise(
+          visitId,
+          n.exerciseName,
+          setIndex: n.setIndex,
+        );
+      }
     }
+    for (final n in notes) {
+      await noteDao.upsert(n);
+    }
+    ref.invalidate(localNotesProvider);
 
-    final staleRowIndexes = [
-      for (final n in current.snapshot.notes)
-        if (n.visitId == visitId && n.rowIndex != null) n.rowIndex!,
-    ];
-    if (staleRowIndexes.isEmpty && notes.isEmpty) return true;
-
-    final result = await repository.replaceNotesForVisit(
-      visitId: visitId,
-      staleRowIndexes: staleRowIndexes,
-      notesGridId: current.snapshot.gridIdsByTabName[kNotesTabName],
-      newNotes: notes,
-    );
-    if (result.isErr) return false;
-    await refresh();
+    final current = state.value;
+    if (current == null) return true;
+    try {
+      final repository = await ref.read(sheetsRepositoryProvider.future);
+      if (!current.snapshot.classifiedTabs.hasNotesTab && notes.isNotEmpty) {
+        final ensured = await repository.ensureNotesTab();
+        if (ensured.isErr) return true;
+      }
+      final staleRowIndexes = [
+        for (final n in current.snapshot.notes)
+          if (n.visitId == visitId && n.rowIndex != null) n.rowIndex!,
+      ];
+      if (staleRowIndexes.isNotEmpty || notes.isNotEmpty) {
+        final result = await repository.replaceNotesForVisit(
+          visitId: visitId,
+          staleRowIndexes: staleRowIndexes,
+          notesGridId: current.snapshot.gridIdsByTabName[kNotesTabName],
+          newNotes: notes,
+        );
+        if (result.isOk) await refresh();
+      }
+    } catch (_) {
+      // Best-effort sheet mirror — the local save above already succeeded.
+    }
     return true;
   }
 
+  /// Edits a previously logged visit's rating (and, optionally,
+  /// rating-relevance). Keyed by the visit's stable [MetaRow.visitId] —
+  /// never the sheet-only `rowIndex`, which is meaningless offline.
   Future<SaveOutcome> saveRating({
-    required int isoYear,
-    required int metaRowIndex,
+    required MetaRow metaRow,
     required double rating,
     RatingRelevance? ratingRelevance,
   }) async {
-    final repository = await ref.read(sheetsRepositoryProvider.future);
-    final queue = ref.read(pendingSyncQueueProvider);
-    final current = state.value;
-    final metaTabName = current?.snapshot.classifiedTabs.metaTabByYear[isoYear];
-
-    if (metaTabName == null) {
-      await queue.enqueueRating(
-        metaTabName: '${isoYear}_meta',
-        metaRowIndex: metaRowIndex,
-        rating: rating,
-        ratingRelevance: ratingRelevance,
-      );
-      return SaveOutcome.queuedOffline;
-    }
-
-    final result = await repository.updateRating(
-      metaTabName: metaTabName,
-      metaRowIndex: metaRowIndex,
-      rating: rating,
-    );
-    if (result.isErr) {
-      await queue.enqueueRating(
-        metaTabName: metaTabName,
-        metaRowIndex: metaRowIndex,
-        rating: rating,
-        ratingRelevance: ratingRelevance,
-      );
-      return SaveOutcome.queuedOffline;
-    }
-    if (ratingRelevance != null) {
-      final relResult = await repository.updateRatingRelevance(
-        metaTabName: metaTabName,
-        metaRowIndex: metaRowIndex,
-        value: ratingRelevance,
-      );
-      if (relResult.isErr) {
-        await queue.enqueueRating(
-          metaTabName: metaTabName,
-          metaRowIndex: metaRowIndex,
+    await ref
+        .read(workoutDaoProvider)
+        .updateRatingFields(
+          metaRow.visitId,
           rating: rating,
           ratingRelevance: ratingRelevance,
         );
-        return SaveOutcome.queuedOffline;
+    ref.invalidate(localVisitsProvider);
+
+    final current = state.value;
+    if (current == null) return SaveOutcome.queuedOffline;
+    try {
+      final repository = await ref.read(sheetsRepositoryProvider.future);
+      final metaTabName =
+          current.snapshot.classifiedTabs.metaTabByYear[metaRow.isoYear];
+      if (metaTabName == null) return SaveOutcome.queuedOffline;
+
+      final result = await repository.updateRating(
+        metaTabName: metaTabName,
+        metaRowIndex: metaRow.rowIndex,
+        rating: rating,
+      );
+      if (result.isErr) return SaveOutcome.queuedOffline;
+      if (ratingRelevance != null) {
+        final relResult = await repository.updateRatingRelevance(
+          metaTabName: metaTabName,
+          metaRowIndex: metaRow.rowIndex,
+          value: ratingRelevance,
+        );
+        if (relResult.isErr) return SaveOutcome.queuedOffline;
       }
+      // See _patchYearData: no refresh() here, this only ever touches one
+      // row's rating/ratingRelevance, so patch it in place instead of
+      // racing a network reload against Sheets' read-after-write
+      // consistency window.
+      _patchYearData(
+        metaRow.isoYear,
+        (yearData) => yearData.copyWith(
+          metaRows: [
+            for (final m in yearData.metaRows)
+              if (m.rowIndex == metaRow.rowIndex)
+                m.copyWith(
+                  rating: rating,
+                  ratingRelevance: ratingRelevance ?? m.ratingRelevance,
+                )
+              else
+                m,
+          ],
+        ),
+      );
+      await ref.read(workoutDaoProvider).markSheetPushed(metaRow.visitId);
+    } catch (_) {
+      // Best-effort sheet mirror — the local save above already succeeded.
     }
-    // See _patchYearData: no refresh() here, this only ever touches one
-    // row's rating/ratingRelevance, so patch it in place instead of racing
-    // a network reload against Sheets' read-after-write consistency window.
-    _patchYearData(
-      isoYear,
-      (yearData) => yearData.copyWith(
-        metaRows: [
-          for (final m in yearData.metaRows)
-            if (m.rowIndex == metaRowIndex)
-              m.copyWith(
-                rating: rating,
-                ratingRelevance: ratingRelevance ?? m.ratingRelevance,
-              )
-            else
-              m,
-        ],
-      ),
-    );
     return SaveOutcome.synced;
   }
 
@@ -315,111 +342,73 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
     required DateTime date,
     required double weightKg,
   }) async {
-    final repository = await ref.read(sheetsRepositoryProvider.future);
-    final queue = ref.read(pendingSyncQueueProvider);
+    // Local DB first — always succeeds, with no sheet dependency.
+    await ref
+        .read(bodyWeightDaoProvider)
+        .upsert(BodyWeightEntry(date: date, weightKg: weightKg, rowIndex: -1));
+    ref.invalidate(localBodyWeightProvider);
+
     final current = state.value;
-
-    if (current == null || !current.snapshot.classifiedTabs.hasBodyWeightTab) {
-      final ensured = await repository.ensureBodyWeightTab();
-      if (ensured.isErr) {
-        await queue.enqueueBodyWeight(date: date, weightKg: weightKg);
-        return SaveOutcome.queuedOffline;
+    if (current == null) return SaveOutcome.queuedOffline;
+    try {
+      final repository = await ref.read(sheetsRepositoryProvider.future);
+      if (!current.snapshot.classifiedTabs.hasBodyWeightTab) {
+        final ensured = await repository.ensureBodyWeightTab();
+        if (ensured.isErr) return SaveOutcome.queuedOffline;
       }
+      final result = await repository.appendBodyWeight(
+        date: date,
+        weightKg: weightKg,
+      );
+      if (result.isErr) return SaveOutcome.queuedOffline;
+      await refresh();
+    } catch (_) {
+      // Best-effort sheet mirror — the local save above already succeeded.
     }
-
-    final result = await repository.appendBodyWeight(
-      date: date,
-      weightKg: weightKg,
-    );
-    if (result.isErr) {
-      await queue.enqueueBodyWeight(date: date, weightKg: weightKg);
-      return SaveOutcome.queuedOffline;
-    }
-    await refresh();
     return SaveOutcome.synced;
   }
 
-  /// Deletes a previously logged visit: clears its matrix cells and
-  /// removes its metadata row. Returns true on success.
+  /// Deletes a previously logged visit from the local DB (always succeeds),
+  /// then best-effort mirrors the delete to the sheet if one is connected.
   Future<bool> deleteVisit(MetaRow metaRow) async {
-    final repository = await ref.read(sheetsRepositoryProvider.future);
+    await ref.read(workoutDaoProvider).softDelete(metaRow.visitId);
+    ref.invalidate(localVisitsProvider);
+
     final current = state.value;
-    if (current == null) return false;
+    if (current == null) return true;
+    try {
+      final repository = await ref.read(sheetsRepositoryProvider.future);
+      final yearData = current.snapshot.yearData[metaRow.isoYear];
+      final metaTabName =
+          current.snapshot.classifiedTabs.metaTabByYear[metaRow.isoYear];
+      final weekColumn = yearData?.weekColumns[metaRow.isoWeek];
+      final metaTabGridId = metaTabName == null
+          ? null
+          : current.snapshot.gridIdsByTabName[metaTabName];
+      if (yearData == null ||
+          metaTabName == null ||
+          weekColumn == null ||
+          metaTabGridId == null) {
+        return true;
+      }
 
-    final yearData = current.snapshot.yearData[metaRow.isoYear];
-    final metaTabName =
-        current.snapshot.classifiedTabs.metaTabByYear[metaRow.isoYear];
-    final weekColumn = yearData?.weekColumns[metaRow.isoWeek];
-    final metaTabGridId = metaTabName == null
-        ? null
-        : current.snapshot.gridIdsByTabName[metaTabName];
-    if (yearData == null ||
-        metaTabName == null ||
-        weekColumn == null ||
-        metaTabGridId == null) {
-      return false;
+      final rowsToClear = metaRow.exercises
+          .map((e) => yearData.findExercise(e.exerciseName)?.sheetRow)
+          .whereType<int>()
+          .toList();
+
+      final result = await repository.deleteVisit(
+        matrixTabName: yearData.tabName,
+        weekColumnIndex: weekColumn,
+        exerciseRowsToClear: rowsToClear,
+        metaTabName: metaTabName,
+        metaTabGridId: metaTabGridId,
+        metaRowIndex: metaRow.rowIndex,
+      );
+      if (result.isOk) await refresh();
+    } catch (_) {
+      // Best-effort sheet mirror — the local delete above already succeeded.
     }
-
-    final rowsToClear = metaRow.exercises
-        .map((e) => yearData.findExercise(e.exerciseName)?.sheetRow)
-        .whereType<int>()
-        .toList();
-
-    final result = await repository.deleteVisit(
-      matrixTabName: yearData.tabName,
-      weekColumnIndex: weekColumn,
-      exerciseRowsToClear: rowsToClear,
-      metaTabName: metaTabName,
-      metaTabGridId: metaTabGridId,
-      metaRowIndex: metaRow.rowIndex,
-    );
-    if (result.isErr) return false;
-    await refresh();
-    return true;
-  }
-
-  /// Updates the weights for some/all exercises in a previously logged
-  /// visit. [newWeightByExerciseName] only needs entries for exercises
-  /// whose weight actually changed.
-  Future<bool> updateVisitWeights(
-    MetaRow metaRow,
-    Map<String, double> newWeightByExerciseName,
-  ) async {
-    if (newWeightByExerciseName.isEmpty) return true;
-    final repository = await ref.read(sheetsRepositoryProvider.future);
-    final current = state.value;
-    if (current == null) return false;
-
-    final yearData = current.snapshot.yearData[metaRow.isoYear];
-    final weekColumn = yearData?.weekColumns[metaRow.isoWeek];
-    if (yearData == null || weekColumn == null) return false;
-
-    final weightByRow = <int, double>{};
-    for (final entry in newWeightByExerciseName.entries) {
-      final row = yearData.findExercise(entry.key)?.sheetRow;
-      if (row != null) weightByRow[row] = entry.value;
-    }
-
-    final result = await repository.updateVisitWeights(
-      matrixTabName: yearData.tabName,
-      weekColumnIndex: weekColumn,
-      weightByExerciseRow: weightByRow,
-    );
-    if (result.isErr) return false;
-    // See _patchYearData: patch the written cells in place instead of a
-    // network refresh(), which could race Sheets' read-after-write
-    // consistency window and revert some other row this notifier recently
-    // wrote (e.g. a rating-relevance flag saved moments earlier).
-    _patchYearData(
-      metaRow.isoYear,
-      (yearData) => yearData.copyWith(
-        cellValues: {
-          ...yearData.cellValues,
-          for (final entry in weightByRow.entries)
-            CellKey(entry.key, weekColumn): entry.value,
-        },
-      ),
-    );
     return true;
   }
 
@@ -428,66 +417,80 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
   /// legacyGrouped year, best-effort mirrors it into the header-row cell
   /// too (matching the older hand-reading convention on those tabs).
   Future<bool> saveVisitNote(MetaRow metaRow, String note) async {
-    final repository = await ref.read(sheetsRepositoryProvider.future);
+    // Local DB first — always succeeds, with no sheet dependency.
+    await ref.read(workoutDaoProvider).updateNote(metaRow.visitId, note);
+    ref.invalidate(localVisitsProvider);
+
     final current = state.value;
-    if (current == null) return false;
+    if (current == null) return true;
+    try {
+      final repository = await ref.read(sheetsRepositoryProvider.future);
+      final metaTabName =
+          current.snapshot.classifiedTabs.metaTabByYear[metaRow.isoYear];
+      if (metaTabName == null) return true;
 
-    final metaTabName =
-        current.snapshot.classifiedTabs.metaTabByYear[metaRow.isoYear];
-    if (metaTabName == null) return false;
+      final result = await repository.updateVisitNote(
+        metaTabName: metaTabName,
+        metaRowIndex: metaRow.rowIndex,
+        note: note,
+      );
+      if (result.isErr) return true;
 
-    final result = await repository.updateVisitNote(
-      metaTabName: metaTabName,
-      metaRowIndex: metaRow.rowIndex,
-      note: note,
-    );
-    if (result.isErr) return false;
-
-    final yearData = current.snapshot.yearData[metaRow.isoYear];
-    if (yearData != null &&
-        (yearData.format == MatrixTabFormat.legacyGrouped ||
-            yearData.format == MatrixTabFormat.currentGrouped)) {
-      int? headerRow;
-      for (final label in metaRow.muscleGroups) {
-        final group = sheetHeaderMuscleGroupForFormat(label, yearData.format);
-        if (group == null) continue;
-        if (group.legacy) {
-          final day = workoutDayForMuscleGroup(group);
-          headerRow = day == null
-              ? null
-              : yearData.primaryGroupHeaderRow[primaryGroupForDay(day)];
-        } else {
-          headerRow = yearData.primaryGroupHeaderRow[group];
+      final yearData = current.snapshot.yearData[metaRow.isoYear];
+      if (yearData != null &&
+          (yearData.format == MatrixTabFormat.legacyGrouped ||
+              yearData.format == MatrixTabFormat.currentGrouped)) {
+        int? headerRow;
+        for (final label in metaRow.muscleGroups) {
+          final group = sheetHeaderMuscleGroupForFormat(
+            label,
+            yearData.format,
+          );
+          if (group == null) continue;
+          if (group.legacy) {
+            final day = workoutDayForMuscleGroup(group);
+            headerRow = day == null
+                ? null
+                : yearData.primaryGroupHeaderRow[primaryGroupForDay(day)];
+          } else {
+            headerRow = yearData.primaryGroupHeaderRow[group];
+          }
+          if (headerRow != null) break;
         }
-        if (headerRow != null) break;
+        final weekColumn = yearData.weekColumns[metaRow.isoWeek];
+        if (headerRow != null && weekColumn != null) {
+          await repository.writeNote(
+            matrixTabName: yearData.tabName,
+            headerRow: headerRow,
+            weekColumnIndex: weekColumn,
+            note: note,
+          );
+        }
       }
-      final weekColumn = yearData.weekColumns[metaRow.isoWeek];
-      if (headerRow != null && weekColumn != null) {
-        await repository.writeNote(
-          matrixTabName: yearData.tabName,
-          headerRow: headerRow,
-          weekColumnIndex: weekColumn,
-          note: note,
-        );
-      }
-    }
 
-    // See _patchYearData: no refresh() here, same race as saveRating — this
-    // only ever touches one row's note, so patch it in place. The
-    // legacyGrouped/currentGrouped header-row mirror write above is
-    // best-effort and deliberately not reflected into weekNotes/
-    // weekNotesByGroup in memory (it'll show correctly after the next full
-    // refresh) — not worth replicating the parser's cross-header-row merge
-    // logic for this legacy-format-only display detail.
-    _patchYearData(
-      metaRow.isoYear,
-      (yd) => yd.copyWith(
-        metaRows: [
-          for (final m in yd.metaRows)
-            if (m.rowIndex == metaRow.rowIndex) m.copyWith(note: note) else m,
-        ],
-      ),
-    );
+      // See _patchYearData: no refresh() here, same race as saveRating —
+      // this only ever touches one row's note, so patch it in place. The
+      // legacyGrouped/currentGrouped header-row mirror write above is
+      // best-effort and deliberately not reflected into weekNotes/
+      // weekNotesByGroup in memory (it'll show correctly after the next
+      // full refresh) — not worth replicating the parser's cross-header-row
+      // merge logic for this legacy-format-only display detail.
+      _patchYearData(
+        metaRow.isoYear,
+        (yd) => yd.copyWith(
+          metaRows: [
+            for (final m in yd.metaRows)
+              if (m.rowIndex == metaRow.rowIndex)
+                m.copyWith(note: note)
+              else
+                m,
+          ],
+        ),
+      );
+      await ref.read(workoutDaoProvider).markSheetPushed(metaRow.visitId);
+    } catch (_) {
+      // Best-effort sheet mirror — the local save above already succeeded.
+    }
     return true;
   }
 
@@ -498,97 +501,195 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
     MetaRow metaRow,
     RatingRelevance value,
   ) async {
-    final repository = await ref.read(sheetsRepositoryProvider.future);
-    final current = state.value;
-    final metaTabName =
-        current?.snapshot.classifiedTabs.metaTabByYear[metaRow.isoYear];
-    if (metaTabName == null) return false;
+    await ref
+        .read(workoutDaoProvider)
+        .updateRatingRelevance(metaRow.visitId, value);
+    ref.invalidate(localVisitsProvider);
 
-    final result = await repository.updateRatingRelevance(
-      metaTabName: metaTabName,
-      metaRowIndex: metaRow.rowIndex,
-      value: value,
-    );
-    if (result.isErr) return false;
-    await refresh();
+    final current = state.value;
+    if (current == null) return true;
+    try {
+      final repository = await ref.read(sheetsRepositoryProvider.future);
+      final metaTabName =
+          current.snapshot.classifiedTabs.metaTabByYear[metaRow.isoYear];
+      if (metaTabName == null) return true;
+
+      final result = await repository.updateRatingRelevance(
+        metaTabName: metaTabName,
+        metaRowIndex: metaRow.rowIndex,
+        value: value,
+      );
+      if (result.isOk) {
+        await refresh();
+        await ref.read(workoutDaoProvider).markSheetPushed(metaRow.visitId);
+      }
+    } catch (_) {
+      // Best-effort sheet mirror — the local save above already succeeded.
+    }
     return true;
   }
 
-  /// Rewrites the exercise order of a previously logged visit (e.g. after
-  /// the user drags them into a different order in the edit screen).
-  Future<bool> updateVisitExerciseOrder(
+  /// Saves an edited visit's exercise entries (weights, reps, order,
+  /// per-set target overrides) — local DB first, always succeeds, then a
+  /// best-effort sheet mirror. Takes [ExerciseEntry]s (the edit screen's
+  /// own live draft shape) rather than [LoggedExerciseRepRange] so the
+  /// local write via [WorkoutDao.replaceEntries] gets the real edited set
+  /// data, not just a reordering of names.
+  Future<bool> updateVisitEntries(
     MetaRow metaRow,
-    List<LoggedExerciseRepRange> newOrder,
+    List<ExerciseEntry> entries,
   ) async {
-    final repository = await ref.read(sheetsRepositoryProvider.future);
-    final current = state.value;
-    final metaTabName =
-        current?.snapshot.classifiedTabs.metaTabByYear[metaRow.isoYear];
-    if (metaTabName == null) return false;
+    // Local DB first — always succeeds, with no sheet dependency.
+    await ref.read(workoutDaoProvider).replaceEntries(metaRow.visitId, entries);
+    ref.invalidate(localVisitsProvider);
 
-    final result = await repository.updateVisitExerciseOrder(
-      metaTabName: metaTabName,
-      metaRowIndex: metaRow.rowIndex,
-      exercises: newOrder,
-    );
-    if (result.isErr) return false;
-    // See _patchYearData: patch this row's exercises in place instead of a
-    // network refresh(), for the same read-after-write race reason as
-    // updateVisitWeights above.
-    _patchYearData(
-      metaRow.isoYear,
-      (yearData) => yearData.copyWith(
-        metaRows: [
-          for (final m in yearData.metaRows)
-            if (m.rowIndex == metaRow.rowIndex)
-              m.copyWith(exercises: newOrder)
-            else
-              m,
-        ],
-      ),
-    );
+    final newOrder = [
+      for (final e in entries) loggedExerciseRepRangeFromEntry(e),
+    ];
+
+    final current = state.value;
+    if (current == null) return true;
+    try {
+      final repository = await ref.read(sheetsRepositoryProvider.future);
+      final metaTabName =
+          current.snapshot.classifiedTabs.metaTabByYear[metaRow.isoYear];
+      if (metaTabName == null) return true;
+
+      final result = await repository.updateVisitExerciseOrder(
+        metaTabName: metaTabName,
+        metaRowIndex: metaRow.rowIndex,
+        exercises: newOrder,
+      );
+      if (result.isErr) return true;
+      // See _patchYearData: patch this row's exercises in place instead of
+      // a network refresh(), for the same read-after-write race reason as
+      // other patch-in-place mutators above.
+      _patchYearData(
+        metaRow.isoYear,
+        (yearData) => yearData.copyWith(
+          metaRows: [
+            for (final m in yearData.metaRows)
+              if (m.rowIndex == metaRow.rowIndex)
+                m.copyWith(exercises: newOrder)
+              else
+                m,
+          ],
+        ),
+      );
+      await ref.read(workoutDaoProvider).markSheetPushed(metaRow.visitId);
+    } catch (_) {
+      // Best-effort sheet mirror — the local save above already succeeded.
+    }
     return true;
   }
 
+  /// Updates a logged body-weight entry, keyed by its (unique-per-day)
+  /// [oldDate] rather than the sheet-only `rowIndex`, which is meaningless
+  /// offline.
   Future<bool> updateBodyWeightEntry(
-    BodyWeightEntry entry, {
+    DateTime oldDate, {
     required DateTime date,
     required double weightKg,
   }) async {
-    final repository = await ref.read(sheetsRepositoryProvider.future);
-    final result = await repository.updateBodyWeightEntry(
-      rowIndex: entry.rowIndex,
-      date: date,
-      weightKg: weightKg,
-    );
-    if (result.isErr) return false;
-    await refresh();
+    final dao = ref.read(bodyWeightDaoProvider);
+    if (!_isSameDay(oldDate, date)) {
+      await dao.deleteByDate(oldDate);
+    }
+    await dao.upsert(BodyWeightEntry(date: date, weightKg: weightKg, rowIndex: -1));
+    ref.invalidate(localBodyWeightProvider);
+
+    final current = state.value;
+    if (current == null) return true;
+    try {
+      final repository = await ref.read(sheetsRepositoryProvider.future);
+      BodyWeightEntry? entry;
+      for (final e in current.snapshot.bodyWeightEntries) {
+        if (_isSameDay(e.date, oldDate)) {
+          entry = e;
+          break;
+        }
+      }
+      if (entry == null || entry.rowIndex < 0) return true;
+      final result = await repository.updateBodyWeightEntry(
+        rowIndex: entry.rowIndex,
+        date: date,
+        weightKg: weightKg,
+      );
+      if (result.isOk) await refresh();
+    } catch (_) {
+      // Best-effort sheet mirror — the local save above already succeeded.
+    }
     return true;
   }
 
+  /// Deletes a logged body-weight entry, keyed by its date.
   Future<bool> deleteBodyWeightEntry(BodyWeightEntry entry) async {
-    final repository = await ref.read(sheetsRepositoryProvider.future);
-    final current = state.value;
-    final gridId = current?.snapshot.gridIdsByTabName[kBodyWeightTabName];
-    if (gridId == null) return false;
+    await ref.read(bodyWeightDaoProvider).deleteByDate(entry.date);
+    ref.invalidate(localBodyWeightProvider);
 
-    final result = await repository.deleteBodyWeightEntry(
-      rowIndex: entry.rowIndex,
-      bodyWeightGridId: gridId,
-    );
-    if (result.isErr) return false;
-    await refresh();
+    final current = state.value;
+    if (current == null) return true;
+    try {
+      if (entry.rowIndex < 0) return true;
+      final repository = await ref.read(sheetsRepositoryProvider.future);
+      final gridId = current.snapshot.gridIdsByTabName[kBodyWeightTabName];
+      if (gridId == null) return true;
+
+      final result = await repository.deleteBodyWeightEntry(
+        rowIndex: entry.rowIndex,
+        bodyWeightGridId: gridId,
+      );
+      if (result.isOk) await refresh();
+    } catch (_) {
+      // Best-effort sheet mirror — the local delete above already succeeded.
+    }
     return true;
+  }
+
+  /// Adds a brand-new exercise. Local DB first — always succeeds, with no
+  /// sheet dependency (this is the direct fix for "adding an exercise and
+  /// assigning its muscle group" previously requiring a live sheet). If a
+  /// sheet is connected, best-effort mirrors the muscle + unit into the
+  /// "Exercises" reference tab.
+  Future<void> addExercise(Exercise exercise) async {
+    await ref.read(exerciseDaoProvider).insert(exercise);
+    ref.invalidate(localExercisesProvider);
+
+    try {
+      await _pushExerciseMuscle(
+        exerciseName: exercise.name,
+        muscleGroup: exercise.muscleGroup,
+      );
+      await _pushExerciseUnit(
+        exerciseName: exercise.name,
+        unit: exercise.unit,
+        customLabel: exercise.customUnitLabel,
+      );
+    } catch (_) {
+      // Best-effort sheet mirror — the local add above already succeeded.
+    }
   }
 
   /// Persists a newly-added exercise's stated muscle back to the
   /// "Exercises" reference tab (appended to that muscle's existing
   /// column), so it sticks across app restarts and immediately affects
   /// muscle-based grouping/graphs.
-  Future<bool> addExerciseMuscle({
+  Future<bool> _pushExerciseMuscle({
     required String exerciseName,
-    required int columnIndex,
+    required MuscleGroup muscleGroup,
   }) async {
+    final current = state.value;
+    int? columnIndex;
+    if (current != null) {
+      for (final info in current.snapshot.exerciseMuscleInfo) {
+        if (info.muscleGroup == muscleGroup) {
+          columnIndex = info.columnIndex;
+          break;
+        }
+      }
+    }
+    if (columnIndex == null) return true;
+
     final repository = await ref.read(sheetsRepositoryProvider.future);
     final queue = ref.read(pendingSyncQueueProvider);
     final result = await repository.appendExerciseToMuscleColumn(
@@ -612,7 +713,7 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
   /// unit is written explicitly (`kg`, `bw`, `time`, `custom:<label>`),
   /// and any other known exercise that has no row yet is filled in as `kg`
   /// in the same write, so the sheet ends up holding a unit for each one.
-  Future<bool> addExerciseUnit({
+  Future<bool> _pushExerciseUnit({
     required String exerciseName,
     required ExerciseUnit unit,
     String? customLabel,
@@ -756,13 +857,29 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
   Future<({bool success, List<String> failedSteps})> updateExercise({
     required Exercise oldExercise,
     required Exercise newExercise,
-    int? newMuscleColumnIndex,
   }) async {
+    final dao = ref.read(exerciseDaoProvider);
+    if (oldExercise.name != newExercise.name) {
+      await dao.rename(oldExercise.name, newExercise.name);
+    }
+    await dao.update(newExercise);
+    ref.invalidate(localExercisesProvider);
+    ref.invalidate(localVisitsProvider);
+
     final current = state.value;
-    if (current == null) return (success: false, failedSteps: ['load']);
+    if (current == null) return (success: true, failedSteps: const <String>[]);
 
     final nameChanged = oldExercise.name != newExercise.name;
     final muscleChanged = oldExercise.muscleGroup != newExercise.muscleGroup;
+    int? newMuscleColumnIndex;
+    if (muscleChanged) {
+      for (final info in current.snapshot.exerciseMuscleInfo) {
+        if (info.muscleGroup == newExercise.muscleGroup) {
+          newMuscleColumnIndex = info.columnIndex;
+          break;
+        }
+      }
+    }
     final unitChanged =
         oldExercise.unit != newExercise.unit ||
         oldExercise.customUnitLabel != newExercise.customUnitLabel;
@@ -776,10 +893,11 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
       return (success: true, failedSteps: const <String>[]);
     }
 
-    final repository = await ref.read(sheetsRepositoryProvider.future);
-    final queue = ref.read(pendingSyncQueueProvider);
     final failedSteps = <String>[];
     final currentYear = isoWeekYear(DateTime.now());
+    try {
+    final repository = await ref.read(sheetsRepositoryProvider.future);
+    final queue = ref.read(pendingSyncQueueProvider);
     final yearData = current.snapshot.yearData[currentYear];
 
     ExerciseMuscleInfo? muscleEntryFor(String name) {
@@ -937,8 +1055,12 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
         await refresh();
       }
     }
+    } catch (_) {
+      // Best-effort sheet mirror — the local update above already succeeded.
+      failedSteps.add('sheet sync');
+    }
 
-    return (success: failedSteps.isEmpty, failedSteps: failedSteps);
+    return (success: true, failedSteps: failedSteps);
   }
 
   /// Deletes an exercise: removes its row from the current year's matrix
@@ -946,35 +1068,43 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
   /// Scope is deliberately current-year-only, same as [updateExercise] —
   /// past years keep their historical row.
   Future<bool> deleteExercise(Exercise exercise) async {
-    final repository = await ref.read(sheetsRepositoryProvider.future);
+    await ref.read(exerciseDaoProvider).softDelete(exercise.name);
+    ref.invalidate(localExercisesProvider);
+
     final current = state.value;
-    if (current == null) return false;
+    if (current == null) return true;
 
-    final currentYear = isoWeekYear(DateTime.now());
-    final yearData = current.snapshot.yearData[currentYear];
-    final matrixGridId = yearData == null
-        ? null
-        : current.snapshot.gridIdsByTabName[yearData.tabName];
+    try {
+      final repository = await ref.read(sheetsRepositoryProvider.future);
+      final currentYear = isoWeekYear(DateTime.now());
+      final yearData = current.snapshot.yearData[currentYear];
+      final matrixGridId = yearData == null
+          ? null
+          : current.snapshot.gridIdsByTabName[yearData.tabName];
 
-    ExerciseMuscleInfo? muscleEntry;
-    for (final info in current.snapshot.exerciseMuscleInfo) {
-      if (info.exerciseName.toLowerCase() == exercise.name.toLowerCase()) {
-        muscleEntry = info;
-        break;
+      ExerciseMuscleInfo? muscleEntry;
+      for (final info in current.snapshot.exerciseMuscleInfo) {
+        if (info.exerciseName.toLowerCase() == exercise.name.toLowerCase()) {
+          muscleEntry = info;
+          break;
+        }
       }
-    }
 
-    final result = await repository.deleteExercise(
-      yearData: yearData,
-      matrixGridId: matrixGridId,
-      exercise: exercise,
-      exerciseUnitsTable: current.snapshot.exerciseUnitsTable,
-      muscleColumnEntry: muscleEntry,
-    );
-    if (result.isErr) return false;
-    final queue = ref.read(pendingSyncQueueProvider);
-    await queue.cancelPendingExercise(exercise.name);
-    await refresh();
+      final result = await repository.deleteExercise(
+        yearData: yearData,
+        matrixGridId: matrixGridId,
+        exercise: exercise,
+        exerciseUnitsTable: current.snapshot.exerciseUnitsTable,
+        muscleColumnEntry: muscleEntry,
+      );
+      if (result.isOk) {
+        final queue = ref.read(pendingSyncQueueProvider);
+        await queue.cancelPendingExercise(exercise.name);
+        await refresh();
+      }
+    } catch (_) {
+      // Best-effort sheet mirror — the local delete above already succeeded.
+    }
     return true;
   }
 
@@ -1145,27 +1275,56 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
   }
 
   /// Changes a previously logged visit's date, including moving it to a
-  /// different ISO week and/or year — re-filing its matrix-cell data
-  /// (recomputing/blanking the cell it leaves, writing/merging the cell it
-  /// joins) and its meta row (in-place update if the year is unchanged,
-  /// append-then-delete across meta tabs otherwise). Requires a live
-  /// connection — not offline-queueable, since it depends on freshly-read
-  /// state across potentially multiple tabs that a delayed retry can't
-  /// safely recompute. Returns false on any failure; the caller should ask
-  /// the user to retry while online rather than silently queuing.
+  /// different ISO week and/or year. Writes to the local DB first (always
+  /// succeeds); the heavier sheet-side re-filing below — recomputing the
+  /// matrix cell it leaves, writing/merging the cell it joins, and moving
+  /// its meta row (in-place if the year is unchanged, append-then-delete
+  /// across meta tabs otherwise) — is then attempted best-effort and never
+  /// blocks or fails this call.
   Future<bool> updateVisitDate(MetaRow metaRow, DateTime newDate) async {
-    final repository = await ref.read(sheetsRepositoryProvider.future);
-    final current = state.value;
-    if (current == null) return false;
-
     final newIsoWeek = isoWeekNumber(newDate);
     final newIsoYear = isoWeekYear(newDate);
+
+    await ref
+        .read(workoutDaoProvider)
+        .updateDate(
+          metaRow.visitId,
+          date: newDate,
+          isoWeek: newIsoWeek,
+          isoYear: newIsoYear,
+        );
+    ref.invalidate(localVisitsProvider);
+
+    final current = state.value;
+    if (current == null) return true;
+    try {
+      await _pushVisitDateToSheet(
+        current: current,
+        metaRow: metaRow,
+        newDate: newDate,
+        newIsoWeek: newIsoWeek,
+        newIsoYear: newIsoYear,
+      );
+    } catch (_) {
+      // Best-effort sheet mirror — the local date change above already succeeded.
+    }
+    return true;
+  }
+
+  Future<void> _pushVisitDateToSheet({
+    required SnapshotState current,
+    required MetaRow metaRow,
+    required DateTime newDate,
+    required int newIsoWeek,
+    required int newIsoYear,
+  }) async {
+    final repository = await ref.read(sheetsRepositoryProvider.future);
 
     final oldYearData = current.snapshot.yearData[metaRow.isoYear];
     final oldMetaTabName =
         current.snapshot.classifiedTabs.metaTabByYear[metaRow.isoYear];
     final oldWeekColumn = oldYearData?.weekColumns[metaRow.isoWeek];
-    if (oldYearData == null || oldMetaTabName == null) return false;
+    if (oldYearData == null || oldMetaTabName == null) return;
 
     if (newIsoWeek == metaRow.isoWeek && newIsoYear == metaRow.isoYear) {
       final result = await repository.updateVisitDateInPlace(
@@ -1175,11 +1334,11 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
         isoWeek: newIsoWeek,
         isoYear: newIsoYear,
       );
-      if (result.isErr) return false;
+      if (result.isErr) return;
       await refresh();
-      return true;
+      return;
     }
-    if (oldWeekColumn == null) return false;
+    if (oldWeekColumn == null) return;
 
     final contextResult = await _resolveOrCreateYearContext(
       repository: repository,
@@ -1187,7 +1346,7 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
       year: newIsoYear,
       week: newIsoWeek,
     );
-    if (contextResult.isErr) return false;
+    if (contextResult.isErr) return;
     final newContext = (contextResult as Ok<YearWriteContext>).value;
 
     // Recompute/blank each cell this visit is leaving, from whatever other
@@ -1229,7 +1388,7 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
         columnIndex: oldWeekColumn,
         value: acc ?? '',
       );
-      if (cellResult.isErr) return false;
+      if (cellResult.isErr) return;
     }
 
     // Rebuild this visit's entries from the meta row's own logged data
@@ -1299,7 +1458,7 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
       sheetGridId: newContext.sheetGridId,
     );
     final applyResult = await repository.applyVisitWritePlan(plan);
-    if (applyResult.isErr) return false;
+    if (applyResult.isErr) return;
 
     if (newIsoYear == metaRow.isoYear) {
       final result = await repository.updateVisitDateInPlace(
@@ -1309,7 +1468,7 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
         isoWeek: newIsoWeek,
         isoYear: newIsoYear,
       );
-      if (result.isErr) return false;
+      if (result.isErr) return;
     } else {
       // Append-before-delete: a failure partway leaves a harmless
       // duplicate rather than a lost visit.
@@ -1317,7 +1476,7 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
         metaTabName: newContext.metaTabName,
         visit: movedVisit,
       );
-      if (appendResult.isErr) return false;
+      if (appendResult.isErr) return;
       final oldMetaGridId = current.snapshot.gridIdsByTabName[oldMetaTabName];
       if (oldMetaGridId != null) {
         await repository.deleteMetaRow(
@@ -1328,7 +1487,6 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
     }
 
     await refresh();
-    return true;
   }
 
   double? _oldCellWeight(
@@ -1366,8 +1524,31 @@ class SnapshotNotifier extends AsyncNotifier<SnapshotState> {
         );
       },
       resolveExerciseUnitsTable: () => _resolveExerciseUnitsTable(repository),
+      resolveWorkoutVisit: (visitId) => ref
+          .read(workoutDaoProvider)
+          .getVisitByVisitId(visitId, ref.read(exerciseDaoProvider)),
+      markWorkoutVisitPushed: (visitId, sheetMetaRowIndex) => ref
+          .read(workoutDaoProvider)
+          .markSheetPushed(visitId, sheetMetaRowIndex: sheetMetaRowIndex),
     );
     await refresh();
+  }
+
+  /// Runs the "sheet wins" reconciliation pass (see [SheetImportService])
+  /// against the just-loaded snapshot, then refreshes every local-DB-backed
+  /// provider so the UI reflects whatever it imported immediately. Call
+  /// this after first connecting a sheet, from a manual "Sync now", and
+  /// during the v3.0.0 upgrade migration.
+  Future<void> importFromSheet() async {
+    final current = await future;
+    await ref
+        .read(sheetImportServiceProvider)
+        .importAndReconcile(current.snapshot);
+    ref.invalidate(localVisitsProvider);
+    ref.invalidate(localExercisesProvider);
+    ref.invalidate(localBodyWeightProvider);
+    ref.invalidate(localNotesProvider);
+    await ref.read(workoutDayDefsProvider.notifier).reloadFromDb();
   }
 
   /// Re-reads a fresh `Exercises` tab `Exercise`/`Unit` side-table,
@@ -1484,61 +1665,24 @@ final snapshotProvider = AsyncNotifierProvider<SnapshotNotifier, SnapshotState>(
 );
 
 final bodyWeightEntriesProvider = Provider<List<BodyWeightEntry>>((ref) {
-  final snapshot = ref.watch(snapshotProvider).value;
-  return snapshot?.snapshot.bodyWeightEntries ?? const [];
+  return ref.watch(localBodyWeightProvider).value ?? const [];
 });
 
-final currentYearDataProvider = Provider<YearSheetData?>((ref) {
-  final snapshot = ref.watch(snapshotProvider).value;
-  if (snapshot == null) return null;
-  final currentYear = isoWeekYear(DateTime.now());
-  return snapshot.snapshot.yearData[currentYear];
-});
-
-final exerciseMuscleInfoProvider = Provider<List<ExerciseMuscleInfo>>((ref) {
-  final snapshot = ref.watch(snapshotProvider).value;
-  return snapshot?.snapshot.exerciseMuscleInfo ?? const [];
-});
-
-/// Every per-exercise/per-set note from the `Notes` tab, if present.
+/// Every per-exercise/per-set note, from the local database.
 final notesProvider = Provider<List<ExerciseNote>>((ref) {
-  final snapshot = ref.watch(snapshotProvider).value;
-  return snapshot?.snapshot.notes ?? const [];
+  return ref.watch(localNotesProvider).value ?? const [];
 });
 
-/// Workout days confirmed synced to the sheet-backed `WorkoutDays` tab (see
-/// `workoutDayDefsProvider` in settings_providers.dart, which layers in any
-/// still-pending local ones on top of this).
-final sheetWorkoutDayDefsProvider = Provider<List<WorkoutDayDef>>((ref) {
-  final snapshot = ref.watch(snapshotProvider).value;
-  return snapshot?.snapshot.workoutDayDefs ?? const [];
-});
-
-/// Every exercise known across all loaded years, deduped by name
-/// (case-insensitive; last-seen year wins, matching the app's existing
-/// "later years are authoritative" convention) — each carrying its
-/// resolved [Exercise.unit]. Backs the "Exercises" section in Settings
+/// Every known exercise, from the local database — available instantly
+/// with zero sheet dependency. Backs the "Exercises" section in Settings
 /// where a unit can be edited after the fact.
 final allKnownExercisesProvider = Provider<List<Exercise>>((ref) {
-  final snapshot = ref.watch(snapshotProvider).value;
-  if (snapshot == null) return const [];
-  final byName = <String, Exercise>{};
-  final years = snapshot.snapshot.yearData.keys.toList()..sort();
-  for (final year in years) {
-    for (final exercise in snapshot.snapshot.yearData[year]!.allExercises) {
-      byName[exercise.name.toLowerCase()] = exercise;
-    }
-  }
-  final result = byName.values.toList()
-    ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-  return result;
+  return ref.watch(localExercisesProvider).value ?? const [];
 });
 
-/// Exercise name (lowercased) -> its muscle/workout info, for O(1) lookups
+/// Exercise name (lowercased) -> its resolved [Exercise], for O(1) lookups
 /// when grouping the log-workout exercise list by muscle.
-final exerciseMuscleByNameProvider = Provider<Map<String, ExerciseMuscleInfo>>((
-  ref,
-) {
-  final info = ref.watch(exerciseMuscleInfoProvider);
-  return {for (final e in info) e.exerciseName.toLowerCase(): e};
+final exerciseMuscleByNameProvider = Provider<Map<String, Exercise>>((ref) {
+  final exercises = ref.watch(allKnownExercisesProvider);
+  return {for (final e in exercises) e.name.toLowerCase(): e};
 });

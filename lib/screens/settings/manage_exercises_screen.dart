@@ -24,7 +24,6 @@ class ManageExercisesScreen extends ConsumerWidget {
     final result = await showAddNewExerciseDialog(
       context,
       muscleGroupOptions: kCurrentMuscleGroups,
-      allMuscleInfo: ref.read(exerciseMuscleInfoProvider),
       existing: existing,
     );
     if (result == null) return;
@@ -46,11 +45,7 @@ class ManageExercisesScreen extends ConsumerWidget {
     final newExercise = result.exercise!;
     final updateResult = await ref
         .read(snapshotProvider.notifier)
-        .updateExercise(
-          oldExercise: existing,
-          newExercise: newExercise,
-          newMuscleColumnIndex: result.muscleColumnIndex,
-        );
+        .updateExercise(oldExercise: existing, newExercise: newExercise);
     if (!updateResult.success && context.mounted) {
       showAppSnackBar(
         context,

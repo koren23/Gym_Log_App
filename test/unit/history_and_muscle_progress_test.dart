@@ -1,13 +1,47 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gym_tracker/core/constants/muscle_groups.dart';
-import 'package:gym_tracker/core/constants/sheet_layout.dart';
 import 'package:gym_tracker/core/utils/iso_week.dart';
 import 'package:gym_tracker/models/exercise.dart';
-import 'package:gym_tracker/models/exercise_muscle_info.dart';
 import 'package:gym_tracker/models/history_entry.dart';
 import 'package:gym_tracker/models/workout_day_def.dart';
 import 'package:gym_tracker/models/year_sheet_data.dart';
 import 'package:gym_tracker/providers/analysis_providers.dart';
+
+/// Builds a [MetaRow] with sensible placeholder defaults, so each test only
+/// has to spell out the fields it actually cares about.
+MetaRow _visit({
+  required String visitId,
+  required DateTime date,
+  required int isoWeek,
+  required int isoYear,
+  List<String> muscleGroups = const [],
+  List<LoggedExerciseRepRange> exercises = const [],
+  String? workoutDayId,
+  bool isSynthetic = false,
+  bool exactDateKnown = true,
+}) => MetaRow(
+  rowIndex: 0,
+  visitId: visitId,
+  date: date,
+  isoWeek: isoWeek,
+  isoYear: isoYear,
+  muscleGroups: muscleGroups,
+  exercises: exercises,
+  sourceTab: '2026',
+  workoutDayId: workoutDayId,
+  isSynthetic: isSynthetic,
+  exactDateKnown: exactDateKnown,
+);
+
+/// A placeholder [MetaRow] for [HistoryEntry] tests that only exercise
+/// [HistoryEntry]'s own fields plus [MetaRow.workoutDayId].
+MetaRow _dummyMetaRow({String? workoutDayId}) => _visit(
+  visitId: 'dummy',
+  date: DateTime(2000, 1, 1),
+  isoWeek: 1,
+  isoYear: 2000,
+  workoutDayId: workoutDayId,
+);
 
 void main() {
   group('approximateDateForWorkoutDay', () {
@@ -45,617 +79,81 @@ void main() {
   });
 
   group('buildHistoryEntries', () {
+    // The sheet-matrix synthetic-reconstruction behavior this group used to
+    // exercise has moved to a one-time import pass — see
+    // SheetImportService._importCurrentGroupedSynthetic/_importLegacySynthetic
+    // — since buildHistoryEntries now just wraps already-materialized
+    // MetaRows. These tests cover what it actually does today.
     test(
-      'reconstructs a hand-typed day even when another day that same week is app-logged',
+      'wraps each MetaRow into a HistoryEntry, sorted most-recent first',
       () {
-        // Regression test: an earlier version skipped synthesizing an entire
-        // week if ANY visit existed that week, which silently dropped a
-        // hand-typed Legs session in a week that also had an app-logged Push
-        // visit. Entries must be tracked per (week, day), not just per week.
-        final bench = Exercise(
-          name: 'Barbell bench press',
-          muscleGroup: MuscleGroup.legacyPush,
-          sheetRow: 5,
+        final older = _visit(
+          visitId: 'v1',
+          date: DateTime(2026, 7, 20),
+          isoWeek: 30,
+          isoYear: 2026,
+          muscleGroups: const ['Push'],
+          exercises: const [
+            LoggedExerciseRepRange(
+              exerciseName: 'Barbell bench press',
+              repRangeLow: 6,
+              repRangeHigh: 8,
+            ),
+          ],
         );
-        final squats = Exercise(
-          name: 'Barbell squats',
-          muscleGroup: MuscleGroup.legacyLegs,
-          sheetRow: 10,
-        );
-
-        final year = YearSheetData(
-          year: 2026,
-          tabName: '2026',
-          muscleGroupSections: {
-            MuscleGroup.legacyPush: [bench],
-            MuscleGroup.legacyLegs: [squats],
-          },
-          weekColumns: {30: 1},
-          cellValues: {const CellKey(5, 1): 80, const CellKey(10, 1): 100},
-          metaRows: [
-            MetaRow(
-              rowIndex: 1,
-              visitId: 'v1',
-              date: DateTime(2026, 7, 20),
-              isoWeek: 30,
-              isoYear: 2026,
-              muscleGroups: const ['Push'],
-              exercises: const [
-                LoggedExerciseRepRange(
-                  exerciseName: 'Barbell bench press',
-                  repRangeLow: 6,
-                  repRangeHigh: 8,
-                ),
-              ],
-              sourceTab: '2026',
+        final newer = _visit(
+          visitId: 'v2',
+          date: DateTime(2026, 7, 27),
+          isoWeek: 31,
+          isoYear: 2026,
+          muscleGroups: const ['Legs'],
+          exercises: const [
+            LoggedExerciseRepRange(
+              exerciseName: 'Barbell squats',
+              repRangeLow: 6,
+              repRangeHigh: 8,
             ),
           ],
         );
 
-        final entries = buildHistoryEntries([year]);
+        final entries = buildHistoryEntries([older, newer]);
 
         expect(entries, hasLength(2));
-        final pushEntry = entries.firstWhere(
-          (e) => e.exerciseNames.contains('Barbell bench press'),
-        );
-        expect(pushEntry.isSynthetic, isFalse);
-
-        final legsEntry = entries.firstWhere(
-          (e) => e.exerciseNames.contains('Barbell squats'),
-        );
-        expect(legsEntry.isSynthetic, isTrue);
-        expect(legsEntry.isoWeek, 30);
-      },
-    );
-
-    test('does not duplicate a day already covered by an app-logged visit', () {
-      final bench = Exercise(
-        name: 'Barbell bench press',
-        muscleGroup: MuscleGroup.legacyPush,
-        sheetRow: 5,
-      );
-      final year = YearSheetData(
-        year: 2026,
-        tabName: '2026',
-        muscleGroupSections: {
-          MuscleGroup.legacyPush: [bench],
-        },
-        weekColumns: {30: 1},
-        cellValues: {const CellKey(5, 1): 80},
-        metaRows: [
-          MetaRow(
-            rowIndex: 1,
-            visitId: 'v1',
-            date: DateTime(2026, 7, 20),
-            isoWeek: 30,
-            isoYear: 2026,
-            muscleGroups: const ['Push'],
-            exercises: const [
-              LoggedExerciseRepRange(
-                exerciseName: 'Barbell bench press',
-                repRangeLow: 6,
-                repRangeHigh: 8,
-              ),
-            ],
-            sourceTab: '2026',
-          ),
-        ],
-      );
-
-      final entries = buildHistoryEntries([year]);
-      expect(entries, hasLength(1));
-      expect(entries.single.isSynthetic, isFalse);
-    });
-
-    test(
-      'reconstructs one entry per (week, custom WorkoutDayDef) for a '
-      'currentGrouped year with no MetaRows at all',
-      () {
-        final bench = Exercise(
-          name: 'Barbell bench press',
-          muscleGroup: MuscleGroup.upperChest,
-          sheetRow: 5,
-        );
-        final squats = Exercise(
-          name: 'Barbell squats',
-          muscleGroup: MuscleGroup.quads,
-          sheetRow: 10,
-        );
-        final crunches = Exercise(
-          name: 'Cable crunches',
-          muscleGroup: MuscleGroup.abdominals,
-          sheetRow: 15,
-        );
-
-        final year = YearSheetData(
-          year: 2026,
-          tabName: '2026',
-          format: MatrixTabFormat.currentGrouped,
-          muscleGroupSections: {
-            MuscleGroup.upperChest: [bench],
-            MuscleGroup.quads: [squats],
-            MuscleGroup.abdominals: [crunches],
-          },
-          weekColumns: {30: 1},
-          cellValues: {
-            const CellKey(5, 1): 80,
-            const CellKey(10, 1): 100,
-            const CellKey(15, 1): 30,
-          },
-        );
-
-        final push = WorkoutDayDef(
-          id: 'push',
-          label: 'Push',
-          muscleGroups: const [MuscleGroup.upperChest, MuscleGroup.abdominals],
-        );
-        final legs = WorkoutDayDef(
-          id: 'legs',
-          label: 'Legs',
-          muscleGroups: const [MuscleGroup.quads, MuscleGroup.abdominals],
-        );
-
-        final entries = buildHistoryEntries(
-          [year],
-          workoutDays: [push, legs],
-        );
-
-        final pushEntry = entries.firstWhere(
-          (e) => e.exerciseNames.contains('Barbell bench press'),
-        );
-        expect(pushEntry.isSynthetic, isTrue);
-        expect(
-          pushEntry.exerciseNames,
-          containsAll(['Barbell bench press', 'Cable crunches']),
-        );
-        expect(pushEntry.exerciseNames, isNot(contains('Barbell squats')));
-
-        final legsEntry = entries.firstWhere(
-          (e) => e.exerciseNames.contains('Barbell squats'),
-        );
-        expect(legsEntry.isSynthetic, isTrue);
-        expect(
-          legsEntry.exerciseNames,
-          containsAll(['Barbell squats', 'Cable crunches']),
-        );
-        expect(legsEntry.exerciseNames, isNot(contains('Barbell bench press')));
+        expect(entries[0].metaRow.visitId, 'v2');
+        expect(entries[1].metaRow.visitId, 'v1');
+        expect(entries[0].exerciseNames, ['Barbell squats']);
+        expect(entries[1].exerciseNames, ['Barbell bench press']);
       },
     );
 
     test(
-      'does not reconstruct a currentGrouped (week, day) already covered by '
-      'a real app-logged visit for that day',
+      'preserves isSynthetic/exactDateKnown from the underlying MetaRow',
       () {
-        final bench = Exercise(
-          name: 'Barbell bench press',
-          muscleGroup: MuscleGroup.upperChest,
-          sheetRow: 5,
+        final real = _visit(
+          visitId: 'v1',
+          date: DateTime(2026, 7, 20),
+          isoWeek: 30,
+          isoYear: 2026,
+        );
+        final synthetic = _visit(
+          visitId: 'synthetic_2026_w31_legs',
+          date: DateTime(2026, 7, 30),
+          isoWeek: 31,
+          isoYear: 2026,
+          isSynthetic: true,
+          exactDateKnown: false,
         );
 
-        final year = YearSheetData(
-          year: 2026,
-          tabName: '2026',
-          format: MatrixTabFormat.currentGrouped,
-          muscleGroupSections: {
-            MuscleGroup.upperChest: [bench],
-          },
-          weekColumns: {30: 1},
-          cellValues: {const CellKey(5, 1): 80},
-          metaRows: [
-            MetaRow(
-              rowIndex: 1,
-              visitId: 'v1',
-              date: DateTime(2026, 7, 20),
-              isoWeek: 30,
-              isoYear: 2026,
-              muscleGroups: const ['upper chest'],
-              exercises: const [
-                LoggedExerciseRepRange(
-                  exerciseName: 'Barbell bench press',
-                  repRangeLow: 6,
-                  repRangeHigh: 8,
-                ),
-              ],
-              sourceTab: '2026',
-              workoutDayId: 'push',
-            ),
-          ],
-        );
+        final entries = buildHistoryEntries([real, synthetic]);
 
-        final push = WorkoutDayDef(
-          id: 'push',
-          label: 'Push',
-          muscleGroups: const [MuscleGroup.upperChest],
+        final realEntry = entries.firstWhere((e) => e.metaRow.visitId == 'v1');
+        final syntheticEntry = entries.firstWhere(
+          (e) => e.metaRow.visitId == 'synthetic_2026_w31_legs',
         );
-
-        final entries = buildHistoryEntries([year], workoutDays: [push]);
-
-        expect(entries, hasLength(1));
-        expect(entries.single.isSynthetic, isFalse);
-      },
-    );
-
-    test(
-      'a real visit explicitly tagged workoutDayId does not leak a phantom '
-      'entry into another day that merely shares a muscle group (bug '
-      'regression: logging Push used to make un-logged Legs show a phantom '
-      "today entry containing only the shared 'abdominals' exercise)",
-      () {
-        final bench = Exercise(
-          name: 'Barbell bench press',
-          muscleGroup: MuscleGroup.upperChest,
-          sheetRow: 5,
-        );
-        final squats = Exercise(
-          name: 'Barbell squats',
-          muscleGroup: MuscleGroup.quads,
-          sheetRow: 10,
-        );
-        final crunches = Exercise(
-          name: 'Cable crunches',
-          muscleGroup: MuscleGroup.abdominals,
-          sheetRow: 15,
-        );
-
-        final year = YearSheetData(
-          year: 2026,
-          tabName: '2026',
-          format: MatrixTabFormat.currentGrouped,
-          muscleGroupSections: {
-            MuscleGroup.upperChest: [bench],
-            MuscleGroup.quads: [squats],
-            MuscleGroup.abdominals: [crunches],
-          },
-          weekColumns: {30: 1},
-          cellValues: {
-            // Only Push's exercises got a cell value this week (bench +
-            // the shared crunches, both written by the real Push visit).
-            // Squats (Legs-only) never got a value, since Legs wasn't
-            // actually trained.
-            const CellKey(5, 1): 80,
-            const CellKey(15, 1): 30,
-          },
-          metaRows: [
-            MetaRow(
-              rowIndex: 1,
-              visitId: 'v1',
-              date: DateTime(2026, 7, 20),
-              isoWeek: 30,
-              isoYear: 2026,
-              muscleGroups: const ['upper chest', 'abdominals'],
-              exercises: const [
-                LoggedExerciseRepRange(
-                  exerciseName: 'Barbell bench press',
-                  repRangeLow: 6,
-                  repRangeHigh: 8,
-                ),
-                LoggedExerciseRepRange(
-                  exerciseName: 'Cable crunches',
-                  repRangeLow: 12,
-                  repRangeHigh: 15,
-                ),
-              ],
-              sourceTab: '2026',
-              workoutDayId: 'push',
-            ),
-          ],
-        );
-
-        final push = WorkoutDayDef(
-          id: 'push',
-          label: 'Push',
-          muscleGroups: const [MuscleGroup.upperChest, MuscleGroup.abdominals],
-        );
-        final legs = WorkoutDayDef(
-          id: 'legs',
-          label: 'Legs',
-          muscleGroups: const [MuscleGroup.quads, MuscleGroup.abdominals],
-        );
-
-        final entries = buildHistoryEntries(
-          [year],
-          workoutDays: [push, legs],
-        );
-
-        // Exactly the one real Push visit — no phantom Legs entry synthesized
-        // from the shared abdominals cell.
-        expect(entries, hasLength(1));
-        expect(entries.single.isSynthetic, isFalse);
-        expect(
-          entries.single.exerciseNames,
-          containsAll(['Barbell bench press', 'Cable crunches']),
-        );
-        expect(
-          entries.any((e) => e.exerciseNames.contains('Barbell squats')),
-          isFalse,
-        );
-      },
-    );
-
-    test(
-      'a real visit predating workoutDayId (null) still suppresses a phantom '
-      'entry for a peer day sharing a muscle group (bug regression: a '
-      'pre-workoutDayId visit training e.g. Push, sharing abdominals with a '
-      'peer Legs day, used to leak a phantom Legs-labeled entry containing '
-      "only the shared 'abdominals' exercise)",
-      () {
-        final bench = Exercise(
-          name: 'Barbell bench press',
-          muscleGroup: MuscleGroup.upperChest,
-          sheetRow: 5,
-        );
-        final squats = Exercise(
-          name: 'Barbell squats',
-          muscleGroup: MuscleGroup.quads,
-          sheetRow: 10,
-        );
-        final crunches = Exercise(
-          name: 'Cable crunches',
-          muscleGroup: MuscleGroup.abdominals,
-          sheetRow: 15,
-        );
-
-        final year = YearSheetData(
-          year: 2026,
-          tabName: '2026',
-          format: MatrixTabFormat.currentGrouped,
-          muscleGroupSections: {
-            MuscleGroup.upperChest: [bench],
-            MuscleGroup.quads: [squats],
-            MuscleGroup.abdominals: [crunches],
-          },
-          weekColumns: {30: 1},
-          cellValues: {
-            // Only Push's exercises got a cell value this week (bench +
-            // the shared crunches, both written by the real Push visit).
-            // Squats (Legs-only) never got a value, since Legs wasn't
-            // actually trained.
-            const CellKey(5, 1): 80,
-            const CellKey(15, 1): 30,
-          },
-          metaRows: [
-            MetaRow(
-              rowIndex: 1,
-              visitId: 'v1',
-              date: DateTime(2026, 7, 20),
-              isoWeek: 30,
-              isoYear: 2026,
-              muscleGroups: const ['upper chest', 'abdominals'],
-              exercises: const [
-                LoggedExerciseRepRange(
-                  exerciseName: 'Barbell bench press',
-                  repRangeLow: 6,
-                  repRangeHigh: 8,
-                ),
-                LoggedExerciseRepRange(
-                  exerciseName: 'Cable crunches',
-                  repRangeLow: 12,
-                  repRangeHigh: 15,
-                ),
-              ],
-              sourceTab: '2026',
-              // No workoutDayId: simulates a real visit logged before that
-              // field existed.
-            ),
-          ],
-        );
-
-        final push = WorkoutDayDef(
-          id: 'push',
-          label: 'Push',
-          muscleGroups: const [MuscleGroup.upperChest, MuscleGroup.abdominals],
-        );
-        final legs = WorkoutDayDef(
-          id: 'legs',
-          label: 'Legs',
-          muscleGroups: const [MuscleGroup.quads, MuscleGroup.abdominals],
-        );
-
-        final entries = buildHistoryEntries(
-          [year],
-          workoutDays: [push, legs],
-        );
-
-        // Exactly the one real Push visit — no phantom Legs entry synthesized
-        // from the shared abdominals cell, even without workoutDayId.
-        expect(entries, hasLength(1));
-        expect(entries.single.isSynthetic, isFalse);
-        expect(
-          entries.single.exerciseNames,
-          containsAll(['Barbell bench press', 'Cable crunches']),
-        );
-        expect(
-          entries.any((e) => e.exerciseNames.contains('Barbell squats')),
-          isFalse,
-        );
-      },
-    );
-
-    test(
-      'a superset day (e.g. Full Body) produces no duplicate entry when a '
-      "more specific day already covers all of that week's data",
-      () {
-        final bench = Exercise(
-          name: 'Barbell bench press',
-          muscleGroup: MuscleGroup.upperChest,
-          sheetRow: 5,
-        );
-        final squats = Exercise(
-          name: 'Barbell squats',
-          muscleGroup: MuscleGroup.quads,
-          sheetRow: 10,
-        );
-        final crunches = Exercise(
-          name: 'Cable crunches',
-          muscleGroup: MuscleGroup.abdominals,
-          sheetRow: 15,
-        );
-
-        final year = YearSheetData(
-          year: 2026,
-          tabName: '2026',
-          format: MatrixTabFormat.currentGrouped,
-          muscleGroupSections: {
-            MuscleGroup.upperChest: [bench],
-            MuscleGroup.quads: [squats],
-            MuscleGroup.abdominals: [crunches],
-          },
-          weekColumns: {30: 1},
-          cellValues: {
-            // Only abdominals were actually trained this week.
-            const CellKey(15, 1): 30,
-          },
-        );
-
-        final abs = WorkoutDayDef(
-          id: 'abs',
-          label: 'Abdominals',
-          muscleGroups: const [MuscleGroup.abdominals],
-        );
-        final fullBody = WorkoutDayDef(
-          id: kFullBodyDayId,
-          label: 'Full Body',
-          muscleGroups: const [
-            MuscleGroup.upperChest,
-            MuscleGroup.quads,
-            MuscleGroup.abdominals,
-          ],
-        );
-
-        // Full Body listed first, to prove the fix doesn't depend on
-        // caller-supplied list order (deduping uses set size, not position).
-        final entries = buildHistoryEntries(
-          [year],
-          workoutDays: [fullBody, abs],
-        );
-
-        expect(entries, hasLength(1));
-        expect(entries.single.isSynthetic, isTrue);
-        expect(entries.single.exerciseNames, ['Cable crunches']);
-      },
-    );
-
-    test(
-      'a superset day (e.g. Full Body) that also covers genuinely new data '
-      "retains only that new data, not a merge with a more specific day's "
-      'exercises',
-      () {
-        final bench = Exercise(
-          name: 'Barbell bench press',
-          muscleGroup: MuscleGroup.upperChest,
-          sheetRow: 5,
-        );
-        final crunches = Exercise(
-          name: 'Cable crunches',
-          muscleGroup: MuscleGroup.abdominals,
-          sheetRow: 15,
-        );
-
-        final year = YearSheetData(
-          year: 2026,
-          tabName: '2026',
-          format: MatrixTabFormat.currentGrouped,
-          muscleGroupSections: {
-            MuscleGroup.upperChest: [bench],
-            MuscleGroup.abdominals: [crunches],
-          },
-          weekColumns: {30: 1},
-          cellValues: {
-            // Both abdominals (covered by the specific "Abs" day) and upper
-            // chest (only covered by Full Body) were trained this week.
-            const CellKey(5, 1): 80,
-            const CellKey(15, 1): 30,
-          },
-        );
-
-        final abs = WorkoutDayDef(
-          id: 'abs',
-          label: 'Abdominals',
-          muscleGroups: const [MuscleGroup.abdominals],
-        );
-        final fullBody = WorkoutDayDef(
-          id: kFullBodyDayId,
-          label: 'Full Body',
-          muscleGroups: const [MuscleGroup.upperChest, MuscleGroup.abdominals],
-        );
-
-        final entries = buildHistoryEntries(
-          [year],
-          workoutDays: [fullBody, abs],
-        );
-
-        expect(entries, hasLength(2));
-        final absEntry = entries.firstWhere(
-          (e) => e.exerciseNames.contains('Cable crunches'),
-        );
-        expect(absEntry.exerciseNames, ['Cable crunches']);
-
-        final fullBodyEntry = entries.firstWhere(
-          (e) => e.exerciseNames.contains('Barbell bench press'),
-        );
-        expect(fullBodyEntry.exerciseNames, ['Barbell bench press']);
-        expect(
-          fullBodyEntry.exerciseNames,
-          isNot(contains('Cable crunches')),
-        );
-      },
-    );
-
-    test(
-      'two non-overlapping days reconstructed in the same week land on '
-      'different dates, not both on Monday',
-      () {
-        final pullExercise = Exercise(
-          name: 'Lat pulldown',
-          muscleGroup: MuscleGroup.lats,
-          sheetRow: 5,
-        );
-        final legsExercise = Exercise(
-          name: 'Barbell squats',
-          muscleGroup: MuscleGroup.quads,
-          sheetRow: 10,
-        );
-
-        final year = YearSheetData(
-          year: 2026,
-          tabName: '2026',
-          format: MatrixTabFormat.currentGrouped,
-          muscleGroupSections: {
-            MuscleGroup.lats: [pullExercise],
-            MuscleGroup.quads: [legsExercise],
-          },
-          weekColumns: {30: 1},
-          cellValues: {
-            const CellKey(5, 1): 80,
-            const CellKey(10, 1): 100,
-          },
-        );
-
-        final pull = WorkoutDayDef(
-          id: 'pull',
-          label: 'Pull',
-          muscleGroups: const [MuscleGroup.lats],
-        );
-        final legs = WorkoutDayDef(
-          id: 'legs',
-          label: 'Legs',
-          muscleGroups: const [MuscleGroup.quads],
-        );
-
-        final entries = buildHistoryEntries(
-          [year],
-          workoutDays: [pull, legs],
-        );
-
-        expect(entries, hasLength(2));
-        // Both dates fall within this ISO week's Mon..Sun span...
-        final monday = approximateDateForIsoWeek(2026, 30);
-        for (final e in entries) {
-          final offset = e.date.difference(monday).inDays;
-          expect(offset, inInclusiveRange(0, 6));
-        }
-        // ...but they must not collide on the same date.
-        expect(entries[0].date, isNot(entries[1].date));
+        expect(realEntry.isSynthetic, isFalse);
+        expect(realEntry.exactDateKnown, isTrue);
+        expect(syntheticEntry.isSynthetic, isTrue);
+        expect(syntheticEntry.exactDateKnown, isFalse);
       },
     );
   });
@@ -668,6 +166,7 @@ void main() {
         isoYear: 2026,
         exerciseNames: const ['Barbell bench press'],
         muscleGroups: const ['Push'],
+        metaRow: _dummyMetaRow(),
       );
       final push = WorkoutDayDef(
         id: 'push',
@@ -696,6 +195,7 @@ void main() {
           isoYear: 2026,
           exerciseNames: const ['Barbell bench press', 'Cable tricep extension'],
           muscleGroups: const ['upper chest', 'triceps'],
+          metaRow: _dummyMetaRow(),
         );
         final pushWide = WorkoutDayDef(
           id: 'push',
@@ -729,6 +229,7 @@ void main() {
           isoYear: 2026,
           exerciseNames: const ['Lat pulldown', 'Cable seated rows'],
           muscleGroups: const ['upper back', 'lats'],
+          metaRow: _dummyMetaRow(),
         );
         final pull = WorkoutDayDef(
           id: 'pull',
@@ -765,6 +266,7 @@ void main() {
         isoYear: 2025,
         exerciseNames: const ['Incline dumbbell bench press'],
         muscleGroups: const ['Chest'],
+        metaRow: _dummyMetaRow(),
       );
       final push = WorkoutDayDef(
         id: 'push',
@@ -793,6 +295,7 @@ void main() {
           isoYear: 2025,
           exerciseNames: const ['Dumbbell bicep curls'],
           muscleGroups: const ['Biceps'],
+          metaRow: _dummyMetaRow(),
         );
         final pull = WorkoutDayDef(
           id: 'pull',
@@ -808,53 +311,49 @@ void main() {
 
   group('mostRecentRealVisitForDay', () {
     test('prefers an earlier real visit over a more recent synthetic one', () {
-      final bench = Exercise(
-        name: 'Barbell bench press',
-        muscleGroup: MuscleGroup.legacyPush,
-        sheetRow: 5,
-      );
-
-      final year = YearSheetData(
-        year: 2026,
-        tabName: '2026',
-        muscleGroupSections: {
-          MuscleGroup.legacyPush: [bench],
-        },
-        // Week 20: real, app-logged visit (has a MetaRow, tagged 'push').
-        // Week 25: hand-typed matrix cell only, no MetaRow — synthesized,
-        // and more recent than the real visit.
-        weekColumns: {20: 1, 25: 2},
-        cellValues: {const CellKey(5, 1): 80, const CellKey(5, 2): 85},
-        metaRows: [
-          MetaRow(
-            rowIndex: 1,
-            visitId: 'v1',
-            date: DateTime(2026, 5, 11),
-            isoWeek: 20,
-            isoYear: 2026,
-            muscleGroups: const ['Push'],
-            exercises: const [
-              LoggedExerciseRepRange(
-                exerciseName: 'Barbell bench press',
-                repRangeLow: 6,
-                repRangeHigh: 8,
-                actualReps: [8, 8, 7],
-                actualWeights: [80.0, 80.0, 80.0],
-              ),
-            ],
-            sourceTab: '2026',
-            workoutDayId: 'push',
-          ),
-        ],
-      );
-
       final push = WorkoutDayDef(
         id: 'push',
         label: 'Push',
         muscleGroups: const [MuscleGroup.upperChest],
       );
 
-      final entries = buildHistoryEntries([year], workoutDays: [push]);
+      final real = _visit(
+        visitId: 'v1',
+        date: DateTime(2026, 5, 11),
+        isoWeek: 20,
+        isoYear: 2026,
+        muscleGroups: const ['Push'],
+        exercises: const [
+          LoggedExerciseRepRange(
+            exerciseName: 'Barbell bench press',
+            repRangeLow: 6,
+            repRangeHigh: 8,
+            actualReps: [8, 8, 7],
+            actualWeights: [80.0, 80.0, 80.0],
+          ),
+        ],
+        workoutDayId: 'push',
+      );
+      final synthetic = _visit(
+        visitId: 'synthetic_2026_w25_push',
+        date: DateTime(2026, 6, 18),
+        isoWeek: 25,
+        isoYear: 2026,
+        muscleGroups: const ['Push'],
+        exercises: const [
+          LoggedExerciseRepRange(
+            exerciseName: 'Barbell bench press',
+            repRangeLow: 6,
+            repRangeHigh: 8,
+            actualWeights: [85.0],
+          ),
+        ],
+        workoutDayId: 'push',
+        isSynthetic: true,
+        exactDateKnown: false,
+      );
+
+      final entries = buildHistoryEntries([real, synthetic]);
       final result = mostRecentRealVisitForDay(entries, push, [push]);
 
       expect(result, isNotNull);
@@ -863,29 +362,31 @@ void main() {
     });
 
     test('returns null when only synthetic entries exist for the day', () {
-      final squats = Exercise(
-        name: 'Barbell squats',
-        muscleGroup: MuscleGroup.legacyLegs,
-        sheetRow: 10,
-      );
-
-      final year = YearSheetData(
-        year: 2026,
-        tabName: '2026',
-        muscleGroupSections: {
-          MuscleGroup.legacyLegs: [squats],
-        },
-        weekColumns: {12: 1},
-        cellValues: {const CellKey(10, 1): 100},
-      );
-
       final legs = WorkoutDayDef(
         id: 'legs',
         label: 'Legs',
         muscleGroups: const [MuscleGroup.quads],
       );
 
-      final entries = buildHistoryEntries([year], workoutDays: [legs]);
+      final synthetic = _visit(
+        visitId: 'synthetic_2026_w12_legs',
+        date: DateTime(2026, 3, 23),
+        isoWeek: 12,
+        isoYear: 2026,
+        exercises: const [
+          LoggedExerciseRepRange(
+            exerciseName: 'Barbell squats',
+            repRangeLow: 6,
+            repRangeHigh: 8,
+            actualWeights: [100.0],
+          ),
+        ],
+        workoutDayId: 'legs',
+        isSynthetic: true,
+        exactDateKnown: false,
+      );
+
+      final entries = buildHistoryEntries([synthetic]);
 
       expect(mostRecentRealVisitForDay(entries, legs, [legs]), isNull);
     });
@@ -896,143 +397,107 @@ void main() {
       'computes % volume-change between consecutive real visits of the same '
       'exercise, and continues the series across an exercise switch',
       () {
-        // Redesigned (item 10) to walk only real, exact-dated visits
-        // (MetaRow-backed) and diff each exercise's own instance volume
-        // against its own previous instance — no points from a hand-typed
-        // matrix cell with no backing visit, and no point for an exercise's
-        // very first visit (nothing to diff against yet).
+        // Walks only real, exact-dated visits (MetaRow-backed) and diffs
+        // each exercise's own instance volume against its own previous
+        // instance — no point for an exercise's very first visit.
         final legPress = Exercise(
           name: 'Leg press',
-          muscleGroup: MuscleGroup.legacyLegs,
+          muscleGroup: MuscleGroup.quads,
           sheetRow: 20,
         );
         final hackSquat = Exercise(
           name: 'Hack squat',
-          muscleGroup: MuscleGroup.legacyLegs,
+          muscleGroup: MuscleGroup.quads,
           sheetRow: 21,
         );
 
-        final year = YearSheetData(
-          year: 2026,
-          tabName: '2026',
-          muscleGroupSections: {
-            MuscleGroup.legacyLegs: [legPress, hackSquat],
-          },
-          weekColumns: const {},
-          cellValues: const {},
-          metaRows: [
-            MetaRow(
-              rowIndex: 1,
-              visitId: 'v1',
-              date: DateTime(2026, 7, 20),
-              isoWeek: 30,
-              isoYear: 2026,
-              muscleGroups: const ['Legs'],
-              exercises: const [
-                LoggedExerciseRepRange(
-                  exerciseName: 'Leg press',
-                  repRangeLow: 6,
-                  repRangeHigh: 8,
-                  actualReps: [8, 8],
-                  actualWeights: [100, 100], // volume 1600 (baseline)
-                ),
-              ],
-              sourceTab: '2026',
-            ),
-            MetaRow(
-              rowIndex: 2,
-              visitId: 'v2',
-              date: DateTime(2026, 7, 27),
-              isoWeek: 31,
-              isoYear: 2026,
-              muscleGroups: const ['Legs'],
-              exercises: const [
-                LoggedExerciseRepRange(
-                  exerciseName: 'Leg press',
-                  repRangeLow: 6,
-                  repRangeHigh: 8,
-                  actualReps: [8, 8],
-                  actualWeights: [110, 110], // volume 1760, +10%
-                ),
-              ],
-              sourceTab: '2026',
-            ),
-            MetaRow(
-              rowIndex: 3,
-              visitId: 'v3',
-              date: DateTime(2026, 8, 3),
-              isoWeek: 32,
-              isoYear: 2026,
-              muscleGroups: const ['Legs'],
-              exercises: const [
-                LoggedExerciseRepRange(
-                  exerciseName: 'Leg press',
-                  repRangeLow: 6,
-                  repRangeHigh: 8,
-                  actualReps: [8, 8],
-                  actualWeights: [121, 121], // volume 1936, +10%
-                ),
-              ],
-              sourceTab: '2026',
-            ),
-            MetaRow(
-              rowIndex: 4,
-              visitId: 'v4',
-              date: DateTime(2026, 8, 10),
-              isoWeek: 33,
-              isoYear: 2026,
-              muscleGroups: const ['Legs'],
-              exercises: const [
-                LoggedExerciseRepRange(
-                  exerciseName: 'Hack squat',
-                  repRangeLow: 6,
-                  repRangeHigh: 8,
-                  actualReps: [8, 8],
-                  actualWeights: [100, 100], // switch: own baseline
-                ),
-              ],
-              sourceTab: '2026',
-            ),
-            MetaRow(
-              rowIndex: 5,
-              visitId: 'v5',
-              date: DateTime(2026, 8, 17),
-              isoWeek: 34,
-              isoYear: 2026,
-              muscleGroups: const ['Legs'],
-              exercises: const [
-                LoggedExerciseRepRange(
-                  exerciseName: 'Hack squat',
-                  repRangeLow: 6,
-                  repRangeHigh: 8,
-                  actualReps: [8, 8],
-                  actualWeights: [110, 110], // volume 1760, +10%
-                ),
-              ],
-              sourceTab: '2026',
-            ),
-          ],
-        );
-
-        final info = [
-          const ExerciseMuscleInfo(
-            exerciseName: 'Leg press',
-            muscleGroup: MuscleGroup.quads,
-            columnIndex: 0,
-            rowIndex: 1,
+        final visits = [
+          _visit(
+            visitId: 'v1',
+            date: DateTime(2026, 7, 20),
+            isoWeek: 30,
+            isoYear: 2026,
+            muscleGroups: const ['Legs'],
+            exercises: const [
+              LoggedExerciseRepRange(
+                exerciseName: 'Leg press',
+                repRangeLow: 6,
+                repRangeHigh: 8,
+                actualReps: [8, 8],
+                actualWeights: [100, 100], // volume 1600 (baseline)
+              ),
+            ],
           ),
-          const ExerciseMuscleInfo(
-            exerciseName: 'Hack squat',
-            muscleGroup: MuscleGroup.quads,
-            columnIndex: 0,
-            rowIndex: 2,
+          _visit(
+            visitId: 'v2',
+            date: DateTime(2026, 7, 27),
+            isoWeek: 31,
+            isoYear: 2026,
+            muscleGroups: const ['Legs'],
+            exercises: const [
+              LoggedExerciseRepRange(
+                exerciseName: 'Leg press',
+                repRangeLow: 6,
+                repRangeHigh: 8,
+                actualReps: [8, 8],
+                actualWeights: [110, 110], // volume 1760, +10%
+              ),
+            ],
+          ),
+          _visit(
+            visitId: 'v3',
+            date: DateTime(2026, 8, 3),
+            isoWeek: 32,
+            isoYear: 2026,
+            muscleGroups: const ['Legs'],
+            exercises: const [
+              LoggedExerciseRepRange(
+                exerciseName: 'Leg press',
+                repRangeLow: 6,
+                repRangeHigh: 8,
+                actualReps: [8, 8],
+                actualWeights: [121, 121], // volume 1936, +10%
+              ),
+            ],
+          ),
+          _visit(
+            visitId: 'v4',
+            date: DateTime(2026, 8, 10),
+            isoWeek: 33,
+            isoYear: 2026,
+            muscleGroups: const ['Legs'],
+            exercises: const [
+              LoggedExerciseRepRange(
+                exerciseName: 'Hack squat',
+                repRangeLow: 6,
+                repRangeHigh: 8,
+                actualReps: [8, 8],
+                actualWeights: [100, 100], // switch: own baseline
+              ),
+            ],
+          ),
+          _visit(
+            visitId: 'v5',
+            date: DateTime(2026, 8, 17),
+            isoWeek: 34,
+            isoYear: 2026,
+            muscleGroups: const ['Legs'],
+            exercises: const [
+              LoggedExerciseRepRange(
+                exerciseName: 'Hack squat',
+                repRangeLow: 6,
+                repRangeHigh: 8,
+                actualReps: [8, 8],
+                actualWeights: [110, 110], // volume 1760, +10%
+              ),
+            ],
           ),
         ];
 
         final points = buildMuscleProgressPoints(
-          yearsAscending: [year],
+          visits: visits,
+          exercises: [legPress, hackSquat],
           muscle: 'quads',
-          exerciseMuscleInfo: info,
         );
 
         expect(points, hasLength(3));
@@ -1055,118 +520,86 @@ void main() {
       () {
         final legPress = Exercise(
           name: 'Leg press',
-          muscleGroup: MuscleGroup.legacyLegs,
+          muscleGroup: MuscleGroup.quads,
           sheetRow: 20,
         );
         final hackSquat = Exercise(
           name: 'Hack squat',
-          muscleGroup: MuscleGroup.legacyLegs,
+          muscleGroup: MuscleGroup.quads,
           sheetRow: 21,
         );
 
-        final year = YearSheetData(
-          year: 2026,
-          tabName: '2026',
-          muscleGroupSections: {
-            MuscleGroup.legacyLegs: [legPress, hackSquat],
-          },
-          weekColumns: const {},
-          cellValues: const {},
-          metaRows: [
-            MetaRow(
-              rowIndex: 1,
-              visitId: 'v1',
-              date: DateTime(2026, 7, 20),
-              isoWeek: 30,
-              isoYear: 2026,
-              muscleGroups: const ['Legs'],
-              exercises: const [
-                LoggedExerciseRepRange(
-                  exerciseName: 'Leg press',
-                  repRangeLow: 6,
-                  repRangeHigh: 8,
-                  actualReps: [8, 8],
-                  actualWeights: [100, 100], // volume 1600 (baseline)
-                ),
-              ],
-              sourceTab: '2026',
-            ),
-            MetaRow(
-              rowIndex: 2,
-              visitId: 'v2',
-              date: DateTime(2026, 7, 22),
-              isoWeek: 30,
-              isoYear: 2026,
-              muscleGroups: const ['Legs'],
-              exercises: const [
-                LoggedExerciseRepRange(
-                  exerciseName: 'Hack squat',
-                  repRangeLow: 6,
-                  repRangeHigh: 8,
-                  actualReps: [8, 8],
-                  actualWeights: [200, 200], // volume 3200 (baseline)
-                ),
-              ],
-              sourceTab: '2026',
-            ),
-            MetaRow(
-              rowIndex: 3,
-              visitId: 'v3',
-              date: DateTime(2026, 7, 27),
-              isoWeek: 31,
-              isoYear: 2026,
-              muscleGroups: const ['Legs'],
-              exercises: const [
-                LoggedExerciseRepRange(
-                  exerciseName: 'Leg press',
-                  repRangeLow: 6,
-                  repRangeHigh: 8,
-                  actualReps: [8, 8],
-                  actualWeights: [120, 120], // volume 1920, +20%
-                ),
-              ],
-              sourceTab: '2026',
-            ),
-            MetaRow(
-              rowIndex: 4,
-              visitId: 'v4',
-              date: DateTime(2026, 8, 3),
-              isoWeek: 32,
-              isoYear: 2026,
-              muscleGroups: const ['Legs'],
-              exercises: const [
-                LoggedExerciseRepRange(
-                  exerciseName: 'Hack squat',
-                  repRangeLow: 6,
-                  repRangeHigh: 8,
-                  actualReps: [8, 8],
-                  actualWeights: [220, 220], // volume 3520, +10%
-                ),
-              ],
-              sourceTab: '2026',
-            ),
-          ],
-        );
-
-        final info = [
-          const ExerciseMuscleInfo(
-            exerciseName: 'Leg press',
-            muscleGroup: MuscleGroup.quads,
-            columnIndex: 0,
-            rowIndex: 1,
+        final visits = [
+          _visit(
+            visitId: 'v1',
+            date: DateTime(2026, 7, 20),
+            isoWeek: 30,
+            isoYear: 2026,
+            muscleGroups: const ['Legs'],
+            exercises: const [
+              LoggedExerciseRepRange(
+                exerciseName: 'Leg press',
+                repRangeLow: 6,
+                repRangeHigh: 8,
+                actualReps: [8, 8],
+                actualWeights: [100, 100], // volume 1600 (baseline)
+              ),
+            ],
           ),
-          const ExerciseMuscleInfo(
-            exerciseName: 'Hack squat',
-            muscleGroup: MuscleGroup.quads,
-            columnIndex: 0,
-            rowIndex: 2,
+          _visit(
+            visitId: 'v2',
+            date: DateTime(2026, 7, 22),
+            isoWeek: 30,
+            isoYear: 2026,
+            muscleGroups: const ['Legs'],
+            exercises: const [
+              LoggedExerciseRepRange(
+                exerciseName: 'Hack squat',
+                repRangeLow: 6,
+                repRangeHigh: 8,
+                actualReps: [8, 8],
+                actualWeights: [200, 200], // volume 3200 (baseline)
+              ),
+            ],
+          ),
+          _visit(
+            visitId: 'v3',
+            date: DateTime(2026, 7, 27),
+            isoWeek: 31,
+            isoYear: 2026,
+            muscleGroups: const ['Legs'],
+            exercises: const [
+              LoggedExerciseRepRange(
+                exerciseName: 'Leg press',
+                repRangeLow: 6,
+                repRangeHigh: 8,
+                actualReps: [8, 8],
+                actualWeights: [120, 120], // volume 1920, +20%
+              ),
+            ],
+          ),
+          _visit(
+            visitId: 'v4',
+            date: DateTime(2026, 8, 3),
+            isoWeek: 32,
+            isoYear: 2026,
+            muscleGroups: const ['Legs'],
+            exercises: const [
+              LoggedExerciseRepRange(
+                exerciseName: 'Hack squat',
+                repRangeLow: 6,
+                repRangeHigh: 8,
+                actualReps: [8, 8],
+                actualWeights: [220, 220], // volume 3520, +10%
+              ),
+            ],
           ),
         ];
 
         final points = buildMuscleProgressPoints(
-          yearsAscending: [year],
+          visits: visits,
+          exercises: [legPress, hackSquat],
           muscle: 'quads',
-          exerciseMuscleInfo: info,
         );
 
         expect(points, hasLength(2));
@@ -1178,71 +611,57 @@ void main() {
     );
 
     test(
-      'sources muscle tags from the year tab\'s own exercises when no '
+      'sources muscle tags from the exercise\'s own current tag when no '
       'Exercises reference tab exists (empty exerciseMuscleInfo)',
       () {
-        // Regression: the "Muscles" graph category used to hard-depend on
-        // the (now often-gone) Exercises reference tab. It must keep
-        // working from the year tab's own currentGrouped section headers
-        // alone.
+        // Regression: the "Muscles" graph category must keep working from
+        // an exercise's own current-era muscle tag alone, with no Exercises
+        // reference tab needed.
         final legPress = Exercise(
           name: 'Leg press',
           muscleGroup: MuscleGroup.quads,
           sheetRow: 20,
         );
-        final year = YearSheetData(
-          year: 2026,
-          tabName: '2026',
-          format: MatrixTabFormat.currentGrouped,
-          muscleGroupSections: {
-            MuscleGroup.quads: [legPress],
-          },
-          weekColumns: const {},
-          cellValues: const {},
-          metaRows: [
-            MetaRow(
-              rowIndex: 1,
-              visitId: 'v1',
-              date: DateTime(2026, 7, 20),
-              isoWeek: 30,
-              isoYear: 2026,
-              muscleGroups: const ['quads'],
-              exercises: const [
-                LoggedExerciseRepRange(
-                  exerciseName: 'Leg press',
-                  repRangeLow: 6,
-                  repRangeHigh: 8,
-                  actualReps: [8, 8],
-                  actualWeights: [100, 100], // volume 1600 (baseline)
-                ),
-              ],
-              sourceTab: '2026',
-            ),
-            MetaRow(
-              rowIndex: 2,
-              visitId: 'v2',
-              date: DateTime(2026, 7, 27),
-              isoWeek: 31,
-              isoYear: 2026,
-              muscleGroups: const ['quads'],
-              exercises: const [
-                LoggedExerciseRepRange(
-                  exerciseName: 'Leg press',
-                  repRangeLow: 6,
-                  repRangeHigh: 8,
-                  actualReps: [8, 8],
-                  actualWeights: [110, 110], // volume 1760, +10%
-                ),
-              ],
-              sourceTab: '2026',
-            ),
-          ],
-        );
+
+        final visits = [
+          _visit(
+            visitId: 'v1',
+            date: DateTime(2026, 7, 20),
+            isoWeek: 30,
+            isoYear: 2026,
+            muscleGroups: const ['quads'],
+            exercises: const [
+              LoggedExerciseRepRange(
+                exerciseName: 'Leg press',
+                repRangeLow: 6,
+                repRangeHigh: 8,
+                actualReps: [8, 8],
+                actualWeights: [100, 100], // volume 1600 (baseline)
+              ),
+            ],
+          ),
+          _visit(
+            visitId: 'v2',
+            date: DateTime(2026, 7, 27),
+            isoWeek: 31,
+            isoYear: 2026,
+            muscleGroups: const ['quads'],
+            exercises: const [
+              LoggedExerciseRepRange(
+                exerciseName: 'Leg press',
+                repRangeLow: 6,
+                repRangeHigh: 8,
+                actualReps: [8, 8],
+                actualWeights: [110, 110], // volume 1760, +10%
+              ),
+            ],
+          ),
+        ];
 
         final points = buildMuscleProgressPoints(
-          yearsAscending: [year],
+          visits: visits,
+          exercises: [legPress],
           muscle: 'quads',
-          exerciseMuscleInfo: const [],
         );
 
         expect(points, hasLength(1));
@@ -1251,18 +670,10 @@ void main() {
     );
 
     test('returns nothing for a muscle with no matching exercises', () {
-      final year = YearSheetData(
-        year: 2026,
-        tabName: '2026',
-        muscleGroupSections: const {},
-        weekColumns: const {},
-        cellValues: const {},
-      );
-
       final points = buildMuscleProgressPoints(
-        yearsAscending: [year],
+        visits: const [],
+        exercises: const [],
         muscle: 'quads',
-        exerciseMuscleInfo: const [],
       );
 
       expect(points, isEmpty);
@@ -1271,68 +682,47 @@ void main() {
 
   group('previousActualWeights', () {
     test(
-      'returns the most recent visit\'s weights even when an earlier visit '
+      "returns the most recent visit's weights even when an earlier visit "
       'shares the same ISO week',
       () {
         // Regression test: logging 100kg early in a week then 120kg later
-        // the same week must surface 120 as "last time", not 100 — see
-        // buildExerciseHistory's week-bucketed, first-match behavior that
-        // this function deliberately avoids by reading buildHistoryEntries
-        // (sorted by true visit date) instead.
-        final bench = Exercise(
-          name: 'Barbell bench press',
-          muscleGroup: MuscleGroup.legacyPush,
-          sheetRow: 5,
-        );
-
-        final year = YearSheetData(
-          year: 2026,
-          tabName: '2026',
-          muscleGroupSections: {MuscleGroup.legacyPush: [bench]},
-          weekColumns: {30: 1},
-          cellValues: {const CellKey(5, 1): 110},
-          metaRows: [
-            MetaRow(
-              rowIndex: 1,
-              visitId: 'v1',
-              date: DateTime(2026, 7, 20),
-              isoWeek: 30,
-              isoYear: 2026,
-              muscleGroups: const ['Push'],
-              exercises: const [
-                LoggedExerciseRepRange(
-                  exerciseName: 'Barbell bench press',
-                  repRangeLow: 6,
-                  repRangeHigh: 8,
-                  actualReps: [8, 8],
-                  actualWeights: [100, 100],
-                ),
-              ],
-              sourceTab: '2026',
+        // the same week must surface 120 as "last time" — buildHistoryEntries
+        // sorts by true visit date, not by week bucket.
+        final earlier = _visit(
+          visitId: 'v1',
+          date: DateTime(2026, 7, 20),
+          isoWeek: 30,
+          isoYear: 2026,
+          muscleGroups: const ['Push'],
+          exercises: const [
+            LoggedExerciseRepRange(
+              exerciseName: 'Barbell bench press',
+              repRangeLow: 6,
+              repRangeHigh: 8,
+              actualReps: [8, 8],
+              actualWeights: [100, 100],
             ),
-            MetaRow(
-              rowIndex: 2,
-              visitId: 'v2',
-              date: DateTime(2026, 7, 22),
-              isoWeek: 30,
-              isoYear: 2026,
-              muscleGroups: const ['Push'],
-              exercises: const [
-                LoggedExerciseRepRange(
-                  exerciseName: 'Barbell bench press',
-                  repRangeLow: 6,
-                  repRangeHigh: 8,
-                  actualReps: [8, 8],
-                  actualWeights: [120, 120],
-                ),
-              ],
-              sourceTab: '2026',
+          ],
+        );
+        final later = _visit(
+          visitId: 'v2',
+          date: DateTime(2026, 7, 22),
+          isoWeek: 30,
+          isoYear: 2026,
+          muscleGroups: const ['Push'],
+          exercises: const [
+            LoggedExerciseRepRange(
+              exerciseName: 'Barbell bench press',
+              repRangeLow: 6,
+              repRangeHigh: 8,
+              actualReps: [8, 8],
+              actualWeights: [120, 120],
             ),
           ],
         );
 
         final weights = previousActualWeights(
-          yearsAscending: [year],
+          visits: [earlier, later],
           exerciseName: 'Barbell bench press',
         );
 
@@ -1341,60 +731,41 @@ void main() {
     );
 
     test('beforeDate excludes a visit on or after that date', () {
-      final bench = Exercise(
-        name: 'Barbell bench press',
-        muscleGroup: MuscleGroup.legacyPush,
-        sheetRow: 5,
-      );
-
-      final year = YearSheetData(
-        year: 2026,
-        tabName: '2026',
-        muscleGroupSections: {MuscleGroup.legacyPush: [bench]},
-        weekColumns: {30: 1, 31: 2},
-        cellValues: {const CellKey(5, 1): 100, const CellKey(5, 2): 120},
-        metaRows: [
-          MetaRow(
-            rowIndex: 1,
-            visitId: 'v1',
-            date: DateTime(2026, 7, 20),
-            isoWeek: 30,
-            isoYear: 2026,
-            muscleGroups: const ['Push'],
-            exercises: const [
-              LoggedExerciseRepRange(
-                exerciseName: 'Barbell bench press',
-                repRangeLow: 6,
-                repRangeHigh: 8,
-                actualReps: [8, 8],
-                actualWeights: [100, 100],
-              ),
-            ],
-            sourceTab: '2026',
+      final earlier = _visit(
+        visitId: 'v1',
+        date: DateTime(2026, 7, 20),
+        isoWeek: 30,
+        isoYear: 2026,
+        muscleGroups: const ['Push'],
+        exercises: const [
+          LoggedExerciseRepRange(
+            exerciseName: 'Barbell bench press',
+            repRangeLow: 6,
+            repRangeHigh: 8,
+            actualReps: [8, 8],
+            actualWeights: [100, 100],
           ),
-          MetaRow(
-            rowIndex: 2,
-            visitId: 'v2',
-            date: DateTime(2026, 7, 27),
-            isoWeek: 31,
-            isoYear: 2026,
-            muscleGroups: const ['Push'],
-            exercises: const [
-              LoggedExerciseRepRange(
-                exerciseName: 'Barbell bench press',
-                repRangeLow: 6,
-                repRangeHigh: 8,
-                actualReps: [8, 8],
-                actualWeights: [120, 120],
-              ),
-            ],
-            sourceTab: '2026',
+        ],
+      );
+      final later = _visit(
+        visitId: 'v2',
+        date: DateTime(2026, 7, 27),
+        isoWeek: 31,
+        isoYear: 2026,
+        muscleGroups: const ['Push'],
+        exercises: const [
+          LoggedExerciseRepRange(
+            exerciseName: 'Barbell bench press',
+            repRangeLow: 6,
+            repRangeHigh: 8,
+            actualReps: [8, 8],
+            actualWeights: [120, 120],
           ),
         ],
       );
 
       final weights = previousActualWeights(
-        yearsAscending: [year],
+        visits: [earlier, later],
         exerciseName: 'Barbell bench press',
         beforeDate: DateTime(2026, 7, 27),
       );
@@ -1403,47 +774,30 @@ void main() {
     });
 
     test(
-      'falls back to the matrix-cell value for a legacy visit with no '
-      'per-set weights tracked',
+      'returns an empty list when the matching visit logged no per-set '
+      'weights',
       () {
-        final bench = Exercise(
-          name: 'Barbell bench press',
-          muscleGroup: MuscleGroup.legacyPush,
-          sheetRow: 5,
-        );
-
-        final year = YearSheetData(
-          year: 2026,
-          tabName: '2026',
-          muscleGroupSections: {MuscleGroup.legacyPush: [bench]},
-          weekColumns: {30: 1},
-          cellValues: {const CellKey(5, 1): 90},
-          metaRows: [
-            MetaRow(
-              rowIndex: 1,
-              visitId: 'v1',
-              date: DateTime(2026, 7, 20),
-              isoWeek: 30,
-              isoYear: 2026,
-              muscleGroups: const ['Push'],
-              exercises: const [
-                LoggedExerciseRepRange(
-                  exerciseName: 'Barbell bench press',
-                  repRangeLow: 6,
-                  repRangeHigh: 8,
-                ),
-              ],
-              sourceTab: '2026',
+        final visit = _visit(
+          visitId: 'v1',
+          date: DateTime(2026, 7, 20),
+          isoWeek: 30,
+          isoYear: 2026,
+          muscleGroups: const ['Push'],
+          exercises: const [
+            LoggedExerciseRepRange(
+              exerciseName: 'Barbell bench press',
+              repRangeLow: 6,
+              repRangeHigh: 8,
             ),
           ],
         );
 
         final weights = previousActualWeights(
-          yearsAscending: [year],
+          visits: [visit],
           exerciseName: 'Barbell bench press',
         );
 
-        expect(weights, [90]);
+        expect(weights, isEmpty);
       },
     );
   });

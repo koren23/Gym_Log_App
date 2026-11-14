@@ -118,7 +118,7 @@ class BodyWeightHistoryScreen extends ConsumerWidget {
       final weight = double.tryParse(controller.text);
       if (weight == null) return;
       ok = await notifier.updateBodyWeightEntry(
-        entry,
+        entry.date,
         date: date,
         weightKg: weight,
       );

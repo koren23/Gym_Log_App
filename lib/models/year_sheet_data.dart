@@ -114,6 +114,8 @@ class MetaRow {
     this.ratingRelevance = RatingRelevance.normal,
     this.note,
     this.workoutDayId,
+    this.isSynthetic = false,
+    this.exactDateKnown = true,
   });
 
   final int rowIndex;
@@ -142,6 +144,15 @@ class MetaRow {
   /// tracked, or hand-typed sheet rows.
   final String? workoutDayId;
 
+  /// True for a visit materialized at import time from matrix cells typed
+  /// directly into the sheet with no metadata row — see
+  /// `SheetImportService`. Never carries a rating/note/per-set data.
+  final bool isSynthetic;
+
+  /// False when only the ISO week is known (a [isSynthetic] entry), not an
+  /// exact calendar date.
+  final bool exactDateKnown;
+
   List<String> get exerciseNames =>
       exercises.map((e) => e.exerciseName).toList();
 
@@ -163,6 +174,8 @@ class MetaRow {
     ratingRelevance: ratingRelevance ?? this.ratingRelevance,
     note: note ?? this.note,
     workoutDayId: workoutDayId,
+    isSynthetic: isSynthetic,
+    exactDateKnown: exactDateKnown,
   );
 }
 

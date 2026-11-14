@@ -16,6 +16,26 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '3.0.0',
+    date: '2026-11-14',
+    changes: [
+      'Big one: the app now saves everything to your device first, so it '
+          'fully works offline — logging a workout, adding an exercise and '
+          'giving it a muscle group, and tracking body weight no longer '
+          'need a connected Google Sheet at all.',
+      'A connected Sheet is now an optional backup: your data is mirrored '
+          'to it in the background when possible, and if a push fails '
+          '(no connection, etc.) it\'s queued and retried automatically — '
+          'nothing you log is ever lost by being offline.',
+      'If you connect or reconnect a Sheet that already has history on '
+          'it, the app reconciles the two: the Sheet\'s data wins on any '
+          'conflict, and nothing local ever gets deleted just because '
+          'it\'s missing from the Sheet.',
+      'Fixed editing a logged visit\'s weights, reps, or per-set target '
+          'overrides sometimes not actually saving.',
+    ],
+  ),
+  ChangelogEntry(
     version: '2.5.0',
     date: '2026-11-13',
     changes: [

@@ -3,13 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/app_page_route.dart';
-import '../../core/constants/muscle_groups.dart';
 import '../../core/utils/text.dart';
 import '../../models/history_entry.dart';
 import '../../models/rating_relevance.dart';
 import '../../models/workout_day_def.dart';
-import '../../models/year_sheet_data.dart';
 import '../../providers/analysis_providers.dart';
+import '../../providers/local_history_providers.dart';
 import '../../providers/settings_providers.dart';
 import '../../providers/sheet_data_providers.dart';
 import '../../widgets/empty_state.dart';
@@ -33,18 +32,16 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final snapshotAsync = ref.watch(snapshotProvider);
-    final snapshotState = snapshotAsync.value;
-    final yearsAscending = snapshotState?.snapshot.yearData.values.toList()
-      ?..sort((a, b) => a.year.compareTo(b.year));
+    final visitsAsync = ref.watch(localVisitsProvider);
+    final visits = visitsAsync.value;
 
-    if (snapshotAsync.isLoading && snapshotState == null) {
+    if (visitsAsync.isLoading && visits == null) {
       return const ChartScreenSkeleton();
     }
 
-    if (yearsAscending == null || yearsAscending.isEmpty) {
+    if (visits == null || visits.isEmpty) {
       return RefreshIndicator(
-        onRefresh: () => ref.read(snapshotProvider.notifier).refresh(),
+        onRefresh: () => ref.read(localVisitsProvider.notifier).refresh(),
         child: const SingleChildScrollView(
           physics: AlwaysScrollableScrollPhysics(),
           child: Padding(
@@ -59,10 +56,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     }
 
     final workoutDayDefs = ref.watch(workoutDayDefsProvider);
-    final entries = buildHistoryEntries(
-      yearsAscending,
-      workoutDays: workoutDayDefs,
-    ); // most-recent first
+    final entries = buildHistoryEntries(visits); // most-recent first
     final byDate = <DateTime, List<HistoryEntry>>{};
     for (final e in entries) {
       byDate.putIfAbsent(_dateOnly(e.date), () => []).add(e);
@@ -79,11 +73,10 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
     final selectedEntries = _selectedDate == null
         ? const <HistoryEntry>[]
         : (byDate[_selectedDate] ?? const []);
-    final yearDataByYear = {for (final y in yearsAscending) y.year: y};
     final theme = Theme.of(context);
 
     return RefreshIndicator(
-      onRefresh: () => ref.read(snapshotProvider.notifier).refresh(),
+      onRefresh: () => ref.read(localVisitsProvider.notifier).refresh(),
       child: SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
@@ -111,7 +104,7 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                 for (final entry in byDate.entries)
                   if (entry.value.any(
                     (e) =>
-                        e.metaRow?.ratingRelevance == RatingRelevance.unrelated,
+                        e.metaRow.ratingRelevance == RatingRelevance.unrelated,
                   ))
                     entry.key,
               },
@@ -127,7 +120,6 @@ class _HistoryScreenState extends ConsumerState<HistoryScreen> {
                 : _DayDetail(
                     date: _selectedDate!,
                     entries: selectedEntries,
-                    yearDataByYear: yearDataByYear,
                     workoutDayDefs: workoutDayDefs,
                   ),
           ],
@@ -295,13 +287,11 @@ class _DayDetail extends StatelessWidget {
   const _DayDetail({
     required this.date,
     required this.entries,
-    required this.yearDataByYear,
     required this.workoutDayDefs,
   });
 
   final DateTime date;
   final List<HistoryEntry> entries;
-  final Map<int, YearSheetData> yearDataByYear;
   final List<WorkoutDayDef> workoutDayDefs;
 
   @override
@@ -331,11 +321,7 @@ class _DayDetail extends StatelessWidget {
             )
           else
             for (final entry in entries) ...[
-              _EntryDetail(
-                entry: entry,
-                yearData: yearDataByYear[entry.isoYear],
-                workoutDayDefs: workoutDayDefs,
-              ),
+              _EntryDetail(entry: entry, workoutDayDefs: workoutDayDefs),
               const SizedBox(height: 12),
             ],
         ],
@@ -344,28 +330,10 @@ class _DayDetail extends StatelessWidget {
   }
 }
 
-/// Legacy per-week, per-muscle-group note mirrored into a matrix-tab
-/// header-row cell by `saveVisitNote` (kept only for visits predating the
-/// per-visit note column). Scoped to this entry's own muscle group so it
-/// never surfaces a different visit's note for a different muscle group
-/// sharing the same ISO week.
-String? _legacyWeekNoteFor(HistoryEntry entry, YearSheetData? yearData) {
-  final legacyDay = workoutDayForGroupLabels(entry.muscleGroups);
-  if (legacyDay == null) return null;
-  return yearData?.weekNotesByGroup[primaryGroupForDay(
-    legacyDay,
-  )]?[entry.isoWeek];
-}
-
 class _EntryDetail extends ConsumerWidget {
-  const _EntryDetail({
-    required this.entry,
-    required this.yearData,
-    required this.workoutDayDefs,
-  });
+  const _EntryDetail({required this.entry, required this.workoutDayDefs});
 
   final HistoryEntry entry;
-  final YearSheetData? yearData;
   final List<WorkoutDayDef> workoutDayDefs;
 
   @override
@@ -377,16 +345,14 @@ class _EntryDetail extends ConsumerWidget {
     // History and Home always agree, including for legacy (pre-workoutDayId)
     // visits that used to fall back to the weaker legacy-taxonomy-only match.
     final matchedDay = bestMatchingDayForEntry(entry, workoutDayDefs);
-    final note = entry.metaRow?.note ?? _legacyWeekNoteFor(entry, yearData);
-    final visitId = entry.metaRow?.visitId;
+    final note = entry.metaRow.note;
+    final visitId = entry.metaRow.visitId;
     final notesByExercise = <String, List<String>>{};
-    if (visitId != null) {
-      for (final n in ref.watch(notesProvider)) {
-        if (n.visitId != visitId) continue;
-        (notesByExercise[n.exerciseName] ??= []).add(
-          n.setIndex == null ? n.text : 'Set ${n.setIndex! + 1}: ${n.text}',
-        );
-      }
+    for (final n in ref.watch(notesProvider)) {
+      if (n.visitId != visitId) continue;
+      (notesByExercise[n.exerciseName] ??= []).add(
+        n.setIndex == null ? n.text : 'Set ${n.setIndex! + 1}: ${n.text}',
+      );
     }
     final dayLabel =
         matchedDay?.label ??
@@ -410,15 +376,15 @@ class _EntryDetail extends ConsumerWidget {
                 ),
               ),
             const SizedBox(width: 8),
-            if (entry.metaRow?.rating != null) ...[
+            if (entry.metaRow.rating != null) ...[
               const Icon(Icons.star, size: 14, color: Colors.amber),
               const SizedBox(width: 2),
               Text(
-                entry.metaRow!.rating!.toStringAsFixed(1),
+                entry.metaRow.rating!.toStringAsFixed(1),
                 style: theme.textTheme.bodySmall,
               ),
             ],
-            if (entry.metaRow?.ratingRelevance ==
+            if (entry.metaRow.ratingRelevance ==
                 RatingRelevance.unrelated) ...[
               const SizedBox(width: 6),
               Tooltip(
@@ -438,7 +404,7 @@ class _EntryDetail extends ConsumerWidget {
                 color: theme.colorScheme.outline,
               ),
             ],
-            if (entry.metaRow != null) ...[
+            if (!entry.isSynthetic) ...[
               const Spacer(),
               IconButton(
                 icon: const Icon(Icons.edit_outlined, size: 18),
@@ -447,10 +413,8 @@ class _EntryDetail extends ConsumerWidget {
                 onPressed: () => Navigator.of(context).push(
                   AppPageRoute(
                     builder: (_) => EditVisitScreen(
-                      metaRow: entry.metaRow!,
-                      initialNote:
-                          entry.metaRow!.note ??
-                          _legacyWeekNoteFor(entry, yearData),
+                      metaRow: entry.metaRow,
+                      initialNote: entry.metaRow.note,
                     ),
                   ),
                 ),
@@ -459,7 +423,7 @@ class _EntryDetail extends ConsumerWidget {
           ],
         ),
         const SizedBox(height: 4),
-        if (entry.metaRow?.ratingRelevance == RatingRelevance.unrelated)
+        if (entry.metaRow.ratingRelevance == RatingRelevance.unrelated)
           Padding(
             padding: const EdgeInsets.only(bottom: 4),
             child: Text(

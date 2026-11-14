@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/analysis_providers.dart';
-import '../providers/sheet_data_providers.dart';
+import '../providers/local_history_providers.dart';
 import '../services/analysis/stats_engine.dart';
 import 'streak_color.dart';
 
@@ -14,14 +14,12 @@ class StreakBanner extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final snapshotState = ref.watch(snapshotProvider).value;
-    final yearsAscending = snapshotState?.snapshot.yearData.values.toList()
-      ?..sort((a, b) => a.year.compareTo(b.year));
-    if (yearsAscending == null || yearsAscending.isEmpty) {
+    final visits = ref.watch(localVisitsProvider).value;
+    if (visits == null || visits.isEmpty) {
       return const SizedBox.shrink();
     }
 
-    final visitDates = buildHistoryEntries(yearsAscending)
+    final visitDates = buildHistoryEntries(visits)
         .map((e) => e.date)
         .toList();
     if (visitDates.isEmpty) return const SizedBox.shrink();

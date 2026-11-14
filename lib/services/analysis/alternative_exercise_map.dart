@@ -1,13 +1,13 @@
+import '../../core/constants/muscle_groups.dart';
 import '../../models/exercise.dart';
-import '../../models/year_sheet_data.dart';
 
 /// Suggests alternative exercises for the same muscle group, derived
-/// entirely from the user's own (parsed) exercise list — no external
-/// exercise database.
+/// entirely from the user's own exercise list — no external exercise
+/// database.
 class AlternativeExerciseMap {
-  const AlternativeExerciseMap(this._sheetData);
+  const AlternativeExerciseMap(this._exercisesByGroup);
 
-  final YearSheetData _sheetData;
+  final Map<MuscleGroup, List<Exercise>> _exercisesByGroup;
 
   /// Returns other exercises in [exercise]'s muscle group, ordered to
   /// prefer ones not logged recently (least-recently-used first).
@@ -16,7 +16,7 @@ class AlternativeExerciseMap {
     Map<String, DateTime>? lastLoggedDate,
   }) {
     final group = exercise.muscleGroup;
-    final siblings = (_sheetData.muscleGroupSections[group] ?? const [])
+    final siblings = (_exercisesByGroup[group] ?? const [])
         .where((e) => e.name.toLowerCase() != exercise.name.toLowerCase())
         .toList();
 

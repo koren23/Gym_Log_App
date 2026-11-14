@@ -1,13 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/constants/muscle_groups.dart';
-import '../core/constants/sheet_layout.dart';
 import '../core/utils/exercise_muscle_resolution.dart';
-import '../core/utils/iso_week.dart';
 import '../models/analysis_result.dart';
 import '../models/body_weight_entry.dart';
 import '../models/exercise.dart';
-import '../models/exercise_muscle_info.dart';
 import '../models/history_entry.dart';
 import '../models/rating_relevance.dart';
 import '../models/recent_suggestion_record.dart';
@@ -20,6 +17,7 @@ import '../services/analysis/volume.dart';
 import '../services/analysis/workout_day_analyzer.dart';
 import '../services/settings/app_settings_service.dart';
 import '../widgets/simple_line_chart.dart' show ChartPoint;
+import 'local_history_providers.dart';
 import 'sheet_data_providers.dart';
 import 'settings_providers.dart';
 
@@ -59,93 +57,70 @@ TrendDirection bodyWeightTrend(List<BodyWeightEntry> entries) {
 }
 
 /// Builds a chronological weight/rep/rating history for [exerciseName]
-/// across the loaded years (oldest first).
+/// across every logged visit (oldest first) — [visits] is expected
+/// most-recent-last (see [localVisitsProvider]).
 List<HistoryPoint> buildExerciseHistory({
-  required List<YearSheetData> yearsAscending,
+  required List<MetaRow> visits,
   required String exerciseName,
 }) {
   final points = <HistoryPoint>[];
 
-  for (final yearData in yearsAscending) {
-    final exercise = yearData.findExercise(exerciseName);
-    if (exercise == null || exercise.sheetRow == null) continue;
-
-    final weeksAscending = yearData.weekColumns.keys.toList()..sort();
-    for (final week in weeksAscending) {
-      final col = yearData.weekColumns[week]!;
-      final weight = yearData.cellValues[CellKey(exercise.sheetRow!, col)];
-      if (weight == null) continue;
-
-      final matchingMetaRow = yearData.metaRows.where(
-        (m) =>
-            m.isoWeek == week &&
-            m.exercises.any(
-              (e) => e.exerciseName.toLowerCase() == exerciseName.toLowerCase(),
-            ),
-      );
-      final meta = matchingMetaRow.isEmpty ? null : matchingMetaRow.first;
-      final loggedRange = meta?.exercises.firstWhere(
-        (e) => e.exerciseName.toLowerCase() == exerciseName.toLowerCase(),
-      );
-      final actualWeights = loggedRange?.actualWeights ?? const <double>[];
-      // Prefer the true per-visit average of what was actually logged over
-      // the sheet matrix cell, which re-blends across repeat same-week logs
-      // (sheet_writer.dart) and so double-averages when per-set data exists.
-      final avgWeight = actualWeights.isNotEmpty
-          ? actualWeights.reduce((a, b) => a + b) / actualWeights.length
-          : weight;
-
-      points.add(
-        HistoryPoint(
-          isoYear: yearData.year,
-          isoWeek: week,
-          date: meta?.date ?? approximateDateForIsoWeek(yearData.year, week),
-          avgWeight: avgWeight,
-          repRangeLow: loggedRange?.repRangeLow ?? kDefaultRepRangeLow,
-          repRangeHigh: loggedRange?.repRangeHigh ?? kDefaultRepRangeHigh,
-          rating: meta?.rating,
-          ratingRelevance: meta?.ratingRelevance ?? RatingRelevance.normal,
-          exactDateKnown: meta != null,
-          totalSets: loggedRange?.setCount,
-          avgReps: loggedRange?.avgReps,
-          thumbsUpCount:
-              loggedRange?.setFeedback
-                  .where((f) => f == SetFeedback.up)
-                  .length ??
-              0,
-          thumbsDownCount:
-              loggedRange?.setFeedback
-                  .where((f) => f == SetFeedback.down)
-                  .length ??
-              0,
-          actualRepsPerSet: loggedRange?.actualReps ?? const [],
-          actualWeightsPerSet: actualWeights,
-          perSetFeedback: loggedRange?.setFeedback ?? const [],
-          approxRepsPerSet: loggedRange?.approxReps ?? const [],
-        ),
-      );
+  for (final visit in visits) {
+    LoggedExerciseRepRange? loggedRange;
+    for (final e in visit.exercises) {
+      if (e.exerciseName.toLowerCase() == exerciseName.toLowerCase()) {
+        loggedRange = e;
+        break;
+      }
     }
+    if (loggedRange == null) continue;
+    final actualWeights = loggedRange.actualWeights;
+    if (actualWeights.isEmpty) continue;
+    final avgWeight =
+        actualWeights.reduce((a, b) => a + b) / actualWeights.length;
+
+    points.add(
+      HistoryPoint(
+        isoYear: visit.isoYear,
+        isoWeek: visit.isoWeek,
+        date: visit.date,
+        avgWeight: avgWeight,
+        repRangeLow: loggedRange.repRangeLow,
+        repRangeHigh: loggedRange.repRangeHigh,
+        rating: visit.rating,
+        ratingRelevance: visit.ratingRelevance,
+        exactDateKnown: visit.exactDateKnown,
+        totalSets: loggedRange.setCount,
+        avgReps: loggedRange.avgReps,
+        thumbsUpCount: loggedRange.setFeedback
+            .where((f) => f == SetFeedback.up)
+            .length,
+        thumbsDownCount: loggedRange.setFeedback
+            .where((f) => f == SetFeedback.down)
+            .length,
+        actualRepsPerSet: loggedRange.actualReps,
+        actualWeightsPerSet: actualWeights,
+        perSetFeedback: loggedRange.setFeedback,
+        approxRepsPerSet: loggedRange.approxReps,
+      ),
+    );
   }
 
   return points;
 }
 
 /// Most recent logged date per exercise name (exact case, as stored on the
-/// meta-tab row) across every loaded year — feeds
+/// visit) across every logged visit — feeds
 /// [AlternativeExerciseMap.alternativesFor]'s `lastLoggedDate` so exercise
 /// swaps prefer a sibling that hasn't been trained in a while, instead of
 /// always the same first candidate.
-Map<String, DateTime> _lastLoggedDatesByExerciseName(
-  List<YearSheetData> yearsAscending,
-) {
+Map<String, DateTime> _lastLoggedDatesByExerciseName(List<MetaRow> visits) {
   final result = <String, DateTime>{};
-  for (final year in yearsAscending) {
-    for (final visit in year.metaRows) {
-      for (final ex in visit.exercises) {
-        final existing = result[ex.exerciseName];
-        if (existing == null || visit.date.isAfter(existing)) {
-          result[ex.exerciseName] = visit.date;
-        }
+  for (final visit in visits) {
+    for (final ex in visit.exercises) {
+      final existing = result[ex.exerciseName];
+      if (existing == null || visit.date.isAfter(existing)) {
+        result[ex.exerciseName] = visit.date;
       }
     }
   }
@@ -185,15 +160,12 @@ Map<String, DateTime> _lastLoggedDatesByExerciseName(
 /// rows with no per-set data), so the caller can fall back to a fixed
 /// default.
 int? historicalAverageSetCount({
-  required List<YearSheetData> yearsAscending,
+  required List<MetaRow> visits,
   required String exerciseName,
   int lookback = 10,
 }) {
   final withSets = [
-    for (final h in buildExerciseHistory(
-      yearsAscending: yearsAscending,
-      exerciseName: exerciseName,
-    ))
+    for (final h in buildExerciseHistory(visits: visits, exerciseName: exerciseName))
       if (h.totalSets != null) h.totalSets!,
   ];
   if (withSets.isEmpty) return null;
@@ -211,43 +183,35 @@ int? historicalAverageSetCount({
 /// still reads as one continuous story instead of an apples-to-oranges jump
 /// in raw kg.
 ///
-/// Unlike the old scheme (self-indexed *weight*, bucketed by ISO week with a
-/// best-guess calendar date standing in for pre-app history), this only ever
-/// walks real, exact-dated app-logged visits ([HistoryEntry.metaRow]
-/// non-null) and compares *volume* (weight × reps, not just weight)
-/// instance-to-instance: for each matching exercise, every visit after its
-/// first computable one emits a point for the % change in that exercise's
-/// total volume versus its own immediately-previous visit. A shared
-/// baseline across different exercises isn't used on purpose — different
-/// equipment/leverage makes absolute volume incomparable, so comparing each
-/// exercise only to its own previous instance is what keeps the combined
-/// line honest.
+/// Only ever walks real, exact-dated app-logged visits (skips
+/// [MetaRow.isSynthetic] ones) and compares *volume* (weight × reps, not
+/// just weight) instance-to-instance: for each matching exercise, every
+/// visit after its first computable one emits a point for the % change in
+/// that exercise's total volume versus its own immediately-previous visit.
+/// A shared baseline across different exercises isn't used on purpose —
+/// different equipment/leverage makes absolute volume incomparable, so
+/// comparing each exercise only to its own previous instance is what keeps
+/// the combined line honest.
 List<ChartPoint> buildMuscleProgressPoints({
-  required List<YearSheetData> yearsAscending,
+  required List<MetaRow> visits,
+  required List<Exercise> exercises,
   required String muscle,
-  required List<ExerciseMuscleInfo> exerciseMuscleInfo,
 }) {
   final matchingNames =
-      exerciseNamesByMuscleSheetHeader(
-        yearsAscending: yearsAscending,
-        exerciseMuscleInfo: exerciseMuscleInfo,
-      )[muscle] ??
+      exerciseNamesByMuscleSheetHeader(exercises)[muscle] ??
       const <String>{};
   if (matchingNames.isEmpty) return const [];
 
-  final yearByYear = {for (final y in yearsAscending) y.year: y};
-  final realVisits =
-      buildHistoryEntries(yearsAscending).where((e) => e.metaRow != null).toList()
-        ..sort((a, b) => a.date.compareTo(b.date));
+  final realVisits = visits.where((v) => !v.isSynthetic).toList()
+    ..sort((a, b) => a.date.compareTo(b.date));
 
   final points = <ChartPoint>[];
   for (final name in matchingNames) {
     double? previousVolume;
     VolumeMethod? previousMethod;
     for (final visit in realVisits) {
-      final meta = visit.metaRow!;
       LoggedExerciseRepRange? range;
-      for (final e in meta.exercises) {
+      for (final e in visit.exercises) {
         if (e.exerciseName.toLowerCase() == name.toLowerCase()) {
           range = e;
           break;
@@ -255,17 +219,7 @@ List<ChartPoint> buildMuscleProgressPoints({
       }
       if (range == null) continue;
 
-      final year = yearByYear[visit.isoYear];
-      final col = year?.weekColumns[visit.isoWeek];
-      final exercise = year?.findExercise(name);
-      final matrixCellWeight = (exercise?.sheetRow != null && col != null)
-          ? year!.cellValues[CellKey(exercise!.sheetRow!, col)]
-          : null;
-
-      final result = instanceVolumeDetailed(
-        range,
-        matrixCellWeight: matrixCellWeight,
-      );
+      final result = instanceVolumeDetailed(range, matrixCellWeight: null);
       if (result == null) continue;
       final volume = result.volume;
 
@@ -295,249 +249,53 @@ List<ChartPoint> buildMuscleProgressPoints({
   return points;
 }
 
-/// Best-guess specific date for a week/day that has no exact date on
-/// record (data typed directly into the sheet before the app tracked
-/// exact visit dates) — the user's actual historical schedule for
-/// 2024-2026 wasn't logged day-by-day, so this assigns a fixed weekday
-/// per workout day (Push -> Sunday, Pull -> Tuesday, Legs -> Thursday of
-/// that ISO week) purely so legacy entries have *some* calendar date to
-/// display. Visits logged through the app carry their own real date and
-/// never go through this.
-DateTime approximateDateForWorkoutDay(
-  int isoYear,
-  int isoWeek,
-  WorkoutDay day,
-) {
-  final monday = approximateDateForIsoWeek(isoYear, isoWeek);
-  final offsetFromMonday = switch (day) {
-    WorkoutDay.push => 6, // Sunday (last day of the ISO week)
-    WorkoutDay.pull => 1, // Tuesday
-    WorkoutDay.legs => 3, // Thursday
-  };
-  return monday.add(Duration(days: offsetFromMonday));
-}
-
-/// Combines real app-logged visits with reconstructed entries for weeks
-/// that have exercise weights typed directly into the sheet but no
-/// corresponding metadata row (no exact date/rating available for those —
-/// see [HistoryEntry.isSynthetic]). [workoutDays] (the user's current
-/// sheet-backed workout days) drives reconstruction for `currentGrouped`
-/// years — omit it and those years simply contribute no reconstructed
-/// entries (legacy-format years are unaffected either way). Sorted
-/// most-recent first.
-List<HistoryEntry> buildHistoryEntries(
-  List<YearSheetData> yearsAscending, {
-  List<WorkoutDayDef> workoutDays = const [],
-}) {
-  final entries = <HistoryEntry>[];
-
-  for (final year in yearsAscending) {
-    for (final visit in year.metaRows) {
-      entries.add(
-        HistoryEntry(
-          date: visit.date,
-          isoWeek: visit.isoWeek,
-          isoYear: visit.isoYear,
-          exerciseNames: visit.exerciseNames,
-          muscleGroups: visit.muscleGroups,
-          metaRow: visit,
-        ),
-      );
-    }
-
-    if (year.format == MatrixTabFormat.currentGrouped) {
-      // Once a week has ANY real, exact-dated visit — whether or not it
-      // carries workoutDayId (older visits, logged before that field
-      // existed, don't) — that visit is authoritative for the whole week:
-      // don't synthesize ANY other day for it, even one that merely shares
-      // a muscle group with it (e.g. abdominals trained under both Push and
-      // Legs) — otherwise a shared exercise's matrix cell, written by the
-      // real visit, gets mistaken for a second, un-logged day's own
-      // session. Only weeks with zero real visits at all (numbers typed
-      // directly into the sheet, no metadata row) fall through to the
-      // per-day reconstruction below.
-      final weeksWithRealVisit = <int>{
-        for (final visit in year.metaRows) visit.isoWeek,
-      };
-
-      // Stable order: smallest declared muscle-group set first, ties broken
-      // by original list position (List.sort isn't guaranteed stable).
-      // Reused both to decide which day "claims" an exercise first when two
-      // days' sets overlap, and to give each day a fixed, deterministic
-      // weekday offset so multiple same-week synthetic entries don't all
-      // collapse onto Monday.
-      final orderedIndices = List<int>.generate(workoutDays.length, (i) => i)
-        ..sort((a, b) {
-          final byCount = workoutDays[a].muscleGroups.length.compareTo(
-            workoutDays[b].muscleGroups.length,
-          );
-          return byCount != 0 ? byCount : a.compareTo(b);
-        });
-
-      for (final week in year.weekColumns.keys) {
-        final col = year.weekColumns[week]!;
-        if (weeksWithRealVisit.contains(week)) continue;
-
-        // Per-week claim tracking: which muscle-group set + sheetRows each
-        // already-emitted day this week used, so a broader day (e.g. the
-        // seeded "Full Body", a superset of every other day) doesn't
-        // re-include exercises a more specific day already accounted for.
-        // Only excludes when one day's set fully contains another's — two
-        // merely-overlapping peer sets (e.g. Push and Legs both including
-        // Abdominals) are not subset-related, so nothing is excluded
-        // between them and both keep showing the shared exercise, exactly
-        // as before.
-        final claimedGroups = <Set<MuscleGroup>>[];
-        final claimedRows = <Set<int>>[];
-
-        for (var rank = 0; rank < orderedIndices.length; rank++) {
-          final day = workoutDays[orderedIndices[rank]];
-
-          final rawExercisesThisDay = [
-            for (final g in day.muscleGroups)
-              for (final e in year.muscleGroupSections[g] ?? const <Exercise>[])
-                if (e.sheetRow != null &&
-                    year.cellValues[CellKey(e.sheetRow!, col)] != null)
-                  e,
-          ];
-          if (rawExercisesThisDay.isEmpty) continue;
-
-          final dayGroups = day.muscleGroups.toSet();
-          final excludedRows = <int>{
-            for (var i = 0; i < claimedGroups.length; i++)
-              if (dayGroups.containsAll(claimedGroups[i])) ...claimedRows[i],
-          };
-          final exercisesThisDay = [
-            for (final e in rawExercisesThisDay)
-              if (!excludedRows.contains(e.sheetRow)) e,
-          ];
-          // Fully covered by a more specific day already processed this week.
-          if (exercisesThisDay.isEmpty) continue;
-
-          claimedGroups.add(dayGroups);
-          claimedRows.add({for (final e in exercisesThisDay) e.sheetRow!});
-
-          // No fixed weekday convention for an arbitrary custom day (unlike
-          // legacy's hardcoded Push=Sunday/Pull=Tuesday/Legs=Thursday) — a
-          // fixed rank-based offset from Monday keeps different days that
-          // share a week from colliding on the same displayed date, while
-          // staying deterministic and consistent with exactDateKnown: false.
-          final offsetDays = rank > 6 ? 6 : rank;
-          entries.add(
-            HistoryEntry(
-              date: approximateDateForIsoWeek(
-                year.year,
-                week,
-              ).add(Duration(days: offsetDays)),
-              isoWeek: week,
-              isoYear: year.year,
-              exerciseNames: [for (final e in exercisesThisDay) e.name],
-              muscleGroups: {
-                for (final e in exercisesThisDay) e.muscleGroup.sheetHeader,
-              }.toList(),
-              exactDateKnown: false,
-            ),
-          );
-        }
-      }
-      continue;
-    }
-
-    // A (week, day) pair already has a real visit — don't also synthesize
-    // it. Tracked per day (not just per week), so e.g. an app-logged Push
-    // visit this week doesn't suppress reconstructing a hand-typed Legs
-    // entry for the same week.
-    final loggedDayWeeks = <String>{
-      for (final visit in year.metaRows)
-        if (_workoutDayForVisit(visit) != null)
-          '${visit.isoWeek}::${_workoutDayForVisit(visit)}',
-    };
-
-    for (final week in year.weekColumns.keys) {
-      final col = year.weekColumns[week]!;
-      for (final day in WorkoutDay.values) {
-        if (loggedDayWeeks.contains('$week::$day')) continue;
-
-        final exercisesThisDay = _exercisesForDayInColumn(year, day, col);
-        if (exercisesThisDay.isEmpty) continue;
-
-        entries.add(
-          HistoryEntry(
-            date: approximateDateForWorkoutDay(year.year, week, day),
-            isoWeek: week,
-            isoYear: year.year,
-            exerciseNames: [for (final e in exercisesThisDay) e.name],
-            muscleGroups: {
-              for (final e in exercisesThisDay) e.muscleGroup.sheetHeader,
-            }.toList(),
-            exactDateKnown: false,
-          ),
-        );
-      }
-    }
-  }
-
+/// One [HistoryEntry] per logged visit (real or [MetaRow.isSynthetic] —
+/// see `SheetImportService`, which is where sheet-typed-but-unlogged
+/// visits are reconstructed once, at import time), sorted most-recent
+/// first.
+List<HistoryEntry> buildHistoryEntries(List<MetaRow> visits) {
+  final entries = [
+    for (final visit in visits)
+      HistoryEntry(
+        date: visit.date,
+        isoWeek: visit.isoWeek,
+        isoYear: visit.isoYear,
+        exerciseNames: visit.exerciseNames,
+        muscleGroups: visit.muscleGroups,
+        metaRow: visit,
+      ),
+  ];
   entries.sort((a, b) => b.date.compareTo(a.date));
   return entries;
 }
 
 /// Per-set weights actually logged for [exerciseName] on the most recent
 /// real visit (optionally strictly before [beforeDate], for an edit-visit
-/// "last time" preview) — reads real per-visit data via [buildHistoryEntries]
-/// instead of the week-bucketed, same-week-averaged series from
-/// [buildExerciseHistory], so a visit sharing an ISO week with an earlier one
-/// is never mistaken for it. Falls back to that visit's own matrix-tab cell
-/// for a legacy visit logged before per-set weight tracking existed (empty
-/// `actualWeights`).
+/// "last time" preview) — skips [MetaRow.isSynthetic] visits and ones whose
+/// rating was marked unrelated, since those carry no dependable weight
+/// signal.
 List<double> previousActualWeights({
-  required List<YearSheetData> yearsAscending,
+  required List<MetaRow> visits,
   required String exerciseName,
   DateTime? beforeDate,
 }) {
-  final entries = buildHistoryEntries(yearsAscending)
-      .where((e) => e.metaRow != null)
-      .where((e) => e.metaRow!.ratingRelevance != RatingRelevance.unrelated)
+  final entries = buildHistoryEntries(visits)
+      .where((e) => !e.isSynthetic)
+      .where((e) => e.metaRow.ratingRelevance != RatingRelevance.unrelated)
       .where((e) => beforeDate == null || e.date.isBefore(beforeDate))
       .where(
-        (e) => e.metaRow!.exercises.any(
+        (e) => e.metaRow.exercises.any(
           (ex) => ex.exerciseName.toLowerCase() == exerciseName.toLowerCase(),
         ),
       )
       .toList();
   if (entries.isEmpty) return const [];
   final latest = entries.first; // buildHistoryEntries is already most-recent-first
-  final loggedRange = latest.metaRow!.exercises.firstWhere(
+  final loggedRange = latest.metaRow.exercises.firstWhere(
     (ex) => ex.exerciseName.toLowerCase() == exerciseName.toLowerCase(),
   );
-  if (loggedRange.actualWeights.isNotEmpty) return loggedRange.actualWeights;
-
-  final year = yearsAscending.firstWhere((y) => y.year == latest.isoYear);
-  final exercise = year.findExercise(exerciseName);
-  final col = year.weekColumns[latest.isoWeek];
-  if (exercise?.sheetRow == null || col == null) return const [];
-  final weight = year.cellValues[CellKey(exercise!.sheetRow!, col)];
-  return weight == null ? const [] : [weight];
+  return loggedRange.actualWeights;
 }
-
-/// Exercises belonging to [day]'s muscle groups that have a logged weight
-/// in column [col] (a specific week) of [year].
-List<Exercise> _exercisesForDayInColumn(
-  YearSheetData year,
-  WorkoutDay day,
-  int col,
-) {
-  final groups = kMuscleGroupsByWorkoutDay[day]!;
-  return [
-    for (final g in groups)
-      for (final e in year.muscleGroupSections[g] ?? const <Exercise>[])
-        if (e.sheetRow != null &&
-            year.cellValues[CellKey(e.sheetRow!, col)] != null)
-          e,
-  ];
-}
-
-WorkoutDay? _workoutDayForVisit(MetaRow visit) =>
-    workoutDayForGroupLabels(visit.muscleGroups);
 
 /// Resolves a [HistoryEntry.muscleGroups] / [MetaRow.muscleGroups] list
 /// (sheet-header strings) back to the [WorkoutDay] it belongs to.
@@ -575,7 +333,7 @@ WorkoutDayDef? bestMatchingDayForEntry(
   HistoryEntry entry,
   List<WorkoutDayDef> allDays,
 ) {
-  final explicitId = entry.metaRow?.workoutDayId;
+  final explicitId = entry.metaRow.workoutDayId;
   if (explicitId != null) {
     for (final d in allDays) {
       if (d.id == explicitId) return d;
@@ -611,7 +369,7 @@ bool historyEntryBelongsToDay(
   List<WorkoutDayDef> allDays,
 ) => bestMatchingDayForEntry(entry, allDays)?.id == day.id;
 
-/// The most recent real (app-logged, [HistoryEntry.metaRow]-backed) visit
+/// The most recent real (app-logged, not [HistoryEntry.isSynthetic]) visit
 /// belonging to [day] — skips synthetic/reconstructed entries (hand-typed
 /// sheet data), which carry no per-set reps/weights/rating/note detail to
 /// preview. Null if [day] has no real visit yet.
@@ -621,61 +379,62 @@ HistoryEntry? mostRecentRealVisitForDay(
   List<WorkoutDayDef> allDays,
 ) {
   for (final entry in historyEntries) {
-    if (entry.metaRow != null &&
-        historyEntryBelongsToDay(entry, day, allDays)) {
+    if (!entry.isSynthetic && historyEntryBelongsToDay(entry, day, allDays)) {
       return entry;
     }
   }
   return null;
 }
 
+Map<String, Exercise> _exercisesByNameLower(List<Exercise> exercises) => {
+  for (final e in exercises) e.name.toLowerCase(): e,
+};
+
+Map<MuscleGroup, List<Exercise>> _exercisesByMuscleGroup(
+  List<Exercise> exercises,
+) {
+  final result = <MuscleGroup, List<Exercise>>{};
+  for (final exercise in exercises) {
+    final group = resolveMuscleGroup(exercise);
+    if (group == null) continue;
+    (result[group] ??= []).add(exercise);
+  }
+  return result;
+}
+
 /// Findings for every exercise trained in the last [AnalysisEngine
 /// .proactiveScanWindowWeeks] weeks, most urgent first.
 final proactiveFindingsProvider = Provider<List<AnalysisFinding>>((ref) {
-  final snapshotState = ref.watch(snapshotProvider).value;
-  if (snapshotState == null) return const [];
-  final yearsAscending = snapshotState.snapshot.yearData.values.toList()
-    ..sort((a, b) => a.year.compareTo(b.year));
-  if (yearsAscending.isEmpty) return const [];
+  final visits = ref.watch(localVisitsProvider).value;
+  if (visits == null) return const [];
 
-  final latestYear = yearsAscending.last;
   final cutoff = DateTime.now().subtract(
     Duration(days: 7 * AnalysisEngine.proactiveScanWindowWeeks),
   );
 
-  // Uses the same reconciled real-visit + hand-typed-in-the-sheet data as
-  // History/Home (buildHistoryEntries), not just real app-logged visits —
-  // otherwise this only ever finds something "recent" for users who log
-  // through the app's Log Workout screen, staying permanently empty for
-  // anyone who (like most usage so far) types weights directly into the
-  // sheet instead.
-  final workoutDays = ref.watch(workoutDayDefsProvider);
   final recentExerciseNames = <String>{
-    for (final entry in buildHistoryEntries(
-      yearsAscending,
-      workoutDays: workoutDays,
-    ))
+    for (final entry in buildHistoryEntries(visits))
       if (entry.date.isAfter(cutoff)) ...entry.exerciseNames,
   };
 
-  final altMap = AlternativeExerciseMap(latestYear);
-  final lastLoggedDates = _lastLoggedDatesByExerciseName(yearsAscending);
+  final exercises = ref.watch(allKnownExercisesProvider);
+  final exercisesByName = _exercisesByNameLower(exercises);
+  final altMap = AlternativeExerciseMap(_exercisesByMuscleGroup(exercises));
+  final lastLoggedDates = _lastLoggedDatesByExerciseName(visits);
   final settings = ref.watch(appSettingsServiceProvider);
   final dismissed = settings.dismissedSuggestionSignatures;
   final recentSuggestions = settings.recentSuggestions;
   final bwTrend = bodyWeightTrend(ref.watch(bodyWeightEntriesProvider));
+  final workoutDays = ref.watch(workoutDayDefsProvider);
 
   bool notDismissed(AnalysisFinding f) =>
       !dismissed.contains('${f.kind.name}::${f.subjectName}');
 
   final findings = <AnalysisFinding>[];
   for (final name in recentExerciseNames) {
-    final exercise = latestYear.findExercise(name);
+    final exercise = exercisesByName[name.toLowerCase()];
     if (exercise == null) continue;
-    final history = buildExerciseHistory(
-      yearsAscending: yearsAscending,
-      exerciseName: name,
-    );
+    final history = buildExerciseHistory(visits: visits, exerciseName: name);
     final recent = _recentSuggestionsFor(name, recentSuggestions);
     final finding = _engine.analyze(
       subjectName: name,
@@ -701,7 +460,7 @@ final proactiveFindingsProvider = Provider<List<AnalysisFinding>>((ref) {
   const dayAnalyzer = WorkoutDayAnalyzer();
   final findingsByDay = <String, List<AnalysisFinding>>{};
   for (final finding in findings) {
-    final exercise = latestYear.findExercise(finding.subjectName);
+    final exercise = exercisesByName[finding.subjectName.toLowerCase()];
     if (exercise == null) continue;
     for (final day in workoutDays) {
       if (day.muscleGroups.contains(exercise.muscleGroup)) {
@@ -730,27 +489,25 @@ final proactiveFindingsProvider = Provider<List<AnalysisFinding>>((ref) {
 /// escalation ([WorkoutDayAnalyzer]) scoped to just these exercises' findings
 /// — pass the [WorkoutDayDef] the visit was logged under, if known.
 List<AnalysisFinding> analyzeExercises({
-  required List<YearSheetData> yearsAscending,
+  required List<MetaRow> visits,
+  required List<Exercise> exercises,
   required List<String> exerciseNames,
   List<BodyWeightEntry> bodyWeightEntries = const [],
   AppSettingsService? settings,
   WorkoutDayDef? day,
 }) {
-  if (yearsAscending.isEmpty) return const [];
-  final latestYear = yearsAscending.last;
-  final altMap = AlternativeExerciseMap(latestYear);
-  final lastLoggedDates = _lastLoggedDatesByExerciseName(yearsAscending);
+  if (exercises.isEmpty) return const [];
+  final exercisesByName = _exercisesByNameLower(exercises);
+  final altMap = AlternativeExerciseMap(_exercisesByMuscleGroup(exercises));
+  final lastLoggedDates = _lastLoggedDatesByExerciseName(visits);
   final bwTrend = bodyWeightTrend(bodyWeightEntries);
   final recentSuggestions = settings?.recentSuggestions ?? const [];
 
   final findings = <AnalysisFinding>[];
   for (final name in exerciseNames) {
-    final exercise = latestYear.findExercise(name);
+    final exercise = exercisesByName[name.toLowerCase()];
     if (exercise == null) continue;
-    final history = buildExerciseHistory(
-      yearsAscending: yearsAscending,
-      exerciseName: name,
-    );
+    final history = buildExerciseHistory(visits: visits, exerciseName: name);
     final recent = _recentSuggestionsFor(name, recentSuggestions);
     final finding = _engine.analyze(
       subjectName: name,

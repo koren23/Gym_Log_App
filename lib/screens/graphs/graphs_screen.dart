@@ -7,6 +7,7 @@ import '../../core/utils/text.dart';
 import '../../models/exercise.dart';
 import '../../models/exercise_unit.dart';
 import '../../providers/analysis_providers.dart';
+import '../../providers/local_history_providers.dart';
 import '../../providers/sheet_data_providers.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/loading_skeleton.dart';
@@ -58,10 +59,8 @@ class _GraphsScreenState extends ConsumerState<GraphsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final snapshotAsync = ref.watch(snapshotProvider);
-    final snapshotState = snapshotAsync.value;
-    final yearsAscending = snapshotState?.snapshot.yearData.values.toList()
-      ?..sort((a, b) => a.year.compareTo(b.year));
+    final visitsAsync = ref.watch(localVisitsProvider);
+    final visits = visitsAsync.value;
 
     final bodyWeightEntries = [...ref.watch(bodyWeightEntriesProvider)]
       ..sort((a, b) => a.date.compareTo(b.date));
@@ -72,39 +71,33 @@ class _GraphsScreenState extends ConsumerState<GraphsScreen> {
           ]
         : null;
 
-    if (snapshotAsync.isLoading && snapshotState == null) {
+    if (visitsAsync.isLoading && visits == null) {
       return const ChartScreenSkeleton();
     }
 
-    if (yearsAscending == null || yearsAscending.isEmpty) {
+    if (visits == null || visits.isEmpty) {
       return RefreshIndicator(
-        onRefresh: () => ref.read(snapshotProvider.notifier).refresh(),
+        onRefresh: () => ref.read(localVisitsProvider.notifier).refresh(),
         child: const SingleChildScrollView(
           physics: AlwaysScrollableScrollPhysics(),
           child: Padding(
             padding: EdgeInsets.only(top: 80),
             child: EmptyState(
               icon: Icons.show_chart,
-              message: 'No workout data loaded yet.',
+              message: 'No workout data logged yet.',
             ),
           ),
         ),
       );
     }
 
-    final exerciseMuscleInfo = ref.watch(exerciseMuscleInfoProvider);
+    final allExercises = ref.watch(allKnownExercisesProvider);
     final allExercisesByName = <String, Exercise>{
-      for (final y in yearsAscending)
-        for (final e in y.allExercises) e.name: e,
+      for (final e in allExercises) e.name: e,
     };
     final allExerciseNames = allExercisesByName.keys.toList()..sort();
-    // Each exercise's own current-era muscle tag wins whenever it's known;
-    // the optional legacy "Exercises" reference tab is only a fallback for
-    // exercises with no usable tag of their own — see
-    // exerciseNamesByMuscleSheetHeader for the precedence rule.
     final exercisesByMuscleName = exerciseNamesByMuscleSheetHeader(
-      yearsAscending: yearsAscending,
-      exerciseMuscleInfo: exerciseMuscleInfo,
+      allExercises,
     );
     final muscleNames = exercisesByMuscleName.keys.toList()..sort();
 
@@ -127,19 +120,17 @@ class _GraphsScreenState extends ConsumerState<GraphsScreen> {
     } else if (showingMuscle) {
       final muscle = _selectedOption!.substring(_kMusclePrefix.length);
       primaryPoints = buildMuscleProgressPoints(
-        yearsAscending: yearsAscending,
+        visits: visits,
+        exercises: allExercises,
         muscle: muscle,
-        exerciseMuscleInfo: exerciseMuscleInfo,
       );
       primaryColorForChart = primaryColor;
       secondaryPoints = bodyWeightPoints;
     } else {
       final history = buildExerciseHistory(
-        yearsAscending: yearsAscending,
+        visits: visits,
         exerciseName: _selectedOption!,
       );
-      final yearDataByYear = {for (final y in yearsAscending) y.year: y};
-      final exercise = allExercisesByName[_selectedOption!];
       primaryPoints = [
         for (final h in history)
           ChartPoint(
@@ -148,10 +139,6 @@ class _GraphsScreenState extends ConsumerState<GraphsScreen> {
             label: h.exactDateKnown
                 ? null
                 : approximateWeekLabel(h.isoWeek, h.isoYear),
-            note: exercise == null
-                ? null
-                : yearDataByYear[h.isoYear]
-                      ?.weekNotesByGroup[exercise.muscleGroup]?[h.isoWeek],
             setsLabel: h.totalSets == null || h.avgReps == null
                 ? null
                 : '${h.totalSets}×${h.avgReps!.round()}',
@@ -162,7 +149,7 @@ class _GraphsScreenState extends ConsumerState<GraphsScreen> {
     }
 
     return RefreshIndicator(
-      onRefresh: () => ref.read(snapshotProvider.notifier).refresh(),
+      onRefresh: () => ref.read(localVisitsProvider.notifier).refresh(),
       child: ListView(
         padding: const EdgeInsets.only(bottom: 24),
         children: [

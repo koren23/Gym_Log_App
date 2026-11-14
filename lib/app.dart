@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'providers/auth_providers.dart';
 import 'providers/settings_providers.dart';
-import 'screens/onboarding/sheet_url_entry_screen.dart';
+import 'providers/sheet_data_providers.dart';
 import 'screens/onboarding/sign_in_screen.dart';
 import 'screens/root/main_shell.dart';
 
@@ -81,26 +81,62 @@ class _RootScreenState extends ConsumerState<_RootScreen> {
   // Don't re-investigate this as a mystery bug later.
   bool _attemptedSilentSignIn = false;
 
+  // Guards the one-time v3.0.0 upgrade migration (see
+  // AppSettingsService.hasMigratedToLocalDb): only ever fired once per
+  // app launch from here, right before MainShell is reachable either way
+  // (no sheet ever connected, or a sheet connected and already signed in).
+  bool _migrationAttempted = false;
+
+  Future<void> _runMigrationIfNeeded() async {
+    final settings = ref.read(appSettingsServiceProvider);
+    if (settings.hasMigratedToLocalDb) return;
+    try {
+      final spreadsheetId = ref.read(spreadsheetIdProvider);
+      if (spreadsheetId != null) {
+        await ref.read(snapshotProvider.notifier).retryPendingSyncs();
+        await ref.read(snapshotProvider.notifier).importFromSheet();
+      }
+      await settings.setHasMigratedToLocalDb(true);
+    } catch (_) {
+      // Best-effort — the flag stays unset, so this safely retries on the
+      // next launch rather than ever being skipped.
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    // A connected sheet is optional (v3.0.0: local DB is the source of
+    // truth) — only attempt sign-in/sheet access at all once the user has
+    // actually set a spreadsheetId (via Settings). With no spreadsheetId,
+    // fall straight through to MainShell so the app is fully usable offline
+    // with no Google account involved.
     final spreadsheetId = ref.watch(spreadsheetIdProvider);
-    if (spreadsheetId == null) {
-      return const SheetUrlEntryScreen();
+    if (spreadsheetId != null) {
+      final authState = ref.watch(authStateProvider);
+      if (!authState.isSignedIn || !authState.hasSheetsAccess) {
+        if (!_attemptedSilentSignIn && !authState.isLoading) {
+          _attemptedSilentSignIn = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            ref.read(authStateProvider.notifier).signInSilently();
+          });
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (authState.isLoading) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+        return const SignInScreen();
+      }
     }
 
-    final authState = ref.watch(authStateProvider);
-    if (!authState.isSignedIn || !authState.hasSheetsAccess) {
-      if (!_attemptedSilentSignIn && !authState.isLoading) {
-        _attemptedSilentSignIn = true;
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          ref.read(authStateProvider.notifier).signInSilently();
-        });
-        return const Scaffold(body: Center(child: CircularProgressIndicator()));
-      }
-      if (authState.isLoading) {
-        return const Scaffold(body: Center(child: CircularProgressIndicator()));
-      }
-      return const SignInScreen();
+    if (!_migrationAttempted) {
+      _migrationAttempted = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _runMigrationIfNeeded();
+      });
     }
 
     return const MainShell();
