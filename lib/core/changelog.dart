@@ -16,6 +16,20 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '4.0.3',
+    date: '2026-11-16',
+    changes: [
+      'Fixed "Manage exercises" showing extra, non-muscle categories like '
+          '"Push"/"Pull"/"Legs" for exercises with no properly-known '
+          'muscle group — those now group under "Uncategorized" instead.',
+      'Fixed the Stats tab\'s "Longest streak" not counting your current '
+          'streak when it\'s the biggest one yet.',
+      'Graphs: dots now shrink and fade out as you zoom out, instead of '
+          'piling up into a cluttered smear once lots of points are '
+          'packed into view.',
+    ],
+  ),
+  ChangelogEntry(
     version: '4.0.2',
     date: '2026-11-16',
     changes: [

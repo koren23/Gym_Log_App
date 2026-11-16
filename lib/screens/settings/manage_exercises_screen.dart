@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/constants/muscle_groups.dart';
+import '../../core/utils/exercise_muscle_resolution.dart';
 import '../../core/utils/text.dart';
 import '../../models/exercise.dart';
 import '../../providers/sheet_data_providers.dart';
@@ -60,12 +61,21 @@ class ManageExercisesScreen extends ConsumerWidget {
     final exercises = ref.watch(allKnownExercisesProvider);
     ref.watch(snapshotProvider); // rebuild this screen when a sync completes.
 
-    final byMuscle = <MuscleGroup, List<Exercise>>{};
+    // Keyed by resolveMuscleGroup's result, not the raw exercise.muscleGroup
+    // field — the raw field can hold a pre-2026 legacy value (e.g. "Push",
+    // "Pull", "Legs") or be unset, and those aren't real muscle categories.
+    // Null means "no resolved muscle" and is grouped under "Uncategorized"
+    // instead, where the user can tap in and assign a real one.
+    final byMuscle = <MuscleGroup?, List<Exercise>>{};
     for (final exercise in exercises) {
-      byMuscle.putIfAbsent(exercise.muscleGroup, () => []).add(exercise);
+      byMuscle.putIfAbsent(resolveMuscleGroup(exercise), () => []).add(exercise);
     }
     final sortedGroups = byMuscle.keys.toList()
-      ..sort((a, b) => a.sheetHeader.compareTo(b.sheetHeader));
+      ..sort((a, b) {
+        if (a == null) return b == null ? 0 : 1;
+        if (b == null) return -1;
+        return a.sheetHeader.compareTo(b.sheetHeader);
+      });
 
     return Scaffold(
       appBar: AppBar(title: const Text('Manage exercises')),
@@ -80,9 +90,13 @@ class ManageExercisesScreen extends ConsumerWidget {
                   final groupExercises = byMuscle[muscle]!
                     ..sort((a, b) => a.name.compareTo(b.name));
                   return ExpansionTile(
-                    key: PageStorageKey(muscle.name),
+                    key: PageStorageKey(muscle?.name ?? '_uncategorized'),
                     initiallyExpanded: false,
-                    title: Text(titleCase(muscle.sheetHeader)),
+                    title: Text(
+                      muscle == null
+                          ? 'Uncategorized'
+                          : titleCase(muscle.sheetHeader),
+                    ),
                     subtitle: Text(
                       '${groupExercises.length} exercise${groupExercises.length == 1 ? '' : 's'}',
                     ),

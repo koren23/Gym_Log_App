@@ -70,6 +70,20 @@ bool _tooCloseToLast(double value, double? lastRendered, double axisRange) {
   return (value - lastRendered).abs() < axisRange * 0.12;
 }
 
+/// Dot radius for a series with [pointCount] points spread across
+/// [chartWidth] logical pixels — shrinks (then disappears) as points get
+/// packed tighter, so zooming out to a long date range shows a clean line
+/// instead of an overlapping smear of dots. Full-size once points have
+/// enough breathing room to read as distinct marks.
+double _dotRadiusFor(int pointCount, double chartWidth) {
+  if (pointCount <= 1) return 3;
+  final spacing = chartWidth / pointCount;
+  if (spacing >= 20) return 3;
+  if (spacing >= 10) return 1.5 + (spacing - 10) / 10 * 1.5;
+  if (spacing >= 5) return (spacing - 5) / 5 * 1.5;
+  return 0;
+}
+
 class _RangePreset {
   const _RangePreset(this.label, this.days);
   final String label;
@@ -451,6 +465,12 @@ class _SimpleLineChartState extends State<SimpleLineChart> {
     double? lastRightTick;
     double? lastBottomTick;
 
+    final primaryDotRadius = _dotRadiusFor(visiblePrimary.length, _chartWidth);
+    final secondaryDotRadius = _dotRadiusFor(
+      visibleSecondary.length,
+      _chartWidth,
+    );
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -487,10 +507,10 @@ class _SimpleLineChartState extends State<SimpleLineChart> {
                               ),
                               barWidth: 2,
                               dotData: FlDotData(
-                                show: true,
+                                show: secondaryDotRadius > 0,
                                 getDotPainter: (spot, percent, bar, index) =>
                                     FlDotCirclePainter(
-                                      radius: 3,
+                                      radius: secondaryDotRadius,
                                       color: secondaryColor ?? color,
                                       strokeWidth: 0,
                                     ),
@@ -502,7 +522,15 @@ class _SimpleLineChartState extends State<SimpleLineChart> {
                             isCurved: false,
                             color: color,
                             barWidth: 3,
-                            dotData: const FlDotData(show: true),
+                            dotData: FlDotData(
+                              show: primaryDotRadius > 0,
+                              getDotPainter: (spot, percent, bar, index) =>
+                                  FlDotCirclePainter(
+                                    radius: primaryDotRadius,
+                                    color: color,
+                                    strokeWidth: 0,
+                                  ),
+                            ),
                             belowBarData: BarAreaData(
                               show: true,
                               color: color.withValues(alpha: 0.15),

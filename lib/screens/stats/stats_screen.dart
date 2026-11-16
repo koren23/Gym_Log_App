@@ -342,7 +342,7 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
             accentColor: streakColor(currentStreakWeeks(allVisitDates)),
             headline: '${currentStreakWeeks(allVisitDates)}-week streak',
             children: [
-              _StatRow('Longest streak', '${longestStreakWeeks(visitDates)} weeks'),
+              _StatRow('Longest streak', '${longestStreakWeeks(allVisitDates)} weeks'),
               _StatRow(
                 'Consistency',
                 '${consistencyPct(visitDates).round()}% of weeks',
