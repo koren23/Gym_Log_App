@@ -75,48 +75,51 @@ class _RatingScreenState extends ConsumerState<RatingScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Rate this workout')),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                'How was this workout?',
-                style: TextStyle(fontSize: 18),
-              ),
-              const SizedBox(height: 24),
-              StarRatingInput(
-                value: _rating,
-                onChanged: (v) => setState(() => _rating = v),
-              ),
-              const SizedBox(height: 16),
-              CheckboxListTile(
-                contentPadding: EdgeInsets.zero,
-                controlAffinity: ListTileControlAffinity.leading,
-                title: const Text('Feeling sick / not 100%?'),
-                subtitle: const Text(
-                  "Won't count against your progress trends.",
+      body: SafeArea(
+        top: false,
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'How was this workout?',
+                  style: TextStyle(fontSize: 18),
                 ),
-                value: _ratingRelevance == RatingRelevance.unrelated,
-                onChanged: (checked) => setState(() {
-                  _ratingRelevance = (checked ?? false)
-                      ? RatingRelevance.unrelated
-                      : RatingRelevance.normal;
-                }),
-              ),
-              const SizedBox(height: 32),
-              FilledButton(
-                onPressed: _saving ? null : _submit,
-                child: _saving
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Submit'),
-              ),
-            ],
+                const SizedBox(height: 24),
+                StarRatingInput(
+                  value: _rating,
+                  onChanged: (v) => setState(() => _rating = v),
+                ),
+                const SizedBox(height: 16),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  title: const Text('Feeling sick / not 100%?'),
+                  subtitle: const Text(
+                    "Won't count against your progress trends.",
+                  ),
+                  value: _ratingRelevance == RatingRelevance.unrelated,
+                  onChanged: (checked) => setState(() {
+                    _ratingRelevance = (checked ?? false)
+                        ? RatingRelevance.unrelated
+                        : RatingRelevance.normal;
+                  }),
+                ),
+                const SizedBox(height: 32),
+                FilledButton(
+                  onPressed: _saving ? null : _submit,
+                  child: _saving
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Submit'),
+                ),
+              ],
+            ),
           ),
         ),
       ),

@@ -60,27 +60,49 @@ class ManageExercisesScreen extends ConsumerWidget {
     final exercises = ref.watch(allKnownExercisesProvider);
     ref.watch(snapshotProvider); // rebuild this screen when a sync completes.
 
+    final byMuscle = <MuscleGroup, List<Exercise>>{};
+    for (final exercise in exercises) {
+      byMuscle.putIfAbsent(exercise.muscleGroup, () => []).add(exercise);
+    }
+    final sortedGroups = byMuscle.keys.toList()
+      ..sort((a, b) => a.sheetHeader.compareTo(b.sheetHeader));
+
     return Scaffold(
       appBar: AppBar(title: const Text('Manage exercises')),
-      body: exercises.isEmpty
-          ? const Center(child: Text('No exercises yet'))
-          : ListView.builder(
-              itemCount: exercises.length,
-              itemBuilder: (context, i) {
-                final exercise = exercises[i];
-                final subtitleParts = [
-                  titleCase(exercise.muscleGroup.sheetHeader),
-                  if (exercise.secondaryMuscleGroups.isNotEmpty)
-                    '+ ${exercise.secondaryMuscleGroups.map((g) => titleCase(g.sheetHeader)).join(', ')}',
-                ];
-                return ListTile(
-                  title: Text(exercise.name),
-                  subtitle: Text(subtitleParts.join('  ')),
-                  trailing: const Icon(Icons.edit_outlined),
-                  onTap: () => _editExercise(context, ref, exercise),
-                );
-              },
-            ),
+      body: SafeArea(
+        top: false,
+        child: exercises.isEmpty
+            ? const Center(child: Text('No exercises yet'))
+            : ListView.builder(
+                itemCount: sortedGroups.length,
+                itemBuilder: (context, i) {
+                  final muscle = sortedGroups[i];
+                  final groupExercises = byMuscle[muscle]!
+                    ..sort((a, b) => a.name.compareTo(b.name));
+                  return ExpansionTile(
+                    key: PageStorageKey(muscle.name),
+                    initiallyExpanded: false,
+                    title: Text(titleCase(muscle.sheetHeader)),
+                    subtitle: Text(
+                      '${groupExercises.length} exercise${groupExercises.length == 1 ? '' : 's'}',
+                    ),
+                    children: [
+                      for (final exercise in groupExercises)
+                        ListTile(
+                          title: Text(exercise.name),
+                          subtitle: exercise.secondaryMuscleGroups.isEmpty
+                              ? null
+                              : Text(
+                                  '+ ${exercise.secondaryMuscleGroups.map((g) => titleCase(g.sheetHeader)).join(', ')}',
+                                ),
+                          trailing: const Icon(Icons.edit_outlined),
+                          onTap: () => _editExercise(context, ref, exercise),
+                        ),
+                    ],
+                  );
+                },
+              ),
+      ),
     );
   }
 }

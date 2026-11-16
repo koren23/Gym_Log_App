@@ -85,8 +85,9 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
           ),
           unit: exercise?.unit ?? ExerciseUnit.kg,
           customUnitLabel: exercise?.customUnitLabel,
-          notes: known?.notes,
-          photoAssetKey: known?.photoAssetKey,
+          repRangeLow: known?.repRangeLow,
+          repRangeHigh: known?.repRangeHigh,
+          setCount: known?.setCount,
         ),
       );
 

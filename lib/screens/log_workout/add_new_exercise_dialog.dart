@@ -1,13 +1,10 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import '../../core/constants/muscle_groups.dart';
 import '../../core/utils/text.dart';
 import '../../models/exercise.dart';
 import '../../models/exercise_unit.dart';
-import '../../services/exercise_photo_picker.dart';
 import '../../widgets/delete_exercise_confirmation.dart';
-import '../../widgets/exercise_photo.dart';
 
 /// Result of the add-exercise dialog: either an add/edit ([exercise] set) or
 /// a delete ([deleted] true, [exercise] null). Cancel resolves the whole
@@ -36,8 +33,15 @@ Future<NewExerciseResult?> showAddNewExerciseDialog(
   // No UI to edit these anymore — preserved as-is so editing an older
   // exercise that already has secondary movers doesn't silently wipe them.
   final preservedSecondary = existing?.secondaryMuscleGroups ?? const [];
-  final notesController = TextEditingController(text: existing?.notes ?? '');
-  var photoAssetKey = existing?.photoAssetKey;
+  final repRangeLowController = TextEditingController(
+    text: existing?.repRangeLow?.toString() ?? '',
+  );
+  final repRangeHighController = TextEditingController(
+    text: existing?.repRangeHigh?.toString() ?? '',
+  );
+  final setCountController = TextEditingController(
+    text: existing?.setCount?.toString() ?? '',
+  );
   return showDialog<NewExerciseResult>(
     context: context,
     builder: (context) => StatefulBuilder(
@@ -99,46 +103,31 @@ Future<NewExerciseResult?> showAddNewExerciseDialog(
                 ),
               ],
               const SizedBox(height: 16),
-              TextField(
-                controller: notesController,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                  labelText: 'Notes (form cues, machine settings...)',
-                  alignLabelWithHint: true,
-                ),
-              ),
-              const SizedBox(height: 16),
               Row(
                 children: [
-                  ExercisePhoto(photoAssetKey: photoAssetKey, size: 56),
+                  Expanded(
+                    child: TextField(
+                      controller: repRangeLowController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'Reps from',
+                      ),
+                    ),
+                  ),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: Wrap(
-                      spacing: 8,
-                      children: [
-                        TextButton(
-                          onPressed: kIsWeb
-                              ? null
-                              : () async {
-                                  final picked =
-                                      await pickAndStoreExercisePhoto();
-                                  if (picked != null) {
-                                    setState(() => photoAssetKey = picked);
-                                  }
-                                },
-                          child: Text(
-                            kIsWeb
-                                ? 'Change photo (Android app only)'
-                                : 'Change photo',
-                          ),
-                        ),
-                        if (photoAssetKey != null)
-                          TextButton(
-                            onPressed: () =>
-                                setState(() => photoAssetKey = null),
-                            child: const Text('Remove photo'),
-                          ),
-                      ],
+                    child: TextField(
+                      controller: repRangeHighController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(labelText: 'Reps to'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextField(
+                      controller: setCountController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(labelText: 'Sets'),
                     ),
                   ),
                 ],
@@ -175,6 +164,8 @@ Future<NewExerciseResult?> showAddNewExerciseDialog(
                           selectedUnit == ExerciseUnit.custom
                               ? customLabelController.text.trim()
                               : null;
+                      int? parseIntOrNull(String text) =>
+                          text.trim().isEmpty ? null : int.tryParse(text.trim());
                       Navigator.of(context).pop((
                         exercise: Exercise(
                           name: name,
@@ -182,10 +173,13 @@ Future<NewExerciseResult?> showAddNewExerciseDialog(
                           unit: selectedUnit,
                           customUnitLabel: customLabel,
                           secondaryMuscleGroups: preservedSecondary,
-                          notes: notesController.text.trim().isEmpty
-                              ? null
-                              : notesController.text.trim(),
-                          photoAssetKey: photoAssetKey,
+                          repRangeLow: parseIntOrNull(
+                            repRangeLowController.text,
+                          ),
+                          repRangeHigh: parseIntOrNull(
+                            repRangeHighController.text,
+                          ),
+                          setCount: parseIntOrNull(setCountController.text),
                         ),
                         deleted: false,
                       ));

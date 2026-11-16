@@ -11,8 +11,9 @@ Exercise exerciseFromRow(Map<String, Object?> row) => Exercise(
   secondaryMuscleGroups: _parseMuscleList(
     row['secondary_muscle_groups'] as String? ?? '',
   ),
-  notes: row['notes'] as String?,
-  photoAssetKey: row['photo_asset_key'] as String?,
+  repRangeLow: row['rep_range_low'] as int?,
+  repRangeHigh: row['rep_range_high'] as int?,
+  setCount: row['set_count'] as int?,
 );
 
 Map<String, Object?> exerciseToRow(Exercise exercise) => {
@@ -25,8 +26,9 @@ Map<String, Object?> exerciseToRow(Exercise exercise) => {
   'secondary_muscle_groups': exercise.secondaryMuscleGroups
       .map((g) => g.name)
       .join(','),
-  'notes': exercise.notes,
-  'photo_asset_key': exercise.photoAssetKey,
+  'rep_range_low': exercise.repRangeLow,
+  'rep_range_high': exercise.repRangeHigh,
+  'set_count': exercise.setCount,
 };
 
 List<MuscleGroup> _parseMuscleList(String raw) {

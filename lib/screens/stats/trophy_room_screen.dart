@@ -33,7 +33,7 @@ class TrophyRoomScreen extends ConsumerWidget {
     if (visitsAsync.isLoading && visits == null) {
       return Scaffold(
         appBar: AppBar(title: const Text('Trophy room')),
-        body: const ChartScreenSkeleton(),
+        body: const SafeArea(top: false, child: ChartScreenSkeleton()),
       );
     }
 
@@ -69,33 +69,36 @@ class TrophyRoomScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Trophy room')),
-      body: !hasAnyTrophy
-          ? const EmptyState(
-              icon: Icons.emoji_events_outlined,
-              message: 'Log a workout with weights or reps to start '
-                  'earning trophies.',
-            )
-          : ListView(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-              children: [
-                for (final group in kCurrentMuscleGroups)
-                  if (byGroup[group] case final exerciseNames?
-                      when exerciseNames.isNotEmpty)
+      body: SafeArea(
+        top: false,
+        child: !hasAnyTrophy
+            ? const EmptyState(
+                icon: Icons.emoji_events_outlined,
+                message: 'Log a workout with weights or reps to start '
+                    'earning trophies.',
+              )
+            : ListView(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                children: [
+                  for (final group in kCurrentMuscleGroups)
+                    if (byGroup[group] case final exerciseNames?
+                        when exerciseNames.isNotEmpty)
+                      _MuscleGroupSection(
+                        title: titleCase(group.sheetHeader),
+                        exerciseNames: exerciseNames,
+                        exercisesByName: exercisesByName,
+                        prs: prs,
+                      ),
+                  if (ungrouped.isNotEmpty)
                     _MuscleGroupSection(
-                      title: titleCase(group.sheetHeader),
-                      exerciseNames: exerciseNames,
+                      title: 'Other',
+                      exerciseNames: ungrouped,
                       exercisesByName: exercisesByName,
                       prs: prs,
                     ),
-                if (ungrouped.isNotEmpty)
-                  _MuscleGroupSection(
-                    title: 'Other',
-                    exerciseNames: ungrouped,
-                    exercisesByName: exercisesByName,
-                    prs: prs,
-                  ),
-              ],
-            ),
+                ],
+              ),
+      ),
     );
   }
 }

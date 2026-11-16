@@ -6,15 +6,24 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 /// exercise or set), just a timer the user starts between any two sets and
 /// stops whenever they're done resting.
 class RestTimerState {
-  const RestTimerState({this.isRunning = false, this.elapsed = Duration.zero});
+  const RestTimerState({
+    this.isRunning = false,
+    this.elapsed = Duration.zero,
+    this.hasResult = false,
+  });
 
   final bool isRunning;
   final Duration elapsed;
+  // True once `stop()` has frozen a result that's still being shown —
+  // cleared only by `reset()`, not by starting a new timer (`start()` goes
+  // straight to running).
+  final bool hasResult;
 
-  RestTimerState copyWith({bool? isRunning, Duration? elapsed}) =>
+  RestTimerState copyWith({bool? isRunning, Duration? elapsed, bool? hasResult}) =>
       RestTimerState(
         isRunning: isRunning ?? this.isRunning,
         elapsed: elapsed ?? this.elapsed,
+        hasResult: hasResult ?? this.hasResult,
       );
 }
 
@@ -39,6 +48,12 @@ class RestTimerNotifier extends Notifier<RestTimerState> {
   }
 
   void stop() {
+    _ticker?.cancel();
+    _ticker = null;
+    state = state.copyWith(isRunning: false, hasResult: true);
+  }
+
+  void reset() {
     _ticker?.cancel();
     _ticker = null;
     state = const RestTimerState();

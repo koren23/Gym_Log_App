@@ -3,7 +3,7 @@
 /// `sheet_import_service.dart`. No incremental-sync cursors — this is a
 /// single user's dataset (low thousands of rows at most), so a full
 /// reconcile pass on import is simple and fast enough.
-const int kSchemaVersion = 2;
+const int kSchemaVersion = 3;
 
 const List<String> kSchemaStatements = [
   '''
@@ -18,6 +18,9 @@ const List<String> kSchemaStatements = [
     secondary_muscle_groups TEXT NOT NULL DEFAULT '',
     notes TEXT,
     photo_asset_key TEXT,
+    rep_range_low INTEGER,
+    rep_range_high INTEGER,
+    set_count INTEGER,
     deleted_at TEXT
   )
   ''',
@@ -121,5 +124,10 @@ const Map<int, List<String>> kSchemaUpgrades = {
   2: [
     'ALTER TABLE exercises ADD COLUMN notes TEXT',
     'ALTER TABLE exercises ADD COLUMN photo_asset_key TEXT',
+  ],
+  3: [
+    'ALTER TABLE exercises ADD COLUMN rep_range_low INTEGER',
+    'ALTER TABLE exercises ADD COLUMN rep_range_high INTEGER',
+    'ALTER TABLE exercises ADD COLUMN set_count INTEGER',
   ],
 };

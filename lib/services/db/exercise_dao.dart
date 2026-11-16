@@ -40,24 +40,36 @@ class ExerciseDao {
   }
 
   /// Upsert used by import/reconcile — sheet data always wins on conflict,
-  /// except `notes`/`photoAssetKey`: the sheet has no column for either, so
-  /// a sheet-derived [exercise] always carries them as null and must not be
-  /// allowed to blank out values already set locally (seeded or
-  /// user-entered).
+  /// except for local-only fields the sheet has no column for, which would
+  /// otherwise be silently blanked out on every sync: `repRangeLow`/
+  /// `repRangeHigh`/`setCount` (always null from a sheet-derived
+  /// [exercise]), and `muscleGroup`/`muscleGroupKnown` once already
+  /// known+current — a stale or legacy-tab classification must never
+  /// silently overwrite a correct local one again; only an explicit user
+  /// edit via [update] can change it after that.
   Future<void> upsert(Exercise exercise) async {
     final existing = await getByName(exercise.name);
+    final keepLocalMuscleGroup =
+        existing != null &&
+        existing.muscleGroupKnown &&
+        !existing.muscleGroup.legacy;
     final toWrite = existing == null
         ? exercise
         : Exercise(
             name: exercise.name,
-            muscleGroup: exercise.muscleGroup,
+            muscleGroup: keepLocalMuscleGroup
+                ? existing.muscleGroup
+                : exercise.muscleGroup,
             sheetRow: exercise.sheetRow,
-            muscleGroupKnown: exercise.muscleGroupKnown,
+            muscleGroupKnown: keepLocalMuscleGroup
+                ? existing.muscleGroupKnown
+                : exercise.muscleGroupKnown,
             unit: exercise.unit,
             customUnitLabel: exercise.customUnitLabel,
             secondaryMuscleGroups: exercise.secondaryMuscleGroups,
-            notes: exercise.notes ?? existing.notes,
-            photoAssetKey: exercise.photoAssetKey ?? existing.photoAssetKey,
+            repRangeLow: exercise.repRangeLow ?? existing.repRangeLow,
+            repRangeHigh: exercise.repRangeHigh ?? existing.repRangeHigh,
+            setCount: exercise.setCount ?? existing.setCount,
           );
     await _db.db.insert(
       'exercises',

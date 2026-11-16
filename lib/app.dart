@@ -8,7 +8,8 @@ import 'providers/settings_providers.dart';
 import 'providers/sheet_data_providers.dart';
 import 'screens/onboarding/sign_in_screen.dart';
 import 'screens/root/main_shell.dart';
-import 'services/db/default_exercise_details_seeder.dart';
+import 'services/db/default_exercise_data_seeder.dart';
+import 'widgets/profile_info_prompt.dart';
 
 class GymTrackerApp extends ConsumerWidget {
   const GymTrackerApp({super.key});
@@ -106,26 +107,61 @@ class _RootScreenState extends ConsumerState<_RootScreen> {
     }
   }
 
-  // Guards the one-time curated-starter-exercise notes/photo seed (see
-  // AppSettingsService.hasSeededDefaultExerciseDetails) — fired right
+  // Guards the one-time curated-starter-exercise rep-range/set-count seed
+  // (see AppSettingsService.hasSeededDefaultExerciseData) — fired right
   // alongside the v3.0.0 migration above, same once-per-launch gating.
-  bool _exerciseDetailsSeedAttempted = false;
+  bool _exerciseDataSeedAttempted = false;
 
-  Future<void> _seedDefaultExerciseDetailsIfNeeded() async {
+  Future<void> _seedDefaultExerciseDataIfNeeded() async {
     final settings = ref.read(appSettingsServiceProvider);
-    if (settings.hasSeededDefaultExerciseDetails) return;
+    if (settings.hasSeededDefaultExerciseData) return;
     try {
-      await seedDefaultExerciseDetails(ref.read(exerciseDaoProvider));
-      // seedDefaultExerciseDetails writes straight to the DB via ExerciseDao,
+      await seedDefaultExerciseData(ref.read(exerciseDaoProvider));
+      // seedDefaultExerciseData writes straight to the DB via ExerciseDao,
       // bypassing LocalExercisesNotifier's cache — without this, every
       // screen reading allKnownExercisesProvider keeps the pre-seed snapshot
-      // (no notes/photos) until something unrelated happens to invalidate it.
+      // (no rep range/set count) until something unrelated happens to
+      // invalidate it.
       await ref.read(localExercisesProvider.notifier).refresh();
-      await settings.setHasSeededDefaultExerciseDetails(true);
+      await settings.setHasSeededDefaultExerciseData(true);
     } catch (_) {
       // Best-effort — the flag stays unset, so this safely retries on the
       // next launch rather than ever being skipped.
     }
+  }
+
+  // Guards the one-time muscle-group reset (see
+  // AppSettingsService.hasResetCuratedMuscleGroups) — fixes local data
+  // already corrupted by the sheet-sync bug in ExerciseDao.upsert before it
+  // was patched. Same once-per-launch gating as the migrations above.
+  bool _muscleGroupResetAttempted = false;
+
+  Future<void> _resetCuratedMuscleGroupsIfNeeded() async {
+    final settings = ref.read(appSettingsServiceProvider);
+    if (settings.hasResetCuratedMuscleGroups) return;
+    try {
+      await resetCuratedMuscleGroups(ref.read(exerciseDaoProvider));
+      await ref.read(localExercisesProvider.notifier).refresh();
+      await settings.setHasResetCuratedMuscleGroups(true);
+    } catch (_) {
+      // Best-effort — the flag stays unset, so this safely retries on the
+      // next launch rather than ever being skipped.
+    }
+  }
+
+  // Guards the one-time-per-launch profile-completeness prompt (see
+  // `showProfileInfoPrompt`) — interactive, unlike the silent migrations
+  // above, so it's only ever scheduled once MainShell is about to be
+  // reachable, and only actually shown if the user hasn't already
+  // dismissed it and something's still missing.
+  bool _profilePromptAttempted = false;
+
+  Future<void> _maybeShowProfileInfoPrompt() async {
+    final settings = ref.read(appSettingsServiceProvider);
+    if (settings.hasDismissedProfilePrompt) return;
+    if (!profileIsIncomplete(settings)) return;
+    if (!mounted) return;
+    await showProfileInfoPrompt(context);
   }
 
   @override
@@ -164,10 +200,24 @@ class _RootScreenState extends ConsumerState<_RootScreen> {
       });
     }
 
-    if (!_exerciseDetailsSeedAttempted) {
-      _exerciseDetailsSeedAttempted = true;
+    if (!_exerciseDataSeedAttempted) {
+      _exerciseDataSeedAttempted = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _seedDefaultExerciseDetailsIfNeeded();
+        _seedDefaultExerciseDataIfNeeded();
+      });
+    }
+
+    if (!_muscleGroupResetAttempted) {
+      _muscleGroupResetAttempted = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _resetCuratedMuscleGroupsIfNeeded();
+      });
+    }
+
+    if (!_profilePromptAttempted) {
+      _profilePromptAttempted = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _maybeShowProfileInfoPrompt();
       });
     }
 

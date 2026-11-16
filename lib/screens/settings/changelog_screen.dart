@@ -28,20 +28,23 @@ class _ChangelogScreenState extends State<ChangelogScreen> {
     final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(title: const Text("What's new")),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Text(
-            _info == null
-                ? 'Loading version…'
-                : 'Currently on version ${_info!.version} (build ${_info!.buildNumber})',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              fontStyle: FontStyle.italic,
+      body: SafeArea(
+        top: false,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            Text(
+              _info == null
+                  ? 'Loading version…'
+                  : 'Currently on version ${_info!.version} (build ${_info!.buildNumber})',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontStyle: FontStyle.italic,
+              ),
             ),
-          ),
-          const SizedBox(height: 20),
-          for (final entry in kChangelog) _ChangelogSection(entry: entry),
-        ],
+            const SizedBox(height: 20),
+            for (final entry in kChangelog) _ChangelogSection(entry: entry),
+          ],
+        ),
       ),
     );
   }

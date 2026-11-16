@@ -11,9 +11,11 @@ class AlgorithmsInfoScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('How suggestions work')),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: const [
+      body: SafeArea(
+        top: false,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: const [
           _Section(
             title: 'Suggested next exercise',
             body:
@@ -152,6 +154,7 @@ class AlgorithmsInfoScreen extends StatelessWidget {
                 'Google Sheet.',
           ),
         ],
+        ),
       ),
     );
   }

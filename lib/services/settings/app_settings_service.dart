@@ -63,10 +63,11 @@ class AppSettingsService {
   static const _kBiologicalSex = 'biological_sex';
   static const _kBirthDate = 'birth_date';
   static const _kHasMigratedToLocalDb = 'has_migrated_to_local_db_v1';
-  // v2: bumped to force one re-seed past users whose notes/photos were
-  // wiped by the sheet-sync bug fixed in ExerciseDao.upsert — see v3.1.2.
-  static const _kHasSeededDefaultExerciseDetails =
-      'has_seeded_default_exercise_details_v2';
+  static const _kHasSeededDefaultExerciseData =
+      'has_seeded_default_exercise_data_v1';
+  static const _kHasResetCuratedMuscleGroups =
+      'has_reset_curated_muscle_groups_v1';
+  static const _kHasDismissedProfilePrompt = 'has_dismissed_profile_prompt';
 
   static Future<AppSettingsService> create() async {
     final prefs = await SharedPreferences.getInstance();
@@ -427,13 +428,33 @@ class AppSettingsService {
   Future<void> setHasMigratedToLocalDb(bool value) =>
       _prefs.setBool(_kHasMigratedToLocalDb, value);
 
-  /// Guards the one-time curated-starter-exercise notes/photo seed (see
-  /// `seedDefaultExerciseDetails`) — set only after it completes, so a kill
-  /// mid-seed safely retries on next launch rather than leaving some
+  /// Guards the one-time curated-starter-exercise rep-range/set-count seed
+  /// (see `seedDefaultExerciseData`) — set only after it completes, so a
+  /// kill mid-seed safely retries on next launch rather than leaving some
   /// exercises half-filled forever.
-  bool get hasSeededDefaultExerciseDetails =>
-      _prefs.getBool(_kHasSeededDefaultExerciseDetails) ?? false;
+  bool get hasSeededDefaultExerciseData =>
+      _prefs.getBool(_kHasSeededDefaultExerciseData) ?? false;
 
-  Future<void> setHasSeededDefaultExerciseDetails(bool value) =>
-      _prefs.setBool(_kHasSeededDefaultExerciseDetails, value);
+  Future<void> setHasSeededDefaultExerciseData(bool value) =>
+      _prefs.setBool(_kHasSeededDefaultExerciseData, value);
+
+  /// Guards the one-time reset of curated exercises' muscle groups back to
+  /// the default package's values (see `resetCuratedMuscleGroups`) — fixes
+  /// local data already corrupted by the sheet-sync bug in
+  /// `ExerciseDao.upsert` before it was patched. Set only after it
+  /// completes, so a kill mid-reset safely retries on next launch.
+  bool get hasResetCuratedMuscleGroups =>
+      _prefs.getBool(_kHasResetCuratedMuscleGroups) ?? false;
+
+  Future<void> setHasResetCuratedMuscleGroups(bool value) =>
+      _prefs.setBool(_kHasResetCuratedMuscleGroups, value);
+
+  /// Set once the user taps "Skip for now" or "Done" on the cold-start
+  /// profile-completeness prompt (see `showProfileInfoPrompt`) — stops it
+  /// from reappearing on every launch even if some fields are still unset.
+  bool get hasDismissedProfilePrompt =>
+      _prefs.getBool(_kHasDismissedProfilePrompt) ?? false;
+
+  Future<void> setHasDismissedProfilePrompt(bool value) =>
+      _prefs.setBool(_kHasDismissedProfilePrompt, value);
 }

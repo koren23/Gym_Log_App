@@ -112,9 +112,10 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
       final json = jsonDecode(raw) as Map<String, dynamic>;
       // A restored draft's exercises are reconstructed from this screen's
       // own minimal save shape (name/muscleGroup/unit only) — this map
-      // backfills notes/photoAssetKey from the current local DB record so
-      // a resumed workout doesn't lose its "Details" chip for exercises
-      // that were already added before the app was closed.
+      // backfills repRangeLow/repRangeHigh/setCount from the current local
+      // DB record so a resumed workout keeps its suggested rep range/set
+      // count for exercises that were already added before the app was
+      // closed.
       final muscleByName = ref.read(exerciseMuscleByNameProvider);
 
       final dayId = json['day'] as String?;
@@ -151,8 +152,9 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
           Exercise(
             name: name,
             muscleGroup: group,
-            notes: looked?.notes,
-            photoAssetKey: looked?.photoAssetKey,
+            repRangeLow: looked?.repRangeLow,
+            repRangeHigh: looked?.repRangeHigh,
+            setCount: looked?.setCount,
           ),
         );
       }
@@ -179,8 +181,9 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
             muscleGroup: group,
             unit: unit,
             customUnitLabel: data['customUnitLabel'] as String?,
-            notes: looked?.notes,
-            photoAssetKey: looked?.photoAssetKey,
+            repRangeLow: looked?.repRangeLow,
+            repRangeHigh: looked?.repRangeHigh,
+            setCount: looked?.setCount,
           ),
         );
         draft.loadSets(
@@ -596,9 +599,9 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
     );
     final draft = ExerciseDraft(
       exercise,
-      setCount: historicalSetCount ?? kDefaultSetCount,
-      repRangeLow: defaults.repRangeLow,
-      repRangeHigh: defaults.repRangeHigh,
+      setCount: historicalSetCount ?? exercise.setCount ?? kDefaultSetCount,
+      repRangeLow: exercise.repRangeLow ?? defaults.repRangeLow,
+      repRangeHigh: exercise.repRangeHigh ?? defaults.repRangeHigh,
     );
     _applyPendingSuggestionIfAny(exercise, draft);
     return draft;
@@ -708,32 +711,43 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Log workout')),
       floatingActionButton: FloatingActionButton.extended(
-        icon: Icon(restTimer.isRunning ? Icons.stop : Icons.timer_outlined),
-        label: Text(
+        icon: Icon(
           restTimer.isRunning
+              ? Icons.stop
+              : restTimer.hasResult
+              ? Icons.refresh
+              : Icons.timer_outlined,
+        ),
+        label: Text(
+          restTimer.isRunning || restTimer.hasResult
               ? _formatRestTimer(restTimer.elapsed)
               : 'Rest timer',
         ),
         backgroundColor: restTimer.isRunning
             ? Theme.of(context).colorScheme.errorContainer
+            : restTimer.hasResult
+            ? Theme.of(context).colorScheme.secondaryContainer
             : null,
         foregroundColor: restTimer.isRunning
             ? Theme.of(context).colorScheme.onErrorContainer
+            : restTimer.hasResult
+            ? Theme.of(context).colorScheme.onSecondaryContainer
             : null,
         onPressed: () {
           final notifier = ref.read(restTimerProvider.notifier);
           if (restTimer.isRunning) {
             notifier.stop();
+          } else if (restTimer.hasResult) {
+            notifier.reset();
           } else {
             notifier.start();
           }
         },
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: CustomScrollView(
-              slivers: [
+      body: SafeArea(
+        top: false,
+        child: CustomScrollView(
+        slivers: [
                 SliverToBoxAdapter(
                   key: const ValueKey('sliver_day_chips'),
                   child: Padding(
@@ -895,6 +909,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
                             visits ?? const <MetaRow>[],
                             trendByName,
                             sectionKey: const ValueKey('section_suggested'),
+                            collapsible: false,
                           ),
                         ..._buildMuscleSections(
                           context,
@@ -911,30 +926,28 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
                       ]),
                     ),
                   ),
-              ],
-            ),
-          ),
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-              child: Row(
-                children: [
-                  OutlinedButton(
-                    onPressed: _hasDraftContent ? _confirmClear : null,
-                    child: const Text('Clear log'),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: FilledButton(
-                      onPressed: selectedCount == 0 ? null : _continue,
-                      child: Text('Publish log ($selectedCount)'),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
         ],
+        ),
+      ),
+      bottomNavigationBar: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          child: Row(
+            children: [
+              OutlinedButton(
+                onPressed: _hasDraftContent ? _confirmClear : null,
+                child: const Text('Clear log'),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton(
+                  onPressed: selectedCount == 0 ? null : _continue,
+                  child: Text('Publish log ($selectedCount)'),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1053,60 +1066,77 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
     List<MetaRow> visits,
     Map<String, TileTrend> trendByName, {
     Key? sectionKey,
+    bool collapsible = true,
   }) {
-    return Column(
-      key: sectionKey,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(top: 12, bottom: 4),
-          child: Text(
-            titleCase(muscle),
-            style: Theme.of(context).textTheme.labelLarge?.copyWith(
-              color: Theme.of(context).colorScheme.primary,
-            ),
-          ),
+    final header = Text(
+      titleCase(muscle),
+      style: Theme.of(
+        context,
+      ).textTheme.labelLarge?.copyWith(color: Theme.of(context).colorScheme.primary),
+    );
+    final tiles = [
+      for (final exercise in exercises)
+        ExerciseTile(
+          // GlobalObjectKey (not ValueKey): when this exercise is pinned
+          // as "Suggested next" and unpins itself mid-keystroke (see
+          // _resolveSuggestion), it moves to a different Column next
+          // build. A plain key can't follow an Element across parents, so
+          // it gets disposed/reinflated, dropping focus and cutting off
+          // the keystroke. Safe as a GlobalKey since _buildMuscleSections
+          // already excludes the pinned exercise from the normal list.
+          key: GlobalObjectKey(exercise.name),
+          draft: _draftFor(exercise, visits),
+          previousWeights: _previousWeightsFor(exercise.name, visits),
+          trend: trendByName[exercise.name] ?? TileTrend.unknown,
+          selected: _checked.contains(exercise.name),
+          onToggle: (v) {
+            if (v) HapticFeedback.selectionClick();
+            setState(() {
+              if (v) {
+                if (!_checked.contains(exercise.name))
+                  _checked.add(exercise.name);
+              } else {
+                _checked.remove(exercise.name);
+              }
+              _refreshCompletionSnapshot();
+            });
+            _saveDraft();
+          },
+          onChanged: () {
+            setState(() {});
+            _scheduleSaveDraft();
+          },
+          onFocusLost: _handleFieldBlur,
+          allExerciseNames: ref
+              .watch(allKnownExercisesProvider)
+              .map((e) => e.name)
+              .toList(),
+          onMachineVariantChosen: (newExercise) =>
+              _replaceExerciseWithMachineVariant(exercise, newExercise),
         ),
-        for (final exercise in exercises)
-          ExerciseTile(
-            // GlobalObjectKey (not ValueKey): when this exercise is pinned
-            // as "Suggested next" and unpins itself mid-keystroke (see
-            // _resolveSuggestion), it moves to a different Column next
-            // build. A plain key can't follow an Element across parents, so
-            // it gets disposed/reinflated, dropping focus and cutting off
-            // the keystroke. Safe as a GlobalKey since _buildMuscleSections
-            // already excludes the pinned exercise from the normal list.
-            key: GlobalObjectKey(exercise.name),
-            draft: _draftFor(exercise, visits),
-            previousWeights: _previousWeightsFor(exercise.name, visits),
-            trend: trendByName[exercise.name] ?? TileTrend.unknown,
-            selected: _checked.contains(exercise.name),
-            onToggle: (v) {
-              if (v) HapticFeedback.selectionClick();
-              setState(() {
-                if (v) {
-                  if (!_checked.contains(exercise.name))
-                    _checked.add(exercise.name);
-                } else {
-                  _checked.remove(exercise.name);
-                }
-                _refreshCompletionSnapshot();
-              });
-              _saveDraft();
-            },
-            onChanged: () {
-              setState(() {});
-              _scheduleSaveDraft();
-            },
-            onFocusLost: _handleFieldBlur,
-            allExerciseNames: ref
-                .watch(allKnownExercisesProvider)
-                .map((e) => e.name)
-                .toList(),
-            onMachineVariantChosen: (newExercise) =>
-                _replaceExerciseWithMachineVariant(exercise, newExercise),
+    ];
+
+    if (!collapsible) {
+      return Column(
+        key: sectionKey,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 12, bottom: 4),
+            child: header,
           ),
-      ],
+          ...tiles,
+        ],
+      );
+    }
+
+    return ExpansionTile(
+      key: sectionKey,
+      initiallyExpanded: false,
+      tilePadding: EdgeInsets.zero,
+      childrenPadding: EdgeInsets.zero,
+      title: header,
+      children: tiles,
     );
   }
 

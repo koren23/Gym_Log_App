@@ -18,31 +18,34 @@ class BodyWeightHistoryScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Body weight history')),
-      body: RefreshIndicator(
-        onRefresh: () => ref.read(snapshotProvider.notifier).refresh(),
-        child: entries.isEmpty
-            ? const SingleChildScrollView(
-                physics: AlwaysScrollableScrollPhysics(),
-                child: Padding(
-                  padding: EdgeInsets.only(top: 80),
-                  child: EmptyState(
-                    icon: Icons.monitor_weight_outlined,
-                    message: 'No body weight entries yet.',
+      body: SafeArea(
+        top: false,
+        child: RefreshIndicator(
+          onRefresh: () => ref.read(snapshotProvider.notifier).refresh(),
+          child: entries.isEmpty
+              ? const SingleChildScrollView(
+                  physics: AlwaysScrollableScrollPhysics(),
+                  child: Padding(
+                    padding: EdgeInsets.only(top: 80),
+                    child: EmptyState(
+                      icon: Icons.monitor_weight_outlined,
+                      message: 'No body weight entries yet.',
+                    ),
                   ),
+                )
+              : ListView.separated(
+                  itemCount: entries.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (context, index) {
+                    final entry = entries[index];
+                    return ListTile(
+                      title: Text('${entry.weightKg.toStringAsFixed(1)} kg'),
+                      subtitle: Text(dateFormat.format(entry.date)),
+                      onTap: () => _editEntry(context, ref, entry),
+                    );
+                  },
                 ),
-              )
-            : ListView.separated(
-                itemCount: entries.length,
-                separatorBuilder: (_, __) => const Divider(height: 1),
-                itemBuilder: (context, index) {
-                  final entry = entries[index];
-                  return ListTile(
-                    title: Text('${entry.weightKg.toStringAsFixed(1)} kg'),
-                    subtitle: Text(dateFormat.format(entry.date)),
-                    onTap: () => _editEntry(context, ref, entry),
-                  );
-                },
-              ),
+        ),
       ),
     );
   }

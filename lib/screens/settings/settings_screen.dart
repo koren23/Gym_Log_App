@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
-import '../../data/default_exercises_seed.dart';
 import '../../models/app_colors.dart';
 import '../../providers/auth_providers.dart';
 import '../../providers/settings_providers.dart';
@@ -191,7 +190,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
-      body: ListView(
+      body: SafeArea(
+        top: false,
+        child: ListView(
         padding: const EdgeInsets.symmetric(vertical: 8),
         children: [
           _SettingsSection(
@@ -530,14 +531,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   MaterialPageRoute(builder: (_) => const ChangelogScreen()),
                 ),
               ),
-              ListTile(
-                title: const Text('Data attribution'),
-                subtitle: const Text(kWgerAttribution),
-                leading: const Icon(Icons.copyright_outlined),
-              ),
             ],
           ),
         ],
+        ),
       ),
     );
   }

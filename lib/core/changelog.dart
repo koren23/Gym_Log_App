@@ -16,6 +16,35 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '4.0.0',
+    date: '2026-11-16',
+    changes: [
+      'Removed the exercise "Details" sheet (auto-fetched photos and '
+          'notes) — it only ever covered part of the exercise list and its '
+          'photo lookups weren\'t worth keeping.',
+      'Curated exercises now come with a suggested rep range and set '
+          'count built in, editable per exercise just like muscle group and '
+          'units.',
+      'Fixed a sync bug that could silently flip a curated exercise to the '
+          'wrong muscle group (e.g. to "Pull" or "Cardio") every time your '
+          'sheet synced. A one-time fix-up restores the correct muscle '
+          'groups for anyone already affected, and a manual muscle-group '
+          'edit can no longer be overwritten by a later sync.',
+      'Manage Exercises and the exercise list while logging a workout are '
+          'now grouped by muscle into collapsible sections, so it\'s faster '
+          'to find the one you want.',
+      'If your height, sex, birth date, or training start date isn\'t set '
+          'yet, the app now asks for it once on launch (powers the Stats '
+          'tab\'s BMI and calorie cards) — skip it any time and fill it in '
+          'later from Settings.',
+      'Fixed screen content being covered by the phone\'s on-screen '
+          'navigation buttons on several screens.',
+      'The rest timer now holds its result on screen after you stop it, '
+          'instead of clearing immediately — tap again to reset it.',
+      'Fixed the rest timer button overlapping the "Publish log" button.',
+    ],
+  ),
+  ChangelogEntry(
     version: '3.2.0',
     date: '2026-11-14',
     changes: [

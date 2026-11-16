@@ -10,8 +10,9 @@ class Exercise {
     this.unit = ExerciseUnit.kg,
     this.customUnitLabel,
     this.secondaryMuscleGroups = const [],
-    this.notes,
-    this.photoAssetKey,
+    this.repRangeLow,
+    this.repRangeHigh,
+    this.setCount,
   });
 
   final String name;
@@ -42,27 +43,25 @@ class Exercise {
   /// aggregation. Empty for most exercises.
   final List<MuscleGroup> secondaryMuscleGroups;
 
-  /// Free-form user- or seed-provided notes about this exercise (form cues,
-  /// machine settings, etc.) — editable from Settings, shown read-only in
-  /// the log-workout screen. Null for most exercises until set.
-  final String? notes;
-
-  /// Either a bundled asset path under `assets/exercise_photos/` (seeded
-  /// starter exercises) or an on-device file path (user-picked via
-  /// Settings) — the display widget tells which by checking whether the
-  /// file exists on disk, falling back to asset lookup otherwise. Null if
-  /// no photo has been set.
-  final String? photoAssetKey;
+  /// Suggested rep range (inclusive) and set count for a brand-new entry
+  /// with no logging history yet — from the curated default package
+  /// (`data/default_exercises_seed.dart`) or user-edited. Null for most
+  /// exercises until set; never overrides an exercise's own logged history.
+  final int? repRangeLow;
+  final int? repRangeHigh;
+  final int? setCount;
 
   Exercise copyWith({
     int? sheetRow,
     ExerciseUnit? unit,
     String? customUnitLabel,
     List<MuscleGroup>? secondaryMuscleGroups,
-    String? notes,
-    bool clearNotes = false,
-    String? photoAssetKey,
-    bool clearPhotoAssetKey = false,
+    int? repRangeLow,
+    bool clearRepRangeLow = false,
+    int? repRangeHigh,
+    bool clearRepRangeHigh = false,
+    int? setCount,
+    bool clearSetCount = false,
   }) => Exercise(
     name: name,
     muscleGroup: muscleGroup,
@@ -71,10 +70,11 @@ class Exercise {
     unit: unit ?? this.unit,
     customUnitLabel: customUnitLabel ?? this.customUnitLabel,
     secondaryMuscleGroups: secondaryMuscleGroups ?? this.secondaryMuscleGroups,
-    notes: clearNotes ? null : (notes ?? this.notes),
-    photoAssetKey: clearPhotoAssetKey
+    repRangeLow: clearRepRangeLow ? null : (repRangeLow ?? this.repRangeLow),
+    repRangeHigh: clearRepRangeHigh
         ? null
-        : (photoAssetKey ?? this.photoAssetKey),
+        : (repRangeHigh ?? this.repRangeHigh),
+    setCount: clearSetCount ? null : (setCount ?? this.setCount),
   );
 
   @override
