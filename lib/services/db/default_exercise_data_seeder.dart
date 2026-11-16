@@ -16,6 +16,8 @@ Future<void> seedDefaultExerciseData(ExerciseDao dao) async {
         Exercise(
           name: seed.name,
           muscleGroup: seed.muscleGroup,
+          unit: seed.unit,
+          customUnitLabel: seed.customUnitLabel,
           repRangeLow: seed.repRangeLow,
           repRangeHigh: seed.repRangeHigh,
           setCount: seed.setCount,
