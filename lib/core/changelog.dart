@@ -16,6 +16,16 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '4.0.2',
+    date: '2026-11-16',
+    changes: [
+      'Fixed "Reset settings to default" not actually restoring exercises\' '
+          'default rep ranges/set counts — the reset now updates every '
+          'curated exercise in your local list, not just a fallback '
+          'setting.',
+    ],
+  ),
+  ChangelogEntry(
     version: '4.0.1',
     date: '2026-11-16',
     changes: [

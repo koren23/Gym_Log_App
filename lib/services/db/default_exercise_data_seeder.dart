@@ -69,3 +69,25 @@ Future<void> resetCuratedMuscleGroups(ExerciseDao dao) async {
     );
   }
 }
+
+/// Explicit, user-requested reset of every curated exercise's suggested rep
+/// range + set count back to the current default package's values —
+/// overwrites even a prior value, unlike [seedDefaultExerciseData]'s "only
+/// fill if still unset" rule. Only ever called from Settings' "Reset
+/// settings to default" action, never automatically on launch.
+Future<void> resetCuratedRepRangeAndSetCount(ExerciseDao dao) async {
+  for (final seed in kDefaultExercisesSeed) {
+    final existing = await dao.getByName(seed.name);
+    if (existing == null) continue;
+    await dao.update(
+      existing.copyWith(
+        repRangeLow: seed.repRangeLow,
+        clearRepRangeLow: seed.repRangeLow == null,
+        repRangeHigh: seed.repRangeHigh,
+        clearRepRangeHigh: seed.repRangeHigh == null,
+        setCount: seed.setCount,
+        clearSetCount: seed.setCount == null,
+      ),
+    );
+  }
+}

@@ -5,8 +5,11 @@ import 'package:intl/intl.dart';
 
 import '../../models/app_colors.dart';
 import '../../providers/auth_providers.dart';
+import '../../providers/db_providers.dart';
+import '../../providers/local_history_providers.dart';
 import '../../providers/settings_providers.dart';
 import '../../providers/sheet_data_providers.dart';
+import '../../services/db/default_exercise_data_seeder.dart';
 import '../../services/settings/app_settings_service.dart';
 import '../../widgets/app_snack_bar.dart';
 import '../onboarding/sheet_url_entry_screen.dart';
@@ -200,7 +203,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 contentPadding: EdgeInsets.zero,
                 title: const Text('Default rep range suggestion'),
                 subtitle: const Text(
-                  'Fallback shown for exercises with no history yet',
+                  "Restores every exercise's suggested rep range/sets to "
+                  'the default package, plus the fallback shown for '
+                  'exercises with no history yet',
                 ),
                 value: selected['repRange'],
                 onChanged: (v) =>
@@ -238,6 +243,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
     if (selected['repRange'] == true) {
       await settings.resetDefaultRepRange();
+      await resetCuratedRepRangeAndSetCount(ref.read(exerciseDaoProvider));
+      await ref.read(localExercisesProvider.notifier).refresh();
     }
     if (!mounted) return;
     setState(() {});
