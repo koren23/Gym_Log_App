@@ -16,6 +16,19 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '4.0.1',
+    date: '2026-11-16',
+    changes: [
+      'Added a "Reset settings to default" option in Settings, with a '
+          'confirmation step and a choice of which categories to reset '
+          '(appearance, profile info, default rep range) — your sheet '
+          'data, exercises, and workout days are never touched.',
+      'Graphs now has a "Workouts" category, listing every workout day '
+          'you\'ve set up (e.g. Push, Pull, Legs) — pick one to see its '
+          'star rating over time.',
+    ],
+  ),
+  ChangelogEntry(
     version: '4.0.0',
     date: '2026-11-16',
     changes: [

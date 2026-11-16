@@ -161,6 +161,89 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     setState(() {});
   }
 
+  Future<void> _resetSettingsToDefault() async {
+    final selected = {
+      'appearance': true,
+      'profile': true,
+      'repRange': true,
+    };
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Reset settings to default?'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Choose what to reset. This only affects local '
+                  'app settings — your sheet data, exercises, and workout '
+                  'days are untouched.'),
+              const SizedBox(height: 8),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Appearance'),
+                subtitle: const Text('Theme colors, display name, auto-rotate'),
+                value: selected['appearance'],
+                onChanged: (v) =>
+                    setDialogState(() => selected['appearance'] = v ?? false),
+              ),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Profile info'),
+                subtitle: const Text('Height, training since, sex, birth date'),
+                value: selected['profile'],
+                onChanged: (v) =>
+                    setDialogState(() => selected['profile'] = v ?? false),
+              ),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Default rep range suggestion'),
+                subtitle: const Text(
+                  'Fallback shown for exercises with no history yet',
+                ),
+                value: selected['repRange'],
+                onChanged: (v) =>
+                    setDialogState(() => selected['repRange'] = v ?? false),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.error,
+              ),
+              onPressed: selected.values.any((v) => v)
+                  ? () => Navigator.of(context).pop(true)
+                  : null,
+              child: const Text('Reset'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final settings = ref.read(appSettingsServiceProvider);
+    if (selected['appearance'] == true) {
+      await settings.resetAppearance();
+      ref.invalidate(appColorsProvider);
+    }
+    if (selected['profile'] == true) {
+      await settings.resetProfileInfo();
+    }
+    if (selected['repRange'] == true) {
+      await settings.resetDefaultRepRange();
+    }
+    if (!mounted) return;
+    setState(() {});
+    showAppSnackBar(context, 'Settings reset.');
+  }
+
   Future<void> _editBirthDate() async {
     final settings = ref.read(appSettingsServiceProvider);
     final now = DateTime.now();
@@ -502,6 +585,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         .addCustomDay(result.label, result.muscleGroups);
                   },
                 ),
+              ),
+            ],
+          ),
+          _SettingsSection(
+            title: 'Reset',
+            children: [
+              ListTile(
+                title: const Text('Reset settings to default'),
+                subtitle: const Text(
+                  'Pick which local app settings to reset — does not '
+                  'touch your sheet data, exercises, or workout days',
+                ),
+                leading: const Icon(Icons.restore),
+                onTap: _resetSettingsToDefault,
               ),
             ],
           ),

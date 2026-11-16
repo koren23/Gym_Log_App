@@ -6,8 +6,10 @@ import '../../core/utils/exercise_muscle_resolution.dart';
 import '../../core/utils/text.dart';
 import '../../models/exercise.dart';
 import '../../models/exercise_unit.dart';
+import '../../models/workout_day_def.dart';
 import '../../providers/analysis_providers.dart';
 import '../../providers/local_history_providers.dart';
+import '../../providers/settings_providers.dart';
 import '../../providers/sheet_data_providers.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/loading_skeleton.dart';
@@ -16,17 +18,26 @@ import '../body_weight/body_weight_history_screen.dart';
 
 const _kBodyWeightOption = 'Body weight';
 const _kMusclePrefix = 'muscle:';
+const _kWorkoutPrefix = 'workout:';
 
 // Fixed per-category colors for the graph picker's category title rows
-// (per muscle group / Muscles / Body weight) — only the title row
+// (per muscle group / Muscles / Body weight / Workouts) — only the title row
 // background is tinted with these; leaf items underneath use the normal
 // theme colors.
 const kBodyWeightColor = Colors.blue;
 const kMuscleColor = Colors.brown;
+const kWorkoutColor = Colors.deepOrange;
 
-String _optionLabel(String option) => option.startsWith(_kMusclePrefix)
-    ? titleCase(option.substring(_kMusclePrefix.length))
-    : option;
+String _optionLabel(String option, {Map<String, String>? workoutLabelsById}) {
+  if (option.startsWith(_kMusclePrefix)) {
+    return titleCase(option.substring(_kMusclePrefix.length));
+  }
+  if (option.startsWith(_kWorkoutPrefix)) {
+    final dayId = option.substring(_kWorkoutPrefix.length);
+    return workoutLabelsById?[dayId] ?? dayId;
+  }
+  return option;
+}
 
 /// Y-axis legend label for a single exercise's own line (the [showingMuscle]
 /// case has its own unit-agnostic "% of starting weight" label instead —
@@ -101,9 +112,13 @@ class _GraphsScreenState extends ConsumerState<GraphsScreen> {
     );
     final muscleNames = exercisesByMuscleName.keys.toList()..sort();
 
+    final dayDefs = ref.watch(workoutDayDefsProvider);
+    final workoutLabelsById = {for (final d in dayDefs) d.id: d.label};
+
     _selectedOption ??= _kBodyWeightOption;
     final showingBodyWeight = _selectedOption == _kBodyWeightOption;
     final showingMuscle = _selectedOption!.startsWith(_kMusclePrefix);
+    final showingWorkout = _selectedOption!.startsWith(_kWorkoutPrefix);
 
     final theme = Theme.of(context);
     final primaryColor = theme.colorScheme.primary;
@@ -116,6 +131,24 @@ class _GraphsScreenState extends ConsumerState<GraphsScreen> {
     if (showingBodyWeight) {
       primaryPoints = bodyWeightPoints ?? const [];
       primaryColorForChart = bodyWeightColor;
+      secondaryPoints = null;
+    } else if (showingWorkout) {
+      final dayId = _selectedOption!.substring(_kWorkoutPrefix.length);
+      WorkoutDayDef? day;
+      for (final d in dayDefs) {
+        if (d.id == dayId) {
+          day = d;
+          break;
+        }
+      }
+      primaryPoints = day == null
+          ? const []
+          : buildWorkoutRatingPoints(
+              visits: visits,
+              day: day,
+              allDays: dayDefs,
+            );
+      primaryColorForChart = kWorkoutColor;
       secondaryPoints = null;
     } else if (showingMuscle) {
       final muscle = _selectedOption!.substring(_kMusclePrefix.length);
@@ -165,6 +198,7 @@ class _GraphsScreenState extends ConsumerState<GraphsScreen> {
                       muscleNames: muscleNames,
                       exercisesByMuscleName: exercisesByMuscleName,
                       allExerciseNames: allExerciseNames,
+                      dayDefs: dayDefs,
                     ),
                     child: InputDecorator(
                       decoration: const InputDecoration(
@@ -176,7 +210,10 @@ class _GraphsScreenState extends ConsumerState<GraphsScreen> {
                         children: [
                           Expanded(
                             child: Text(
-                              _optionLabel(_selectedOption!),
+                              _optionLabel(
+                                _selectedOption!,
+                                workoutLabelsById: workoutLabelsById,
+                              ),
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
@@ -211,6 +248,17 @@ class _GraphsScreenState extends ConsumerState<GraphsScreen> {
                 ),
               ),
             ),
+          if (showingWorkout)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+              child: Text(
+                'Star rating logged for each session of this workout day, '
+                'over time.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.outline,
+                ),
+              ),
+            ),
           SizedBox(
             height: MediaQuery.sizeOf(context).height * 0.5,
             child: SimpleLineChart(
@@ -221,7 +269,11 @@ class _GraphsScreenState extends ConsumerState<GraphsScreen> {
               secondaryFloor: 45,
               secondaryCeiling: 100,
               onInteractionChanged: widget.onChartInteractionChanged,
-              primaryUnitSuffix: showingMuscle ? '%' : '',
+              primaryUnitSuffix: showingMuscle
+                  ? '%'
+                  : showingWorkout
+                  ? ' ★'
+                  : '',
             ),
           ),
           if (secondaryPoints != null)
@@ -253,9 +305,12 @@ class _GraphsScreenState extends ConsumerState<GraphsScreen> {
     required List<String> muscleNames,
     required Map<String, Set<String>> exercisesByMuscleName,
     required List<String> allExerciseNames,
+    required List<WorkoutDayDef> dayDefs,
   }) async {
     var query = '';
     final expandedMuscles = <String>{};
+    var workoutsExpanded = true;
+    final workoutLabelsById = {for (final d in dayDefs) d.id: d.label};
     final selected = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
@@ -264,6 +319,7 @@ class _GraphsScreenState extends ConsumerState<GraphsScreen> {
           builder: (sheetContext, setSheetState) {
             final allLeaf = <String>[
               _kBodyWeightOption,
+              for (final d in dayDefs) '$_kWorkoutPrefix${d.id}',
               for (final m in muscleNames) '$_kMusclePrefix$m',
               ...allExerciseNames,
             ];
@@ -273,6 +329,7 @@ class _GraphsScreenState extends ConsumerState<GraphsScreen> {
                       .where(
                         (o) => _optionLabel(
                           o,
+                          workoutLabelsById: workoutLabelsById,
                         ).toLowerCase().contains(query.toLowerCase()),
                       )
                       .toList();
@@ -306,8 +363,15 @@ class _GraphsScreenState extends ConsumerState<GraphsScreen> {
                                     ListTile(
                                       leading: option.startsWith(_kMusclePrefix)
                                           ? const Icon(Icons.accessibility_new)
+                                          : option.startsWith(_kWorkoutPrefix)
+                                          ? const Icon(Icons.event_note)
                                           : null,
-                                      title: Text(_optionLabel(option)),
+                                      title: Text(
+                                        _optionLabel(
+                                          option,
+                                          workoutLabelsById: workoutLabelsById,
+                                        ),
+                                      ),
                                       onTap: () => Navigator.of(
                                         sheetContext,
                                       ).pop(option),
@@ -335,6 +399,20 @@ class _GraphsScreenState extends ConsumerState<GraphsScreen> {
                                           sheetContext,
                                         ).pop(_kBodyWeightOption),
                                       ),
+                                      if (dayDefs.isNotEmpty)
+                                        _WorkoutsGraphTile(
+                                          days: dayDefs,
+                                          expanded: workoutsExpanded,
+                                          titleStyle: categoryBase,
+                                          onToggleExpanded: () =>
+                                              setSheetState(
+                                                () => workoutsExpanded =
+                                                    !workoutsExpanded,
+                                              ),
+                                          onSelectDay: (day) => Navigator.of(
+                                            sheetContext,
+                                          ).pop('$_kWorkoutPrefix${day.id}'),
+                                        ),
                                       for (final muscle in muscleNames)
                                         _MuscleGraphTile(
                                           muscle: muscle,
@@ -434,6 +512,56 @@ class _MuscleGraphTile extends StatelessWidget {
               contentPadding: const EdgeInsets.only(left: 32, right: 16),
               title: Text(name),
               onTap: () => onSelectExercise(name),
+            ),
+      ],
+    );
+  }
+}
+
+/// The "Workouts" category row in the graph picker: a header that
+/// expands/collapses to show every one of the user's configured workout
+/// days (e.g. Push, Pull, Legs) as selectable leaves. Unlike
+/// [_MuscleGraphTile], the header itself isn't tappable to open a graph —
+/// there's no single combined "all workouts" rating series, only one per
+/// day — so tapping it just toggles the list below.
+class _WorkoutsGraphTile extends StatelessWidget {
+  const _WorkoutsGraphTile({
+    required this.days,
+    required this.expanded,
+    required this.titleStyle,
+    required this.onToggleExpanded,
+    required this.onSelectDay,
+  });
+
+  final List<WorkoutDayDef> days;
+  final bool expanded;
+  final TextStyle? titleStyle;
+  final VoidCallback onToggleExpanded;
+  final ValueChanged<WorkoutDayDef> onSelectDay;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Material(
+          color: kWorkoutColor.withValues(alpha: 0.15),
+          child: ListTile(
+            leading: const Icon(Icons.event_note),
+            title: Text('Workouts', style: titleStyle),
+            trailing: IconButton(
+              icon: Icon(expanded ? Icons.expand_less : Icons.expand_more),
+              tooltip: expanded ? 'Hide workouts' : 'Show workouts',
+              onPressed: onToggleExpanded,
+            ),
+            onTap: onToggleExpanded,
+          ),
+        ),
+        if (expanded)
+          for (final day in days)
+            ListTile(
+              contentPadding: const EdgeInsets.only(left: 32, right: 16),
+              title: Text(day.label),
+              onTap: () => onSelectDay(day),
             ),
       ],
     );

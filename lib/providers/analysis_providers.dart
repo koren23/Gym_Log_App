@@ -376,6 +376,31 @@ bool historyEntryBelongsToDay(
   List<WorkoutDayDef> allDays,
 ) => bestMatchingDayForEntry(entry, allDays)?.id == day.id;
 
+/// One [ChartPoint] per logged visit belonging to [day] that carries a star
+/// rating, oldest first — for graphing how a specific workout day (e.g.
+/// "Push") has felt over time.
+///
+/// Synthetic (hand-typed sheet) visits are included like any other: a
+/// rating typed into the sheet is just as real a data point as one logged
+/// in-app. A visit with no rating at all contributes no point.
+List<ChartPoint> buildWorkoutRatingPoints({
+  required List<MetaRow> visits,
+  required WorkoutDayDef day,
+  required List<WorkoutDayDef> allDays,
+}) {
+  final entries = buildHistoryEntries(visits)
+    ..sort((a, b) => a.date.compareTo(b.date));
+
+  final points = <ChartPoint>[];
+  for (final entry in entries) {
+    final rating = entry.metaRow.rating;
+    if (rating == null) continue;
+    if (!historyEntryBelongsToDay(entry, day, allDays)) continue;
+    points.add(ChartPoint(date: entry.date, value: rating));
+  }
+  return points;
+}
+
 /// The most recent real (app-logged, not [HistoryEntry.isSynthetic]) visit
 /// belonging to [day] — skips synthetic/reconstructed entries (hand-typed
 /// sheet data), which carry no per-set reps/weights/rating/note detail to

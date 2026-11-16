@@ -176,6 +176,33 @@ class AppSettingsService {
     await _prefs.remove(_kLogWorkoutHeroColor);
   }
 
+  /// Everything under the Settings screen's "Appearance" section: the
+  /// theme colors plus the app's display name and auto-rotation toggle.
+  Future<void> resetAppearance() async {
+    await resetColors();
+    await setAppDisplayName(kDefaultAppDisplayName);
+    await setAutoThemeRotationEnabled(false);
+  }
+
+  /// Everything under the Settings screen's "Profile" section — used only
+  /// for the Stats tab's BMI/BMR calculations, so resetting just clears
+  /// them back to "not set" rather than to any particular value.
+  Future<void> resetProfileInfo() async {
+    await setHeightCm(null);
+    await setTrainingStartDate(null);
+    await setBiologicalSex(null);
+    await setBirthDate(null);
+  }
+
+  /// The fallback suggested rep range shown for an exercise with no
+  /// history and no curated suggestion of its own (see [defaultRepRangeLow]/
+  /// [defaultRepRangeHigh]) — resetting reverts to the app's built-in
+  /// [kDefaultRepRangeLow]/[kDefaultRepRangeHigh].
+  Future<void> resetDefaultRepRange() async {
+    await _prefs.remove(_kDefaultRepRangeLow);
+    await _prefs.remove(_kDefaultRepRangeHigh);
+  }
+
   /// Signatures of the form `'${kind.name}::$subjectName'` — a "Not now" on
   /// one suggestion kind for an exercise no longer suppresses unrelated
   /// kinds for that same exercise (unlike the old, coarser
