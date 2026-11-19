@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/constants/muscle_groups.dart';
+import '../../core/constants/sheet_layout.dart';
 import '../../core/utils/exercise_value_format.dart';
 import '../../core/utils/text.dart';
 import '../../models/exercise.dart';
@@ -14,6 +15,7 @@ import '../../models/workout_visit.dart';
 import '../../models/year_sheet_data.dart';
 import '../../providers/analysis_providers.dart';
 import '../../providers/local_history_providers.dart';
+import '../../providers/settings_providers.dart';
 import '../../providers/sheet_data_providers.dart';
 import '../../widgets/app_snack_bar.dart';
 import '../../widgets/exercise_tile.dart';
@@ -65,6 +67,8 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
       for (final entry in knownByName.entries) entry.key: entry.value.muscleGroup,
     };
 
+    final visits = ref.read(localVisitsProvider).value ?? const <MetaRow>[];
+    final defaults = ref.read(workoutDefaultsProvider);
     final weekColumn = yearData?.weekColumns[widget.metaRow.isoWeek];
     for (final logged in widget.metaRow.exercises) {
       final exercise = yearData?.findExercise(logged.exerciseName);
@@ -74,6 +78,10 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
           : null;
 
       final known = knownByName[logged.exerciseName.toLowerCase()];
+      final historicalSetCount = historicalAverageSetCount(
+        visits: visits,
+        exerciseName: logged.exerciseName,
+      );
       final draft = ExerciseDraft(
         Exercise(
           name: logged.exerciseName,
@@ -89,6 +97,9 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
           repRangeHigh: known?.repRangeHigh,
           setCount: known?.setCount,
         ),
+        setCount: known?.setCount ?? historicalSetCount ?? kDefaultSetCount,
+        repRangeLow: known?.repRangeLow ?? defaults.repRangeLow,
+        repRangeHigh: known?.repRangeHigh ?? defaults.repRangeHigh,
       );
 
       if (logged.actualReps.isNotEmpty) {
@@ -154,10 +165,23 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
 
   void _addExercise(Exercise exercise) {
     if (_exerciseOrder.contains(exercise.name)) return;
+    final visits = ref.read(localVisitsProvider).value ?? const <MetaRow>[];
+    final defaults = ref.read(workoutDefaultsProvider);
+    final historicalSetCount = historicalAverageSetCount(
+      visits: visits,
+      exerciseName: exercise.name,
+    );
     setState(() {
       _exerciseOrder.add(exercise.name);
-      _drafts[exercise.name] = ExerciseDraft(exercise)
-        ..loadSets(weights: <double?>[null], reps: <int?>[null]);
+      _drafts[exercise.name] =
+          ExerciseDraft(
+            exercise,
+            setCount:
+                exercise.setCount ?? historicalSetCount ?? kDefaultSetCount,
+            repRangeLow: exercise.repRangeLow ?? defaults.repRangeLow,
+            repRangeHigh: exercise.repRangeHigh ?? defaults.repRangeHigh,
+          )
+          ..loadSets(weights: <double?>[null], reps: <int?>[null]);
     });
   }
 

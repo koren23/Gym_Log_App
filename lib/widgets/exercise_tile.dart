@@ -26,7 +26,7 @@ class ExerciseDraft {
     int setCount = kDefaultSetCount,
     int repRangeLow = kDefaultRepRangeLow,
     int repRangeHigh = kDefaultRepRangeHigh,
-  }) : _repsMid = (repRangeLow + repRangeHigh) ~/ 2,
+  }) : _repsMid = ((repRangeLow + repRangeHigh) / 2).round(),
        setWeights = List<double?>.filled(setCount, null, growable: true),
        setReps = List<int?>.filled(setCount, null, growable: true),
        setApproxReps = List<bool>.filled(setCount, false, growable: true),
@@ -119,7 +119,7 @@ class ExerciseDraft {
     final hi = index < targetRepRangeHighOverridePerSet.length
         ? targetRepRangeHighOverridePerSet[index]
         : null;
-    if (lo != null && hi != null) return (lo + hi) ~/ 2;
+    if (lo != null && hi != null) return ((lo + hi) / 2).round();
     return _repsMid;
   }
 

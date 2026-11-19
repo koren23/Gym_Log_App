@@ -52,8 +52,26 @@ void main() {
     expect(
       entry!.sets.single.reps,
       7,
-    ); // (kDefaultRepRangeLow + kDefaultRepRangeHigh) ~/ 2
+    ); // round((kDefaultRepRangeLow + kDefaultRepRangeHigh) / 2)
   });
+
+  test(
+    'a blank reps field rounds an odd-sum rep range up, not truncates',
+    () {
+      final draft = ExerciseDraft(
+        Exercise(name: 'Bench press', muscleGroup: MuscleGroup.upperChest),
+        repRangeLow: 3,
+        repRangeHigh: 12,
+      );
+      draft.setWeights = [60];
+      draft.setReps = [null];
+      draft.setApproxReps = [false];
+
+      final entry = draft.toEntry();
+
+      expect(entry!.sets.single.reps, 8); // round((3 + 12) / 2) == round(7.5)
+    },
+  );
 
   test('loadSets replaces set data and rebuilds controllers to match', () {
     final draft = ExerciseDraft(

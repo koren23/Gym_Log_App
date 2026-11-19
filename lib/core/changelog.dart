@@ -16,6 +16,22 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '4.1.0',
+    date: '2026-11-19',
+    changes: [
+      'Logging an exercise now opens with the number of sets you '
+          'configured for it in Manage Exercises, and a left-blank reps '
+          'field now defaults to the midpoint of that exercise\'s own rep '
+          'range (rounded, e.g. 3-12 → 8) instead of the generic '
+          'default range’s midpoint. Applied to both the log-workout '
+          'screen and editing a past visit.',
+      'Muscle categories in the log-workout exercise picker now expand '
+          'independently — opening one no longer closes the others — '
+          'and automatically expand to show matches while you\'re '
+          'searching.',
+    ],
+  ),
+  ChangelogEntry(
     version: '4.0.3',
     date: '2026-11-16',
     changes: [

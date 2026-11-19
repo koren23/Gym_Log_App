@@ -55,6 +55,12 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
   final _searchController = TextEditingController();
   String _searchQuery = '';
 
+  /// Muscle categories the user has explicitly expanded in the exercise
+  /// picker — kept independent of each other (no accordion coupling), and
+  /// separate from the force-open-while-searching behavior in
+  /// [_buildMuscleSections].
+  final Set<String> _expandedMuscles = {};
+
   /// The exercise currently shown in "Suggested next" — sticky once
   /// checked-but-not-complete, so ticking it doesn't immediately swap in a
   /// different suggestion and yank the weight/set editor out from under
@@ -599,7 +605,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
     );
     final draft = ExerciseDraft(
       exercise,
-      setCount: historicalSetCount ?? exercise.setCount ?? kDefaultSetCount,
+      setCount: exercise.setCount ?? historicalSetCount ?? kDefaultSetCount,
       repRangeLow: exercise.repRangeLow ?? defaults.repRangeLow,
       repRangeHigh: exercise.repRangeHigh ?? defaults.repRangeHigh,
     );
@@ -1030,6 +1036,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
     Map<String, TileTrend> trendByName, {
     String? excludeName,
   }) {
+    final searchActive = _searchQuery.isNotEmpty;
     final filtered = exercises.where(
       (e) =>
           (_searchQuery.isEmpty ||
@@ -1054,7 +1061,20 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
           byMuscle[muscle]!,
           visits,
           trendByName,
-          sectionKey: ValueKey('section_$muscle'),
+          // Keying on searchActive forces the tile to be recreated — and
+          // thus re-seeded from `expanded` — the moment a search starts or
+          // is cleared; ExpansionTile otherwise only reads
+          // initiallyExpanded once per State lifetime, so toggling it
+          // alone wouldn't force a match's category open.
+          sectionKey: ValueKey('section_${muscle}_$searchActive'),
+          expanded: searchActive || _expandedMuscles.contains(muscle),
+          onExpansionChanged: (open) => setState(() {
+            if (open) {
+              _expandedMuscles.add(muscle);
+            } else {
+              _expandedMuscles.remove(muscle);
+            }
+          }),
         ),
     ];
   }
@@ -1067,6 +1087,8 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
     Map<String, TileTrend> trendByName, {
     Key? sectionKey,
     bool collapsible = true,
+    bool expanded = false,
+    ValueChanged<bool>? onExpansionChanged,
   }) {
     final header = Text(
       titleCase(muscle),
@@ -1132,7 +1154,8 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
 
     return ExpansionTile(
       key: sectionKey,
-      initiallyExpanded: false,
+      initiallyExpanded: expanded,
+      onExpansionChanged: onExpansionChanged,
       tilePadding: EdgeInsets.zero,
       childrenPadding: EdgeInsets.zero,
       title: header,
