@@ -108,6 +108,7 @@ class WorkoutDefaultsNotifier extends Notifier<WorkoutDefaults> {
     return WorkoutDefaults(
       repRangeLow: service.defaultRepRangeLow,
       repRangeHigh: service.defaultRepRangeHigh,
+      setCount: service.defaultSetCount,
     );
   }
 
@@ -120,6 +121,14 @@ class WorkoutDefaultsNotifier extends Notifier<WorkoutDefaults> {
     await service.setDefaultRepRangeLow(clampedLow);
     await service.setDefaultRepRangeHigh(clampedHigh);
     state = state.copyWith(repRangeLow: clampedLow, repRangeHigh: clampedHigh);
+  }
+
+  /// Clamped the same as a per-exercise set count and [historicalAverageSetCount].
+  Future<void> setSetCount(int count) async {
+    final clamped = count.clamp(1, 10);
+    final service = ref.read(appSettingsServiceProvider);
+    await service.setDefaultSetCount(clamped);
+    state = state.copyWith(setCount: clamped);
   }
 }
 

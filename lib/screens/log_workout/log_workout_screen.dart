@@ -9,7 +9,6 @@ import 'package:uuid/uuid.dart';
 import '../../core/analysis/tile_trend.dart';
 import '../../core/app_page_route.dart';
 import '../../core/constants/muscle_groups.dart';
-import '../../core/constants/sheet_layout.dart';
 import '../../core/utils/exercise_value_format.dart';
 import '../../core/utils/iso_week.dart';
 import '../../core/utils/text.dart';
@@ -169,6 +168,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
       // reads `_drafts` on the very first frame — e.g. the "Workout so
       // far" summary — already sees the restored data instead of an empty
       // map that only fills in once something else triggers a rebuild.
+      final defaults = ref.read(workoutDefaultsProvider);
       final exercisesJson =
           json['exercises'] as Map<String, dynamic>? ?? const {};
       for (final entry in exercisesJson.entries) {
@@ -181,16 +181,23 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
           orElse: () => ExerciseUnit.kg,
         );
         final looked = muscleByName[entry.key.toLowerCase()];
+        final restoredExercise = Exercise(
+          name: entry.key,
+          muscleGroup: group,
+          unit: unit,
+          customUnitLabel: data['customUnitLabel'] as String?,
+          repRangeLow: looked?.repRangeLow,
+          repRangeHigh: looked?.repRangeHigh,
+          setCount: looked?.setCount,
+        );
         final draft = ExerciseDraft(
-          Exercise(
-            name: entry.key,
-            muscleGroup: group,
-            unit: unit,
-            customUnitLabel: data['customUnitLabel'] as String?,
-            repRangeLow: looked?.repRangeLow,
-            repRangeHigh: looked?.repRangeHigh,
-            setCount: looked?.setCount,
+          restoredExercise,
+          setCount: resolveSetCount(
+            exercise: restoredExercise,
+            defaults: defaults,
           ),
+          repRangeLow: restoredExercise.repRangeLow ?? defaults.repRangeLow,
+          repRangeHigh: restoredExercise.repRangeHigh ?? defaults.repRangeHigh,
         );
         draft.loadSets(
           weights: (data['setWeights'] as List)
@@ -594,18 +601,11 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
     _saveDraft();
   }
 
-  ExerciseDraft _draftFor(
-    Exercise exercise,
-    List<MetaRow> visits,
-  ) => _drafts.putIfAbsent(exercise.name, () {
+  ExerciseDraft _draftFor(Exercise exercise) => _drafts.putIfAbsent(exercise.name, () {
     final defaults = ref.read(workoutDefaultsProvider);
-    final historicalSetCount = historicalAverageSetCount(
-      visits: visits,
-      exerciseName: exercise.name,
-    );
     final draft = ExerciseDraft(
       exercise,
-      setCount: exercise.setCount ?? historicalSetCount ?? kDefaultSetCount,
+      setCount: resolveSetCount(exercise: exercise, defaults: defaults),
       repRangeLow: exercise.repRangeLow ?? defaults.repRangeLow,
       repRangeHigh: exercise.repRangeHigh ?? defaults.repRangeHigh,
     );
@@ -1107,7 +1107,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
           // the keystroke. Safe as a GlobalKey since _buildMuscleSections
           // already excludes the pinned exercise from the normal list.
           key: GlobalObjectKey(exercise.name),
-          draft: _draftFor(exercise, visits),
+          draft: _draftFor(exercise),
           previousWeights: _previousWeightsFor(exercise.name, visits),
           trend: trendByName[exercise.name] ?? TileTrend.unknown,
           selected: _checked.contains(exercise.name),

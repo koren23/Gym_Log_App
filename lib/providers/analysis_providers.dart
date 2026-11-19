@@ -10,6 +10,7 @@ import '../models/rating_relevance.dart';
 import '../models/recent_suggestion_record.dart';
 import '../models/set_feedback.dart';
 import '../models/workout_day_def.dart';
+import '../models/workout_defaults.dart';
 import '../models/year_sheet_data.dart';
 import '../services/analysis/alternative_exercise_map.dart';
 import '../services/analysis/analysis_engine.dart';
@@ -175,6 +176,17 @@ int? historicalAverageSetCount({
   final avg = recent.reduce((a, b) => a + b) / recent.length;
   return avg.round().clamp(1, 10);
 }
+
+/// Resolves the set count to pre-fill when logging [exercise]: a
+/// per-exercise override always wins, otherwise the user's global default
+/// (see Settings > Default rep range & set count) — which itself always has
+/// a value, falling back to [kDefaultSetCount] when the user hasn't changed
+/// it, so there's nothing left for a historical average to fill in.
+int resolveSetCount({
+  required Exercise exercise,
+  required WorkoutDefaults defaults,
+}) =>
+    exercise.setCount ?? defaults.setCount;
 
 /// Combines every exercise resolved to [muscle] (see
 /// [resolveMuscleGroup]/[exerciseNamesByMuscleSheetHeader]) into one

@@ -52,6 +52,7 @@ class AppSettingsService {
   static const _kWorkoutDraft = 'workout_draft';
   static const _kDefaultRepRangeLow = 'default_rep_range_low';
   static const _kDefaultRepRangeHigh = 'default_rep_range_high';
+  static const _kDefaultSetCount = 'default_set_count';
   static const _kHasSeededWorkoutDays = 'has_seeded_workout_days';
   static const _kHasCleanedUpDuplicateWorkoutDays =
       'has_cleaned_up_duplicate_workout_days';
@@ -194,13 +195,15 @@ class AppSettingsService {
     await setBirthDate(null);
   }
 
-  /// The fallback suggested rep range shown for an exercise with no
-  /// history and no curated suggestion of its own (see [defaultRepRangeLow]/
-  /// [defaultRepRangeHigh]) — resetting reverts to the app's built-in
-  /// [kDefaultRepRangeLow]/[kDefaultRepRangeHigh].
+  /// The fallback suggested rep range/set count shown for an exercise with
+  /// no history and no curated suggestion of its own (see
+  /// [defaultRepRangeLow]/[defaultRepRangeHigh]/[defaultSetCount]) —
+  /// resetting reverts to the app's built-in [kDefaultRepRangeLow]/
+  /// [kDefaultRepRangeHigh]/[kDefaultSetCount].
   Future<void> resetDefaultRepRange() async {
     await _prefs.remove(_kDefaultRepRangeLow);
     await _prefs.remove(_kDefaultRepRangeHigh);
+    await _prefs.remove(_kDefaultSetCount);
   }
 
   /// Signatures of the form `'${kind.name}::$subjectName'` — a "Not now" on
@@ -306,11 +309,15 @@ class AppSettingsService {
       _prefs.getInt(_kDefaultRepRangeLow) ?? kDefaultRepRangeLow;
   int get defaultRepRangeHigh =>
       _prefs.getInt(_kDefaultRepRangeHigh) ?? kDefaultRepRangeHigh;
+  int get defaultSetCount =>
+      _prefs.getInt(_kDefaultSetCount) ?? kDefaultSetCount;
 
   Future<void> setDefaultRepRangeLow(int value) =>
       _prefs.setInt(_kDefaultRepRangeLow, value);
   Future<void> setDefaultRepRangeHigh(int value) =>
       _prefs.setInt(_kDefaultRepRangeHigh, value);
+  Future<void> setDefaultSetCount(int value) =>
+      _prefs.setInt(_kDefaultSetCount, value);
 
   /// Guards the one-time Push/Pull/Legs/Full Body seed done in `main()`
   /// before the local `workout_day_defs` table has any rows — set before

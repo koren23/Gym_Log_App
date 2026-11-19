@@ -1,7 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gym_tracker/core/constants/muscle_groups.dart';
+import 'package:gym_tracker/models/exercise.dart';
 import 'package:gym_tracker/models/history_entry.dart';
 import 'package:gym_tracker/models/workout_day_def.dart';
+import 'package:gym_tracker/models/workout_defaults.dart';
 import 'package:gym_tracker/models/year_sheet_data.dart';
 import 'package:gym_tracker/providers/analysis_providers.dart';
 import 'package:gym_tracker/services/analysis/stats_engine.dart';
@@ -28,6 +30,26 @@ HistoryEntry _entry({required List<String> muscleGroups}) {
 }
 
 void main() {
+  group('resolveSetCount', () {
+    const defaults = WorkoutDefaults(repRangeLow: 6, repRangeHigh: 8, setCount: 4);
+
+    test('a per-exercise override wins over the global default', () {
+      const exercise = Exercise(
+        name: 'Bench press',
+        muscleGroup: MuscleGroup.upperChest,
+        setCount: 5,
+      );
+
+      expect(resolveSetCount(exercise: exercise, defaults: defaults), 5);
+    });
+
+    test('the global default wins when there is no per-exercise override', () {
+      const exercise = Exercise(name: 'Bench press', muscleGroup: MuscleGroup.upperChest);
+
+      expect(resolveSetCount(exercise: exercise, defaults: defaults), 4);
+    });
+  });
+
   group('bestMatchingDayForEntry', () {
     final push = WorkoutDayDef(
       id: 'push',

@@ -164,6 +164,86 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     setState(() {});
   }
 
+  Future<void> _editWorkoutDefaults() async {
+    final defaults = ref.read(workoutDefaultsProvider);
+    final lowController = TextEditingController(
+      text: defaults.repRangeLow.toString(),
+    );
+    final highController = TextEditingController(
+      text: defaults.repRangeHigh.toString(),
+    );
+    final setsController = TextEditingController(
+      text: defaults.setCount.toString(),
+    );
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Default rep range & set count'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Used for logging any exercise that has no override of its '
+              'own set in Manage Exercises.',
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: lowController,
+                    autofocus: true,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    decoration: const InputDecoration(labelText: 'Reps from'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextField(
+                    controller: highController,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    decoration: const InputDecoration(labelText: 'Reps to'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextField(
+                    controller: setsController,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    decoration: const InputDecoration(labelText: 'Sets'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (result != true || !mounted) return;
+
+    final low = int.tryParse(lowController.text) ?? defaults.repRangeLow;
+    final high = int.tryParse(highController.text) ?? defaults.repRangeHigh;
+    final sets = int.tryParse(setsController.text) ?? defaults.setCount;
+    final notifier = ref.read(workoutDefaultsProvider.notifier);
+    await notifier.setRepRange(low, high);
+    await notifier.setSetCount(sets);
+    if (!mounted) return;
+    setState(() {});
+  }
+
   Future<void> _resetSettingsToDefault() async {
     final selected = {
       'appearance': true,
@@ -243,6 +323,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
     if (selected['repRange'] == true) {
       await settings.resetDefaultRepRange();
+      ref.invalidate(workoutDefaultsProvider);
       await resetCuratedRepRangeAndSetCount(ref.read(exerciseDaoProvider));
       await ref.read(localExercisesProvider.notifier).refresh();
     }
@@ -274,6 +355,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final pendingItems = ref.watch(pendingSyncQueueProvider).getAll();
     final currentColors = ref.watch(appColorsProvider);
     final dayDefs = ref.watch(workoutDayDefsProvider);
+    final workoutDefaults = ref.watch(workoutDefaultsProvider);
     final autoThemeEnabled = ref
         .watch(appSettingsServiceProvider)
         .autoThemeRotationEnabled;
@@ -458,6 +540,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           _SettingsSection(
             title: 'Exercises',
             children: [
+              ListTile(
+                title: const Text('Default rep range & set count'),
+                subtitle: Text(
+                  '${workoutDefaults.repRangeLow}-${workoutDefaults.repRangeHigh} '
+                  'reps, ${workoutDefaults.setCount} sets — used for any '
+                  'exercise without its own override',
+                ),
+                leading: const Icon(Icons.tune),
+                onTap: _editWorkoutDefaults,
+              ),
               ListTile(
                 title: const Text('Manage exercises'),
                 subtitle: const Text(

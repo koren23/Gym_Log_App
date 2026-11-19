@@ -16,6 +16,18 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '4.2.0',
+    date: '2026-11-19',
+    changes: [
+      'Added a "Default rep range & set count" setting (Settings → '
+          'Exercises) that actually applies to exercises without their '
+          'own override — previously there was no way to set this, so '
+          'logging always fell back to a fixed 6-8 rep range and '
+          'historical averaging. The new default now outranks historical '
+          'averaging, same as a per-exercise override already does.',
+    ],
+  ),
+  ChangelogEntry(
     version: '4.1.0',
     date: '2026-11-19',
     changes: [

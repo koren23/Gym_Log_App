@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/constants/muscle_groups.dart';
-import '../../core/constants/sheet_layout.dart';
 import '../../core/utils/exercise_value_format.dart';
 import '../../core/utils/text.dart';
 import '../../models/exercise.dart';
@@ -67,7 +66,6 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
       for (final entry in knownByName.entries) entry.key: entry.value.muscleGroup,
     };
 
-    final visits = ref.read(localVisitsProvider).value ?? const <MetaRow>[];
     final defaults = ref.read(workoutDefaultsProvider);
     final weekColumn = yearData?.weekColumns[widget.metaRow.isoWeek];
     for (final logged in widget.metaRow.exercises) {
@@ -78,26 +76,26 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
           : null;
 
       final known = knownByName[logged.exerciseName.toLowerCase()];
-      final historicalSetCount = historicalAverageSetCount(
-        visits: visits,
-        exerciseName: logged.exerciseName,
+      final reconstructedExercise = Exercise(
+        name: logged.exerciseName,
+        muscleGroup:
+            muscleGroupByName[logged.exerciseName.toLowerCase()] ??
+            kCurrentMuscleGroups.first,
+        muscleGroupKnown: muscleGroupByName.containsKey(
+          logged.exerciseName.toLowerCase(),
+        ),
+        unit: exercise?.unit ?? ExerciseUnit.kg,
+        customUnitLabel: exercise?.customUnitLabel,
+        repRangeLow: known?.repRangeLow,
+        repRangeHigh: known?.repRangeHigh,
+        setCount: known?.setCount,
       );
       final draft = ExerciseDraft(
-        Exercise(
-          name: logged.exerciseName,
-          muscleGroup:
-              muscleGroupByName[logged.exerciseName.toLowerCase()] ??
-              kCurrentMuscleGroups.first,
-          muscleGroupKnown: muscleGroupByName.containsKey(
-            logged.exerciseName.toLowerCase(),
-          ),
-          unit: exercise?.unit ?? ExerciseUnit.kg,
-          customUnitLabel: exercise?.customUnitLabel,
-          repRangeLow: known?.repRangeLow,
-          repRangeHigh: known?.repRangeHigh,
-          setCount: known?.setCount,
+        reconstructedExercise,
+        setCount: resolveSetCount(
+          exercise: reconstructedExercise,
+          defaults: defaults,
         ),
-        setCount: known?.setCount ?? historicalSetCount ?? kDefaultSetCount,
         repRangeLow: known?.repRangeLow ?? defaults.repRangeLow,
         repRangeHigh: known?.repRangeHigh ?? defaults.repRangeHigh,
       );
@@ -165,19 +163,13 @@ class _EditVisitScreenState extends ConsumerState<EditVisitScreen> {
 
   void _addExercise(Exercise exercise) {
     if (_exerciseOrder.contains(exercise.name)) return;
-    final visits = ref.read(localVisitsProvider).value ?? const <MetaRow>[];
     final defaults = ref.read(workoutDefaultsProvider);
-    final historicalSetCount = historicalAverageSetCount(
-      visits: visits,
-      exerciseName: exercise.name,
-    );
     setState(() {
       _exerciseOrder.add(exercise.name);
       _drafts[exercise.name] =
           ExerciseDraft(
             exercise,
-            setCount:
-                exercise.setCount ?? historicalSetCount ?? kDefaultSetCount,
+            setCount: resolveSetCount(exercise: exercise, defaults: defaults),
             repRangeLow: exercise.repRangeLow ?? defaults.repRangeLow,
             repRangeHigh: exercise.repRangeHigh ?? defaults.repRangeHigh,
           )
