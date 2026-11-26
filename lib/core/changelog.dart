@@ -16,6 +16,15 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '4.6.2',
+    date: '2026-11-26',
+    changes: [
+      'Widget: the Log Workout / Log Bodyweight buttons (and tapping the '
+          'widget to go Home) now also work while the app is already open, '
+          'instead of only from a closed app.',
+    ],
+  ),
+  ChangelogEntry(
     version: '4.6.1',
     date: '2026-11-26',
     changes: [
