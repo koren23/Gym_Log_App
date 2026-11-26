@@ -392,6 +392,30 @@ WorkoutDayDef? bestMatchingDayForEntry(
   return best;
 }
 
+/// Average star rating per workout day, in [days]' order, counting every
+/// rated visit (including ones flagged "not 100%"). Days with no rated
+/// visit are omitted.
+List<({WorkoutDayDef day, double average, int count})> averageRatingByDay(
+  List<HistoryEntry> realEntries,
+  List<WorkoutDayDef> days,
+) {
+  final sums = <String, double>{};
+  final counts = <String, int>{};
+  for (final entry in realEntries) {
+    final rating = entry.metaRow.rating;
+    if (rating == null) continue;
+    final day = bestMatchingDayForEntry(entry, days);
+    if (day == null) continue;
+    sums[day.id] = (sums[day.id] ?? 0) + rating;
+    counts[day.id] = (counts[day.id] ?? 0) + 1;
+  }
+  return [
+    for (final day in days)
+      if (counts[day.id] case final count?)
+        (day: day, average: sums[day.id]! / count, count: count),
+  ];
+}
+
 /// Whether [entry] belongs to [day], arbitrated against every other day in
 /// [allDays] via [bestMatchingDayForEntry] — see there for the full rule
 /// set.

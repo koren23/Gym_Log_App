@@ -16,6 +16,21 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '4.5.0',
+    date: '2026-11-26',
+    changes: [
+      'Leagues now have icons (🥉 🥈 🥇 💠 💎). The Stats League card '
+          'shows where your current league starts and ends and how much '
+          'XP is left to the next one — tap it to see every league and '
+          'the XP each one needs.',
+      'New "Workout ratings" card on Stats: the average star rating of '
+          'each workout day, including "not 100%" days.',
+      'Stats → Overview: "Most logged" now lists one exercise per line.',
+      'The 4-row home-screen widget now also shows your league and which '
+          'workout is next in line.',
+    ],
+  ),
+  ChangelogEntry(
     version: '4.4.1',
     date: '2026-11-26',
     changes: [

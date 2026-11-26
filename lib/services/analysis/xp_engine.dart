@@ -147,8 +147,11 @@ WorkoutXpBreakdown computeWorkoutXp({
 }
 
 class XpTier {
-  const XpTier(this.name, this.minXp, this.maxXp);
+  const XpTier(this.name, this.icon, this.minXp, this.maxXp);
   final String name;
+
+  /// Emoji badge, shared by the Stats tab and the home-screen widget.
+  final String icon;
   final int minXp;
 
   /// Exclusive upper bound, or null for the top (unbounded) tier.
@@ -159,12 +162,18 @@ class XpTier {
 /// real visit/set counts once computed, and rescale if Gold would be
 /// reached in weeks rather than roughly a year of active use.
 const List<XpTier> kXpTiers = [
-  XpTier('Bronze', 0, 500),
-  XpTier('Silver', 500, 1500),
-  XpTier('Gold', 1500, 3500),
-  XpTier('Platinum', 3500, 7000),
-  XpTier('Diamond', 7000, null),
+  XpTier('Bronze', '🥉', 0, 500),
+  XpTier('Silver', '🥈', 500, 1500),
+  XpTier('Gold', '🥇', 1500, 3500),
+  XpTier('Platinum', '💠', 3500, 7000),
+  XpTier('Diamond', '💎', 7000, null),
 ];
+
+/// The tier right above [tier], or null for the top tier.
+XpTier? nextTierAfter(XpTier tier) {
+  final i = kXpTiers.indexOf(tier);
+  return i >= 0 && i < kXpTiers.length - 1 ? kXpTiers[i + 1] : null;
+}
 
 XpTier xpTierFor(int xp) {
   for (final tier in kXpTiers) {

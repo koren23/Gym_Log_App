@@ -118,6 +118,21 @@ class GymWidgetProvider : HomeWidgetProvider() {
       views.setOnClickPendingIntent(R.id.widget_root, launch(context, "home"))
       views.setOnClickPendingIntent(R.id.log_button, launch(context, "logworkout"))
       if (tier == Tier.XLARGE) {
+        val leagueName = widgetData.getString("league_name", "") ?: ""
+        val leagueIcon = widgetData.getString("league_icon", "") ?: ""
+        val nextWorkout = widgetData.getString("next_workout", "") ?: ""
+        views.setInt(R.id.league_chip_bg, "setColorFilter", surface)
+        views.setInt(R.id.next_chip_bg, "setColorFilter", surface)
+        views.setTextViewText(
+            R.id.league_text,
+            if (leagueName.isEmpty()) "No league yet" else "$leagueIcon $leagueName League",
+        )
+        views.setTextViewText(
+            R.id.next_workout_text,
+            if (nextWorkout.isEmpty()) "Next: —" else "Next: $nextWorkout",
+        )
+        views.setTextColor(R.id.league_text, text)
+        views.setTextColor(R.id.next_workout_text, text)
         views.setInt(R.id.bodyweight_button_bg, "setColorFilter", button2)
         views.setOnClickPendingIntent(R.id.bodyweight_button, launch(context, "logbodyweight"))
       }

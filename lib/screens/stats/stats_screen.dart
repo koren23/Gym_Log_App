@@ -25,6 +25,7 @@ import '../../widgets/streak_color.dart';
 import 'trophy_room_screen.dart';
 
 final _dateFormat = DateFormat.yMMMd();
+final _xpFormat = NumberFormat.decimalPattern('en_US');
 
 /// Whole-history derived stats: frequency, PRs, streaks, muscle balance
 /// (per-zone list), long-term goal nudges, and the XP/League progress bar —
@@ -63,9 +64,9 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
       );
     }
 
-    final realEntries = buildHistoryEntries(visits)
-        .where((e) => !e.isSynthetic)
-        .toList();
+    final realEntries = buildHistoryEntries(
+      visits,
+    ).where((e) => !e.isSynthetic).toList();
 
     if (realEntries.isEmpty) {
       return RefreshIndicator(
@@ -91,9 +92,9 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
 
     final prs = prsByExercise(realEntries);
     final visitDates = realEntries.map((e) => e.date).toList();
-    final allVisitDates = buildHistoryEntries(visits)
-        .map((e) => e.date)
-        .toList();
+    final allVisitDates = buildHistoryEntries(
+      visits,
+    ).map((e) => e.date).toList();
     final xp = computeXp(
       realEntries: realEntries,
       prHistory: prs,
@@ -112,7 +113,8 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
     );
     final previousWindowEntries = realEntries
         .where(
-          (e) => !e.date.isBefore(previousSince) && e.date.isBefore(recentSince),
+          (e) =>
+              !e.date.isBefore(previousSince) && e.date.isBefore(recentSince),
         )
         .toList();
     final previousTotals = muscleVolumeTotals(
@@ -161,6 +163,10 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
     final frequency = exerciseFrequency(realEntries).entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
     final topExercises = frequency.take(3).toList();
+    final dayRatings = averageRatingByDay(
+      realEntries,
+      ref.watch(workoutDayDefsProvider),
+    );
 
     final personalRecords = [
       ...ref.watch(appSettingsServiceProvider).personalRecords,
@@ -191,30 +197,56 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
                 'Average reps per set',
                 averageRepsOverall(realEntries).toStringAsFixed(1),
               ),
-              if (topExercises.isNotEmpty)
-                _StatRow(
-                  'Most logged',
-                  topExercises
-                      .map((e) => '${e.key} (${e.value}×)')
-                      .join(', '),
+              if (topExercises.isNotEmpty) ...[
+                Padding(
+                  padding: const EdgeInsets.only(top: 3, bottom: 2),
+                  child: Text('Most logged', style: theme.textTheme.bodyMedium),
                 ),
+                for (final e in topExercises)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 12, top: 2, bottom: 2),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            e.key,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          '${e.value}×',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
             ],
           ),
           _StatsCard(
             title: 'League',
             icon: Icons.military_tech,
             accentColor: theme.colorScheme.tertiary,
+            onTap: () => _showLeagueLadder(context, xp),
             children: [
               Row(
                 children: [
                   Text(
-                    tier.name,
+                    '${tier.icon} ${tier.name}',
                     style: theme.textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
                   ),
                   const Spacer(),
-                  Text('$xp XP', style: theme.textTheme.bodyMedium),
+                  Text(
+                    '${_xpFormat.format(xp)} XP',
+                    style: theme.textTheme.bodyMedium,
+                  ),
                 ],
               ),
               const SizedBox(height: 8),
@@ -222,8 +254,31 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
                 progress: tierProgress,
                 color: theme.colorScheme.primary,
               ),
+              const SizedBox(height: 4),
+              _LeagueBarLabels(xp: xp, tier: tier),
             ],
           ),
+          if (dayRatings.isNotEmpty)
+            _StatsCard(
+              title: 'Workout ratings',
+              icon: Icons.star,
+              accentColor: Colors.amber.shade700,
+              children: [
+                for (final r in dayRatings)
+                  _StatRow(
+                    r.day.label,
+                    '★ ${r.average.toStringAsFixed(1)}  (${r.count})',
+                  ),
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    'Average star rating per workout, including "not 100%" '
+                    'days. Number of rated workouts in brackets.',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                ),
+              ],
+            ),
           _StatsCard(
             title: 'Body & calories',
             icon: Icons.local_fire_department,
@@ -293,7 +348,9 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
             title: 'Records',
             icon: Icons.emoji_events,
             accentColor: Colors.amber[700]!,
-            headline: personalRecords.isEmpty ? null : personalRecords.first.exerciseName,
+            headline: personalRecords.isEmpty
+                ? null
+                : personalRecords.first.exerciseName,
             headlineLabel: personalRecords.isEmpty ? null : 'Most recent PR',
             children: [
               Align(
@@ -303,9 +360,7 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
                   children: [
                     TextButton.icon(
                       onPressed: () => Navigator.of(context).push(
-                        AppPageRoute(
-                          builder: (_) => const TrophyRoomScreen(),
-                        ),
+                        AppPageRoute(builder: (_) => const TrophyRoomScreen()),
                       ),
                       icon: const Icon(Icons.emoji_events_outlined),
                       label: const Text('Trophy room'),
@@ -342,7 +397,10 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
             accentColor: streakColor(currentStreakWeeks(allVisitDates)),
             headline: '${currentStreakWeeks(allVisitDates)}-week streak',
             children: [
-              _StatRow('Longest streak', '${longestStreakWeeks(allVisitDates)} weeks'),
+              _StatRow(
+                'Longest streak',
+                '${longestStreakWeeks(allVisitDates)} weeks',
+              ),
               _StatRow(
                 'Consistency',
                 '${consistencyPct(visitDates).round()}% of weeks',
@@ -625,6 +683,196 @@ class _MuscleBalanceLegend extends StatelessWidget {
   }
 }
 
+/// Start/end XP under the League card's bar, so it reads as "this league's
+/// span" rather than an overall total.
+class _LeagueBarLabels extends StatelessWidget {
+  const _LeagueBarLabels({required this.xp, required this.tier});
+
+  final int xp;
+  final XpTier tier;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final next = nextTierAfter(tier);
+    final small = theme.textTheme.bodySmall;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Text(_xpFormat.format(tier.minXp), style: small),
+            const Spacer(),
+            Text(
+              next == null
+                  ? 'Top league'
+                  : '${_xpFormat.format(next.minXp)} · ${next.icon} ${next.name}',
+              style: small,
+            ),
+          ],
+        ),
+        if (next != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              '${_xpFormat.format(next.minXp - xp)} XP to ${next.name}',
+              textAlign: TextAlign.center,
+              style: small?.copyWith(fontWeight: FontWeight.w600),
+            ),
+          ),
+        Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Text(
+            'Tap to see all leagues',
+            textAlign: TextAlign.center,
+            style: small?.copyWith(color: theme.colorScheme.outline),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Clash-Royale-style ladder of every league, top tier first, with the
+/// current one highlighted.
+void _showLeagueLadder(BuildContext context, int xp) {
+  final current = xpTierFor(xp);
+  final tiersTopDown = kXpTiers.reversed.toList();
+  final currentIndex = tiersTopDown.indexOf(current);
+  showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: (context) {
+      final theme = Theme.of(context);
+      const rowExtent = 84.0;
+      return SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.75,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Leagues', style: theme.textTheme.titleLarge),
+              Text(
+                'You have ${_xpFormat.format(xp)} XP',
+                style: theme.textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 8),
+              Flexible(
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  controller: ScrollController(
+                    initialScrollOffset: (currentIndex * rowExtent - rowExtent)
+                        .clamp(0.0, double.infinity),
+                  ),
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                  itemCount: tiersTopDown.length,
+                  itemBuilder: (context, i) => _LeagueLadderRow(
+                    tier: tiersTopDown[i],
+                    xp: xp,
+                    isCurrent: tiersTopDown[i] == current,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+
+class _LeagueLadderRow extends StatelessWidget {
+  const _LeagueLadderRow({
+    required this.tier,
+    required this.xp,
+    required this.isCurrent,
+  });
+
+  final XpTier tier;
+  final int xp;
+  final bool isCurrent;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final reached = xp >= tier.minXp;
+    final accent = theme.colorScheme.primary;
+    final String trailing;
+    if (isCurrent) {
+      trailing = 'You are here';
+    } else if (reached) {
+      trailing = '✓';
+    } else {
+      trailing = '${_xpFormat.format(tier.minXp - xp)} XP to go';
+    }
+    return Opacity(
+      opacity: reached ? 1 : 0.5,
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: isCurrent
+              ? accent.withValues(alpha: 0.15)
+              : theme.colorScheme.surfaceContainerHigh,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: isCurrent ? accent : Colors.transparent,
+            width: 2,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Text(tier.icon, style: const TextStyle(fontSize: 30)),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        tier.name,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        tier.minXp == 0
+                            ? 'Starting league'
+                            : '${_xpFormat.format(tier.minXp)} XP',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+                Text(
+                  trailing,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: isCurrent || reached ? accent : null,
+                  ),
+                ),
+              ],
+            ),
+            if (isCurrent) ...[
+              const SizedBox(height: 8),
+              BarbellProgressBar(
+                progress: xpTierProgress(xp),
+                color: accent,
+                height: 20,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _StatsCard extends StatelessWidget {
   const _StatsCard({
     required this.title,
@@ -633,6 +881,7 @@ class _StatsCard extends StatelessWidget {
     required this.children,
     this.headline,
     this.headlineLabel,
+    this.onTap,
   });
 
   final String title;
@@ -641,6 +890,7 @@ class _StatsCard extends StatelessWidget {
   final String? headline;
   final String? headlineLabel;
   final List<Widget> children;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -658,44 +908,48 @@ class _StatsCard extends StatelessWidget {
       ),
       child: Card(
         margin: const EdgeInsets.only(bottom: 12),
+        clipBehavior: Clip.antiAlias,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
           side: BorderSide(color: accentColor.withValues(alpha: 0.35)),
         ),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: accentColor.withValues(alpha: 0.15),
-                      shape: BoxShape.circle,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: accentColor.withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(icon, size: 18, color: accentColor),
                     ),
-                    child: Icon(icon, size: 18, color: accentColor),
-                  ),
-                  const SizedBox(width: 10),
-                  Text(title, style: theme.textTheme.titleMedium),
-                ],
-              ),
-              if (headline != null) ...[
-                const SizedBox(height: 10),
-                Text(
-                  headline!,
-                  style: theme.textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: accentColor,
-                  ),
+                    const SizedBox(width: 10),
+                    Text(title, style: theme.textTheme.titleMedium),
+                  ],
                 ),
-                if (headlineLabel != null)
-                  Text(headlineLabel!, style: theme.textTheme.bodySmall),
+                if (headline != null) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    headline!,
+                    style: theme.textTheme.headlineMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: accentColor,
+                    ),
+                  ),
+                  if (headlineLabel != null)
+                    Text(headlineLabel!, style: theme.textTheme.bodySmall),
+                ],
+                const SizedBox(height: 12),
+                ...children,
               ],
-              const SizedBox(height: 12),
-              ...children,
-            ],
+            ),
           ),
         ),
       ),
@@ -819,9 +1073,7 @@ class _AddPersonalRecordDialogState extends State<_AddPersonalRecordDialog> {
               autofocus: true,
               decoration: const InputDecoration(labelText: 'Exercise'),
               validator: (value) =>
-                  (value == null || value.trim().isEmpty)
-                  ? 'Required'
-                  : null,
+                  (value == null || value.trim().isEmpty) ? 'Required' : null,
             ),
             const SizedBox(height: 12),
             TextFormField(
