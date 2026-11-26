@@ -34,7 +34,11 @@ import 'last_workout_insight_screen.dart';
 import 'rating_screen.dart';
 
 class LogWorkoutScreen extends ConsumerStatefulWidget {
-  const LogWorkoutScreen({super.key});
+  const LogWorkoutScreen({super.key, this.initialDay});
+
+  /// Preselected day (e.g. the widget's "Next" workout). A restored draft's
+  /// own day always wins, so an unfinished workout is never overwritten.
+  final WorkoutDayDef? initialDay;
 
   @override
   ConsumerState<LogWorkoutScreen> createState() => _LogWorkoutScreenState();
@@ -81,6 +85,7 @@ class _LogWorkoutScreenState extends ConsumerState<LogWorkoutScreen> {
   void initState() {
     super.initState();
     _restoreDraft();
+    _selectedDay ??= widget.initialDay;
     _refreshCompletionSnapshot();
   }
 

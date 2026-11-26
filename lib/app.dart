@@ -123,7 +123,10 @@ class _RootScreenState extends ConsumerState<_RootScreen> {
     navigator.popUntil((route) => route.isFirst);
     switch (uri.host) {
       case 'logworkout':
-        navigator.push(AppPageRoute(builder: (_) => const LogWorkoutScreen()));
+        final nextDay = ref.read(nextWorkoutDayProvider);
+        navigator.push(
+          AppPageRoute(builder: (_) => LogWorkoutScreen(initialDay: nextDay)),
+        );
       case 'logbodyweight':
         navigator.push(
           AppPageRoute(builder: (_) => const BodyWeightEntryScreen()),

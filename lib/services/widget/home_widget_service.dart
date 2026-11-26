@@ -183,10 +183,21 @@ final homeWidgetServiceProvider = Provider<HomeWidgetService>(
 /// `GymTrackerApp.build`.
 /// Everything the widget shows, recomputed whenever visits, workout days
 /// (incl. their order) or body-weight entries change. Null until visits load.
-final widgetStatsProvider = Provider<WidgetStatsSnapshot?>((ref) {
+/// The workout day after the last logged one (Settings order) — shown as
+/// "Next:" on the widget and preselected when its Log Workout button opens.
+final nextWorkoutDayProvider = Provider<WorkoutDayDef?>((ref) {
   final visits = ref.watch(localVisitsProvider).value;
   if (visits == null) return null;
   final days = ref.watch(workoutDayDefsProvider);
+  final realEntries = buildHistoryEntries(
+    visits,
+  ).where((e) => !e.isSynthetic).toList();
+  return nextWorkoutDay(realEntries, days);
+});
+
+final widgetStatsProvider = Provider<WidgetStatsSnapshot?>((ref) {
+  final visits = ref.watch(localVisitsProvider).value;
+  if (visits == null) return null;
   final bodyWeightEntries = ref.watch(bodyWeightEntriesProvider);
   final entries = buildHistoryEntries(visits);
   final realEntries = entries.where((e) => !e.isSynthetic).toList();
@@ -198,7 +209,7 @@ final widgetStatsProvider = Provider<WidgetStatsSnapshot?>((ref) {
   return computeWidgetStats(
     entries.map((e) => e.date).toList(),
     league: xpTierFor(xp),
-    nextWorkout: nextWorkoutDay(realEntries, days)?.label ?? '',
+    nextWorkout: ref.watch(nextWorkoutDayProvider)?.label ?? '',
   );
 });
 

@@ -16,6 +16,15 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '4.7.0',
+    date: '2026-11-27',
+    changes: [
+      "Widget: Log Workout now opens with your next workout (the one shown "
+          "as \"Next\") already selected. An unfinished draft keeps its own "
+          'day.',
+    ],
+  ),
+  ChangelogEntry(
     version: '4.6.4',
     date: '2026-11-26',
     changes: [
