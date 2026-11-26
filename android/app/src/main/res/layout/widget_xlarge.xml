@@ -76,6 +76,51 @@
         </LinearLayout>
 
         <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="32dp"
+            android:layout_marginBottom="10dp">
+
+            <ImageView
+                android:id="@+id/best_chip_bg"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:scaleType="fitXY"
+                android:src="@drawable/widget_chip_bg"
+                android:tint="@color/widget_surface" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp">
+
+                <TextView
+                    android:id="@+id/best_text"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    android:text="🏆 Best: 0 weeks"
+                    android:textColor="@color/widget_text_dark"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/best_ended_text"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:maxLines="1"
+                    android:text=""
+                    android:textColor="@color/widget_text_muted"
+                    android:textSize="12sp" />
+            </LinearLayout>
+        </FrameLayout>
+
+        <FrameLayout
             android:id="@+id/log_button"
             android:layout_width="match_parent"
             android:layout_height="42dp">
@@ -191,50 +236,5 @@
                     android:textStyle="bold" />
             </FrameLayout>
         </LinearLayout>
-
-        <FrameLayout
-            android:layout_width="match_parent"
-            android:layout_height="36dp"
-            android:layout_marginTop="8dp">
-
-            <ImageView
-                android:id="@+id/best_chip_bg"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:scaleType="fitXY"
-                android:src="@drawable/widget_chip_bg"
-                android:tint="@color/widget_surface" />
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:paddingStart="12dp"
-                android:paddingEnd="12dp">
-
-                <TextView
-                    android:id="@+id/best_text"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:maxLines="1"
-                    android:ellipsize="end"
-                    android:text="🏆 Best: 0 weeks"
-                    android:textColor="@color/widget_text_dark"
-                    android:textSize="13sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/best_ended_text"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
-                    android:maxLines="1"
-                    android:text=""
-                    android:textColor="@color/widget_text_muted"
-                    android:textSize="12sp" />
-            </LinearLayout>
-        </FrameLayout>
     </LinearLayout>
 </FrameLayout>

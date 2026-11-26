@@ -119,6 +119,8 @@ class _RootScreenState extends ConsumerState<_RootScreen> {
 
   void _openFromWidget(Uri uri) {
     final navigator = Navigator.of(context);
+    // Start every widget tap from the main shell, so screens never pile up.
+    navigator.popUntil((route) => route.isFirst);
     switch (uri.host) {
       case 'logworkout':
         navigator.push(AppPageRoute(builder: (_) => const LogWorkoutScreen()));
@@ -127,7 +129,6 @@ class _RootScreenState extends ConsumerState<_RootScreen> {
           AppPageRoute(builder: (_) => const BodyWeightEntryScreen()),
         );
       default:
-        navigator.popUntil((route) => route.isFirst);
         ref.read(homeTabRequestProvider.notifier).request();
     }
   }

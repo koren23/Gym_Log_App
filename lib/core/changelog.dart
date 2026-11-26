@@ -16,6 +16,17 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '4.6.4',
+    date: '2026-11-26',
+    changes: [
+      'Widget: on the 4-row size the best-streak bar now sits above Log '
+          'Workout, same as on 3 rows.',
+      'Widget: fixed taps while the app is already open sometimes landing '
+          'on the wrong screen (e.g. Log Workout opening Home, or Home '
+          'leaving Log Workout on screen).',
+    ],
+  ),
+  ChangelogEntry(
     version: '4.6.3',
     date: '2026-11-26',
     changes: [
