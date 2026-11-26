@@ -21,6 +21,71 @@
         android:paddingTop="12dp"
         android:paddingBottom="12dp">
 
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="42dp"
+            android:orientation="horizontal">
+
+            <FrameLayout
+                android:id="@+id/log_button"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:layout_marginEnd="5dp">
+
+                <ImageView
+                    android:id="@+id/log_button_bg"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:scaleType="fitXY"
+                    android:src="@drawable/widget_button_bg"
+                    android:tint="@color/widget_hero" />
+
+                <TextView
+                    android:id="@+id/log_button_text"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:maxLines="1"
+                    android:text="Log Workout"
+                    android:textColor="@color/widget_text_on_hero"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+            </FrameLayout>
+
+            <FrameLayout
+                android:id="@+id/bodyweight_button"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:layout_marginStart="5dp">
+
+                <ImageView
+                    android:id="@+id/bodyweight_button_bg"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:scaleType="fitXY"
+                    android:src="@drawable/widget_button_bg"
+                    android:tint="@color/widget_dashboard" />
+
+                <TextView
+                    android:id="@+id/bodyweight_button_text"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:maxLines="1"
+                    android:text="Log Bodyweight"
+                    android:textColor="@color/widget_text_on_hero"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+            </FrameLayout>
+        </LinearLayout>
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
         <TextView
             android:id="@+id/header_text"
             android:layout_width="wrap_content"
@@ -149,12 +214,8 @@
 
         <FrameLayout
             android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1" />
-
-        <FrameLayout
-            android:layout_width="match_parent"
-            android:layout_height="42dp">
+            android:layout_height="42dp"
+            android:layout_marginTop="8dp">
 
             <ImageView
                 android:id="@+id/best_chip_bg"
@@ -195,70 +256,5 @@
                     android:textSize="13sp" />
             </LinearLayout>
         </FrameLayout>
-
-        <FrameLayout
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="42dp"
-            android:orientation="horizontal">
-
-            <FrameLayout
-                android:id="@+id/log_button"
-                android:layout_width="0dp"
-                android:layout_height="match_parent"
-                android:layout_weight="1"
-                android:layout_marginEnd="5dp">
-
-                <ImageView
-                    android:id="@+id/log_button_bg"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:scaleType="fitXY"
-                    android:src="@drawable/widget_button_bg"
-                    android:tint="@color/widget_hero" />
-
-                <TextView
-                    android:id="@+id/log_button_text"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="center"
-                    android:maxLines="1"
-                    android:text="Log Workout"
-                    android:textColor="@color/widget_text_on_hero"
-                    android:textSize="14sp"
-                    android:textStyle="bold" />
-            </FrameLayout>
-
-            <FrameLayout
-                android:id="@+id/bodyweight_button"
-                android:layout_width="0dp"
-                android:layout_height="match_parent"
-                android:layout_weight="1"
-                android:layout_marginStart="5dp">
-
-                <ImageView
-                    android:id="@+id/bodyweight_button_bg"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:scaleType="fitXY"
-                    android:src="@drawable/widget_button_bg"
-                    android:tint="@color/widget_dashboard" />
-
-                <TextView
-                    android:id="@+id/bodyweight_button_text"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="center"
-                    android:maxLines="1"
-                    android:text="Log Bodyweight"
-                    android:textColor="@color/widget_text_on_hero"
-                    android:textSize="14sp"
-                    android:textStyle="bold" />
-            </FrameLayout>
-        </LinearLayout>
     </LinearLayout>
 </FrameLayout>
