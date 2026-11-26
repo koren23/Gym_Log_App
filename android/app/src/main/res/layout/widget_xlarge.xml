@@ -32,8 +32,8 @@
 
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
             android:orientation="horizontal"
             android:gravity="center_vertical">
 
@@ -77,7 +77,12 @@
 
         <FrameLayout
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="42dp"
             android:layout_marginBottom="10dp">
 
             <ImageView
@@ -90,13 +95,11 @@
 
             <LinearLayout
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
+                android:layout_height="match_parent"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
-                android:paddingStart="12dp"
-                android:paddingEnd="12dp"
-                android:paddingTop="7dp"
-                android:paddingBottom="7dp">
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp">
 
                 <TextView
                     android:id="@+id/best_text"
@@ -107,7 +110,7 @@
                     android:ellipsize="end"
                     android:text="🏆 Best: 0 weeks"
                     android:textColor="@color/widget_text_dark"
-                    android:textSize="13sp"
+                    android:textSize="15sp"
                     android:textStyle="bold" />
 
                 <TextView
@@ -118,7 +121,7 @@
                     android:maxLines="1"
                     android:text=""
                     android:textColor="@color/widget_text_muted"
-                    android:textSize="12sp" />
+                    android:textSize="13sp" />
             </LinearLayout>
         </FrameLayout>
 

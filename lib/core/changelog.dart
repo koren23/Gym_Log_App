@@ -16,6 +16,15 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '4.4.1',
+    date: '2026-11-26',
+    changes: [
+      'Widget: the 1-row Log Workout button now looks like a proper '
+          'button, and the 4-row layout is tidier — the streak sits '
+          'higher and the best-streak row is as big as the buttons.',
+    ],
+  ),
+  ChangelogEntry(
     version: '4.4.0',
     date: '2026-11-26',
     changes: [

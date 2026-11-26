@@ -64,7 +64,7 @@
 
         <FrameLayout
             android:id="@+id/log_button"
-            android:layout_width="wrap_content"
+            android:layout_width="120dp"
             android:layout_height="36dp">
 
             <ImageView
@@ -80,8 +80,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="center"
-                android:paddingStart="14dp"
-                android:paddingEnd="14dp"
+                android:maxLines="1"
                 android:text="Log Workout"
                 android:textColor="@color/widget_text_on_hero"
                 android:textSize="13sp"
