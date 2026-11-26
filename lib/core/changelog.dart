@@ -16,6 +16,18 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '4.3.0',
+    date: '2026-11-26',
+    changes: [
+      'Added a home-screen widget — shows your weekly streak (and '
+          'best-ever streak at larger sizes) with a one-tap button to log '
+          'a workout, resizable to your liking.',
+      'Added drag-to-reorder for workout days in Settings — the order '
+          'you set there now controls the Home dashboard, the Log '
+          'Workout day picker, and Graphs.',
+    ],
+  ),
+  ChangelogEntry(
     version: '4.2.0',
     date: '2026-11-19',
     changes: [

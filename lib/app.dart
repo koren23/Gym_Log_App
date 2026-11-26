@@ -1,14 +1,20 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:home_widget/home_widget.dart';
 
+import 'core/app_page_route.dart';
 import 'providers/auth_providers.dart';
 import 'providers/db_providers.dart';
 import 'providers/local_history_providers.dart';
 import 'providers/settings_providers.dart';
 import 'providers/sheet_data_providers.dart';
+import 'screens/log_workout/log_workout_screen.dart';
 import 'screens/onboarding/sign_in_screen.dart';
 import 'screens/root/main_shell.dart';
 import 'services/db/default_exercise_data_seeder.dart';
+import 'services/widget/home_widget_service.dart';
 import 'widgets/profile_info_prompt.dart';
 
 class GymTrackerApp extends ConsumerWidget {
@@ -16,6 +22,10 @@ class GymTrackerApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Alive for the app's full lifetime — keeps the home-screen widget's
+    // streak numbers in sync with every visit mutation, with no changes
+    // needed at any of those call sites (see homeWidgetSyncProvider).
+    ref.watch(homeWidgetSyncProvider);
     final colors = ref.watch(appColorsProvider);
     // Both light and dark theme presets share this one ThemeData — brightness
     // and text/icon tones are derived from the preset's own background color
@@ -84,6 +94,32 @@ class _RootScreenState extends ConsumerState<_RootScreen> {
   // combined API exists — not something fixable from this app's code.
   // Don't re-investigate this as a mystery bug later.
   bool _attemptedSilentSignIn = false;
+
+  // Set by a home-screen-widget tap (cold start via
+  // `initiallyLaunchedFromHomeWidget`, or while already running via the
+  // `widgetClicked` stream) — consumed the next time `build` reaches
+  // MainShell, pushing straight into Log Workout.
+  bool _pendingWidgetLaunch = false;
+  StreamSubscription<Uri?>? _widgetClickSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _widgetClickSub = HomeWidget.widgetClicked.listen((_) {
+      if (!mounted) return;
+      setState(() => _pendingWidgetLaunch = true);
+    });
+    HomeWidget.initiallyLaunchedFromHomeWidget().then((uri) {
+      if (uri == null || !mounted) return;
+      setState(() => _pendingWidgetLaunch = true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _widgetClickSub?.cancel();
+    super.dispose();
+  }
 
   // Guards the one-time v3.0.0 upgrade migration (see
   // AppSettingsService.hasMigratedToLocalDb): only ever fired once per
@@ -218,6 +254,16 @@ class _RootScreenState extends ConsumerState<_RootScreen> {
       _profilePromptAttempted = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _maybeShowProfileInfoPrompt();
+      });
+    }
+
+    if (_pendingWidgetLaunch) {
+      _pendingWidgetLaunch = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        Navigator.of(context).push(
+          AppPageRoute(builder: (_) => const LogWorkoutScreen()),
+        );
       });
     }
 

@@ -630,46 +630,65 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 'can rename, edit, or delete like any other — name your own '
                 'anything you like and pick which muscles belong to it.',
             children: [
-              for (final d in dayDefs)
-                ListTile(
-                  dense: true,
-                  title: Text(d.label),
-                  subtitle: Text(
-                    d.muscleGroups.map((g) => g.sheetHeader).join(', '),
-                  ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.edit_outlined),
-                        onPressed: () async {
-                          final result = await showAddWorkoutDayDialog(
-                            context,
-                            existing: d,
-                          );
-                          if (result == null) return;
-                          HapticFeedback.lightImpact();
-                          await ref
-                              .read(workoutDayDefsProvider.notifier)
-                              .updateCustomDay(
-                                d.id,
-                                result.label,
-                                result.muscleGroups,
+              ReorderableListView(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                onReorder: (oldIndex, newIndex) {
+                  HapticFeedback.lightImpact();
+                  ref
+                      .read(workoutDayDefsProvider.notifier)
+                      .reorder(oldIndex, newIndex);
+                },
+                children: [
+                  for (var i = 0; i < dayDefs.length; i++)
+                    ListTile(
+                      key: ValueKey(dayDefs[i].id),
+                      dense: true,
+                      leading: ReorderableDragStartListener(
+                        index: i,
+                        child: const Icon(Icons.drag_handle),
+                      ),
+                      title: Text(dayDefs[i].label),
+                      subtitle: Text(
+                        dayDefs[i].muscleGroups
+                            .map((g) => g.sheetHeader)
+                            .join(', '),
+                      ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.edit_outlined),
+                            onPressed: () async {
+                              final result = await showAddWorkoutDayDialog(
+                                context,
+                                existing: dayDefs[i],
                               );
-                        },
+                              if (result == null) return;
+                              HapticFeedback.lightImpact();
+                              await ref
+                                  .read(workoutDayDefsProvider.notifier)
+                                  .updateCustomDay(
+                                    dayDefs[i].id,
+                                    result.label,
+                                    result.muscleGroups,
+                                  );
+                            },
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline),
+                            onPressed: () {
+                              HapticFeedback.lightImpact();
+                              ref
+                                  .read(workoutDayDefsProvider.notifier)
+                                  .removeCustomDay(dayDefs[i].id);
+                            },
+                          ),
+                        ],
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.delete_outline),
-                        onPressed: () {
-                          HapticFeedback.lightImpact();
-                          ref
-                              .read(workoutDayDefsProvider.notifier)
-                              .removeCustomDay(d.id);
-                        },
-                      ),
-                    ],
-                  ),
-                ),
+                    ),
+                ],
+              ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
                 child: TextButton.icon(

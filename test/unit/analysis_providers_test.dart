@@ -114,6 +114,30 @@ void main() {
 
       expect(bestMatchingDayForEntry(entry, [push, pull]), isNull);
     });
+
+    test(
+      'an exact overlap+muscle-count tie resolves the same regardless of '
+      'input order (independent of the user-controlled day order)',
+      () {
+        final arms = WorkoutDayDef(
+          id: 'arms',
+          label: 'Arms',
+          muscleGroups: const [MuscleGroup.triceps, MuscleGroup.biceps],
+        );
+        final shoulders = WorkoutDayDef(
+          id: 'shoulders',
+          label: 'Shoulders',
+          muscleGroups: const [MuscleGroup.triceps, MuscleGroup.frontDelt],
+        );
+        final entry = _entry(muscleGroups: [MuscleGroup.triceps.sheetHeader]);
+
+        final forward = bestMatchingDayForEntry(entry, [arms, shoulders]);
+        final reversed = bestMatchingDayForEntry(entry, [shoulders, arms]);
+
+        expect(forward?.id, reversed?.id);
+        expect(forward?.id, 'arms');
+      },
+    );
   });
 
   group('estimatedCaloriesBurned', () {

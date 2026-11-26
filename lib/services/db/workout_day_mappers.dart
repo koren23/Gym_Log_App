@@ -7,6 +7,7 @@ WorkoutDayDef workoutDayDefFromRow(Map<String, Object?> row) => WorkoutDayDef(
   muscleGroups: _parseMuscleList(row['muscle_groups'] as String? ?? ''),
   legacyDay: _parseLegacyDay(row['legacy_day'] as String?),
   sheetRowIndex: row['sheet_row_index'] as int?,
+  sortOrder: row['sort_order'] as int? ?? 0,
 );
 
 Map<String, Object?> workoutDayDefToRow(WorkoutDayDef day) => {
@@ -15,6 +16,7 @@ Map<String, Object?> workoutDayDefToRow(WorkoutDayDef day) => {
   'muscle_groups': day.muscleGroups.map((g) => g.name).join(','),
   'legacy_day': day.legacyDay?.name,
   'sheet_row_index': day.sheetRowIndex,
+  'sort_order': day.sortOrder,
 };
 
 List<MuscleGroup> _parseMuscleList(String raw) {

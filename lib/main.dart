@@ -32,6 +32,28 @@ Future<void> main() async {
     workoutDays = kWorkoutDaySeed;
   }
 
+  // One-time: pin each row's current list position as its `sort_order` —
+  // on a fresh install this just re-confirms the seed order above; on an
+  // upgrade from pre-v4, it freezes whatever order `getAll()` happened to
+  // return (an unstable rowid artifact until now) so nothing visibly
+  // reshuffles the first time this runs.
+  if (!settings.hasBackfilledWorkoutDaySortOrder) {
+    final reindexed = [
+      for (var i = 0; i < workoutDays.length; i++)
+        WorkoutDayDef(
+          id: workoutDays[i].id,
+          label: workoutDays[i].label,
+          muscleGroups: workoutDays[i].muscleGroups,
+          legacyDay: workoutDays[i].legacyDay,
+          sheetRowIndex: workoutDays[i].sheetRowIndex,
+          sortOrder: i,
+        ),
+    ];
+    await workoutDayDao.upsertAll(reindexed);
+    workoutDays = reindexed;
+    await settings.setHasBackfilledWorkoutDaySortOrder(true);
+  }
+
   runApp(
     ProviderScope(
       overrides: [

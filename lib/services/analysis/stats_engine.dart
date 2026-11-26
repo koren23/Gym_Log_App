@@ -322,7 +322,7 @@ int longestStreakWeeks(List<DateTime> visitDates) {
   var current = 0;
   (int, int)? previous;
   for (final week in weeks) {
-    if (previous != null && week == _weekBefore(previous)) {
+    if (previous != null && previous == _weekBefore(week)) {
       current++;
     } else {
       current = 1;

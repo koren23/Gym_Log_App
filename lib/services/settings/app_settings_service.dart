@@ -56,6 +56,8 @@ class AppSettingsService {
   static const _kHasSeededWorkoutDays = 'has_seeded_workout_days';
   static const _kHasCleanedUpDuplicateWorkoutDays =
       'has_cleaned_up_duplicate_workout_days';
+  static const _kHasBackfilledWorkoutDaySortOrder =
+      'has_backfilled_workout_day_sort_order';
   static const _kAutoThemeRotationEnabled = 'auto_theme_rotation_enabled';
   static const _kLastAutoThemeChangeDate = 'last_auto_theme_change_date';
   static const _kHeightCm = 'height_cm';
@@ -337,6 +339,16 @@ class AppSettingsService {
 
   Future<void> setHasCleanedUpDuplicateWorkoutDays(bool value) =>
       _prefs.setBool(_kHasCleanedUpDuplicateWorkoutDays, value);
+
+  /// Guards the one-time startup backfill (in `main()`) that pins each
+  /// pre-existing `workout_day_defs` row's current list position as its new
+  /// `sort_order` column — added in schema v4, where every row otherwise
+  /// starts at the column's `DEFAULT 0`.
+  bool get hasBackfilledWorkoutDaySortOrder =>
+      _prefs.getBool(_kHasBackfilledWorkoutDaySortOrder) ?? false;
+
+  Future<void> setHasBackfilledWorkoutDaySortOrder(bool value) =>
+      _prefs.setBool(_kHasBackfilledWorkoutDaySortOrder, value);
 
   bool get autoThemeRotationEnabled =>
       _prefs.getBool(_kAutoThemeRotationEnabled) ?? false;

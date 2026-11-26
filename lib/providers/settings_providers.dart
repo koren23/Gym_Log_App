@@ -156,6 +156,7 @@ class WorkoutDayDefsNotifier extends Notifier<List<WorkoutDayDef>> {
       id: DateTime.now().microsecondsSinceEpoch.toString(),
       label: label,
       muscleGroups: groups,
+      sortOrder: state.length,
     );
     await ref.read(workoutDayDaoProvider).upsert(def);
     state = [...state, def];
@@ -190,6 +191,7 @@ class WorkoutDayDefsNotifier extends Notifier<List<WorkoutDayDef>> {
       muscleGroups: groups,
       legacyDay: existing.legacyDay,
       sheetRowIndex: existing.sheetRowIndex,
+      sortOrder: existing.sortOrder,
     );
     await ref.read(workoutDayDaoProvider).upsert(updated);
     state = [for (final d in state) d.id == id ? updated : d];
@@ -205,6 +207,31 @@ class WorkoutDayDefsNotifier extends Notifier<List<WorkoutDayDef>> {
   /// `workout_day_defs` by a path other than this notifier's own mutators.
   Future<void> reloadFromDb() async {
     state = await ref.read(workoutDayDaoProvider).getAll();
+  }
+
+  /// Reorders [state] exactly like [ReorderableListView]'s `onReorder`
+  /// callback expects (`newIndex` already pre-adjusted for the removal when
+  /// moving an item downward), reassigns every day's [WorkoutDayDef
+  /// .sortOrder] to its new position, and persists the whole order via
+  /// [WorkoutDayDao.reorder].
+  Future<void> reorder(int oldIndex, int newIndex) async {
+    final list = [...state];
+    if (newIndex > oldIndex) newIndex -= 1;
+    final moved = list.removeAt(oldIndex);
+    list.insert(newIndex, moved);
+    final reindexed = [
+      for (var i = 0; i < list.length; i++)
+        WorkoutDayDef(
+          id: list[i].id,
+          label: list[i].label,
+          muscleGroups: list[i].muscleGroups,
+          legacyDay: list[i].legacyDay,
+          sheetRowIndex: list[i].sheetRowIndex,
+          sortOrder: i,
+        ),
+    ];
+    state = reindexed;
+    await ref.read(workoutDayDaoProvider).reorder(reindexed);
   }
 
   Future<void> removeCustomDay(String id) async {

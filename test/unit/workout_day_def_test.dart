@@ -108,6 +108,33 @@ void main() {
       expect(merged.single.sheetRowIndex, 2);
     });
 
+    test('merged sortOrder is the lowest of the group', () {
+      final rows = [
+        WorkoutDayDef(
+          id: 'pull',
+          label: 'Pull',
+          muscleGroups: const [MuscleGroup.lats],
+          sortOrder: 7,
+        ),
+        WorkoutDayDef(
+          id: 'pull',
+          label: 'Pull',
+          muscleGroups: const [MuscleGroup.rearDelt],
+          sortOrder: 2,
+        ),
+        WorkoutDayDef(
+          id: 'pull',
+          label: 'Pull',
+          muscleGroups: const [MuscleGroup.upperBack],
+          sortOrder: 5,
+        ),
+      ];
+
+      final merged = mergeDuplicateWorkoutDays(rows);
+
+      expect(merged.single.sortOrder, 2);
+    });
+
     test('preserves a legacyDay link from any duplicate in the group', () {
       final withoutLegacy = WorkoutDayDef(
         id: WorkoutDay.pull.name,

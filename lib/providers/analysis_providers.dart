@@ -339,9 +339,12 @@ WorkoutDay? workoutDayForGroupLabels(List<String> labels) {
 ///    toward it, since an extra exercise outside every day's declared set
 ///    would otherwise make the whole visit unmatchable to any day at all).
 /// Among every day satisfying either rule, the one with the largest overlap
-/// wins (ties broken by fewest declared muscle groups, then [allDays]
-/// order) — so a broader day (e.g. "Upper Body") still doesn't "steal" a
+/// wins — so a broader day (e.g. "Upper Body") still doesn't "steal" a
 /// visit/entry a narrower day (e.g. "Arms") more specifically accounts for.
+/// Ties are broken, in order, by: fewest declared muscle groups, then a
+/// legacy-day match over a non-match, then the lower `id` string — all
+/// independent of [allDays]' order, since that order is now user-controlled
+/// (drag-reordered in Settings) and must stay presentation-only.
 WorkoutDayDef? bestMatchingDayForEntry(
   HistoryEntry entry,
   List<WorkoutDayDef> allDays,
@@ -362,6 +365,7 @@ WorkoutDayDef? bestMatchingDayForEntry(
 
   WorkoutDayDef? best;
   var bestOverlap = -1;
+  var bestLegacyOk = false;
   for (final day in allDays) {
     final overlap = resolved.where(day.muscleGroups.contains).length;
     final legacyOk = day.legacyDay != null && day.legacyDay == legacyMatch;
@@ -370,10 +374,19 @@ WorkoutDayDef? bestMatchingDayForEntry(
         best == null ||
         overlap > bestOverlap ||
         (overlap == bestOverlap &&
-            day.muscleGroups.length < best.muscleGroups.length);
+            day.muscleGroups.length < best.muscleGroups.length) ||
+        (overlap == bestOverlap &&
+            day.muscleGroups.length == best.muscleGroups.length &&
+            legacyOk &&
+            !bestLegacyOk) ||
+        (overlap == bestOverlap &&
+            day.muscleGroups.length == best.muscleGroups.length &&
+            legacyOk == bestLegacyOk &&
+            day.id.compareTo(best.id) < 0);
     if (better) {
       best = day;
       bestOverlap = overlap;
+      bestLegacyOk = legacyOk;
     }
   }
   return best;

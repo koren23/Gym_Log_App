@@ -13,6 +13,7 @@ class WorkoutDayDao {
     final rows = await _db.db.query(
       'workout_day_defs',
       where: 'deleted_at IS NULL',
+      orderBy: 'sort_order ASC',
     );
     return rows.map(workoutDayDefFromRow).toList();
   }
@@ -32,6 +33,20 @@ class WorkoutDayDao {
         'workout_day_defs',
         workoutDayDefToRow(day),
         conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
+  /// Persists a new display order: `newOrder[i]`'s `sort_order` becomes `i`.
+  Future<void> reorder(List<WorkoutDayDef> newOrder) async {
+    final batch = _db.db.batch();
+    for (var i = 0; i < newOrder.length; i++) {
+      batch.update(
+        'workout_day_defs',
+        {'sort_order': i},
+        where: 'id = ?',
+        whereArgs: [newOrder[i].id],
       );
     }
     await batch.commit(noResult: true);

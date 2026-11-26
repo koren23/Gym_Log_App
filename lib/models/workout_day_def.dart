@@ -15,6 +15,7 @@ class WorkoutDayDef {
     required this.muscleGroups,
     this.legacyDay,
     this.sheetRowIndex,
+    this.sortOrder = 0,
   });
 
   /// Stable id: a fixed string for the seeded Push/Pull/Legs/Full Body rows,
@@ -36,6 +37,11 @@ class WorkoutDayDef {
   /// from — null if not yet confirmed synced to the sheet (a locally
   /// pending add) or for the never-persisted seed rows.
   final int? sheetRowIndex;
+
+  /// Local-only display order — lower sorts first. Drag-reordered in
+  /// Settings; drives the order days appear everywhere else (Home, the Log
+  /// Workout day picker, Graphs). Not synced to the sheet.
+  final int sortOrder;
 
   bool get isFullBody => id == kFullBodyDayId;
 
@@ -63,8 +69,10 @@ class WorkoutDayDef {
 /// `sheetRowIndex` (a locally-pending add not yet confirmed synced) counts
 /// as more recent than any synced row. The merged entry's `sheetRowIndex`
 /// is the *lowest* of the group's — the row a one-time sheet cleanup keeps
-/// and overwrites, deleting the rest. Non-duplicated entries pass through
-/// unchanged, and relative order is preserved.
+/// and overwrites, deleting the rest. The merged entry's `sortOrder` is
+/// likewise the *lowest* of the group's, so a merge never silently moves a
+/// day later in the user's chosen display order. Non-duplicated entries
+/// pass through unchanged, and relative order is preserved.
 List<WorkoutDayDef> mergeDuplicateWorkoutDays(List<WorkoutDayDef> defs) {
   final order = <String>[];
   final byId = <String, List<WorkoutDayDef>>{};
@@ -116,6 +124,7 @@ WorkoutDayDef _mergeGroup(List<WorkoutDayDef> group) {
     sheetRowIndex: rowIndices.isEmpty
         ? null
         : rowIndices.reduce((a, b) => a < b ? a : b),
+    sortOrder: group.map((d) => d.sortOrder).reduce((a, b) => a < b ? a : b),
   );
 }
 
@@ -131,22 +140,26 @@ final List<WorkoutDayDef> kWorkoutDaySeed = [
     label: WorkoutDay.push.label,
     muscleGroups: kSeedPushMuscles,
     legacyDay: WorkoutDay.push,
+    sortOrder: 0,
   ),
   WorkoutDayDef(
     id: WorkoutDay.pull.name,
     label: WorkoutDay.pull.label,
     muscleGroups: kSeedPullMuscles,
     legacyDay: WorkoutDay.pull,
+    sortOrder: 1,
   ),
   WorkoutDayDef(
     id: WorkoutDay.legs.name,
     label: WorkoutDay.legs.label,
     muscleGroups: kSeedLegsMuscles,
     legacyDay: WorkoutDay.legs,
+    sortOrder: 2,
   ),
   WorkoutDayDef(
     id: kFullBodyDayId,
     label: 'Full Body',
     muscleGroups: kCurrentMuscleGroups,
+    sortOrder: 3,
   ),
 ];
