@@ -162,11 +162,26 @@ class XpTier {
 /// real visit/set counts once computed, and rescale if Gold would be
 /// reached in weeks rather than roughly a year of active use.
 const List<XpTier> kXpTiers = [
-  XpTier('Bronze', '🥉', 0, 500),
-  XpTier('Silver', '🥈', 500, 1500),
-  XpTier('Gold', '🥇', 1500, 3500),
-  XpTier('Platinum', '💠', 3500, 7000),
-  XpTier('Diamond', '💎', 7000, null),
+  XpTier('Wood', '🪵', 0, 150),
+  XpTier('Stone', '🪨', 150, 350),
+  XpTier('Copper', '🟤', 350, 600),
+  XpTier('Bronze', '🥉', 600, 1000),
+  XpTier('Iron', '⛓️', 1000, 1500),
+  XpTier('Silver', '🥈', 1500, 2200),
+  XpTier('Gold', '🥇', 2200, 3000),
+  XpTier('Platinum', '💠', 3000, 4000),
+  XpTier('Emerald', '💚', 4000, 5200),
+  XpTier('Sapphire', '🔷', 5200, 6600),
+  XpTier('Ruby', '🔴', 6600, 8200),
+  XpTier('Diamond', '💎', 8200, 10000),
+  XpTier('Master', '🎖️', 10000, 12500),
+  XpTier('Grandmaster', '🏅', 12500, 15500),
+  XpTier('Champion', '⚔️', 15500, 19000),
+  XpTier('Legend', '👑', 19000, 23000),
+  XpTier('Mythic', '🐉', 23000, 28000),
+  XpTier('Titan', '⚡', 28000, 34000),
+  XpTier('Olympian', '🔱', 34000, 42000),
+  XpTier('Immortal', '♾️', 42000, null),
 ];
 
 /// The tier right above [tier], or null for the top tier.

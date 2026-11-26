@@ -89,14 +89,14 @@ void main() {
     });
 
     test('nextTierAfter walks up the ladder and stops at the top', () {
-      expect(nextTierAfter(kXpTiers.first)?.name, 'Silver');
+      expect(nextTierAfter(kXpTiers.first)?.name, kXpTiers[1].name);
       expect(nextTierAfter(kXpTiers.last), isNull);
     });
 
     test('computeWidgetStats carries the league through', () {
       final snap = computeWidgetStats(
         const [],
-        league: xpTierFor(1600),
+        league: xpTierFor(2300),
         nextWorkout: 'Pull',
       );
 

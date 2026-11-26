@@ -38,7 +38,7 @@ class GymWidgetProvider : HomeWidgetProvider() {
   companion object {
     private const val TIER_MEDIUM_MIN_HEIGHT_DP = 110
     private const val TIER_LARGE_MIN_HEIGHT_DP = 180
-    private const val TIER_XLARGE_MIN_HEIGHT_DP = 240
+    private const val TIER_XLARGE_MIN_HEIGHT_DP = 250
 
     private fun updateAppWidget(
         context: Context,

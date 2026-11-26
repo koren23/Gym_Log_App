@@ -16,6 +16,20 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '4.6.0',
+    date: '2026-11-26',
+    changes: [
+      'Way more leagues: 20 in total, from 🪵 Wood up to ♾️ Immortal, '
+          'each with its own icon — tap the League card on Stats to see '
+          'the full ladder.',
+      'Widget: the 4-row layout now spreads its rows evenly over the '
+          'whole widget instead of bunching them at the bottom.',
+      'Widget: fixed the 3-row size sometimes showing the 4-row layout '
+          '(league / next workout) — 3 rows is back to streak, best and '
+          'Log Workout only.',
+    ],
+  ),
+  ChangelogEntry(
     version: '4.5.0',
     date: '2026-11-26',
     changes: [
