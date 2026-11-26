@@ -311,27 +311,58 @@ int currentStreakWeeks(List<DateTime> visitDates) {
 }
 
 /// Longest run of consecutive weeks with at least one real visit, ever.
-int longestStreakWeeks(List<DateTime> visitDates) {
-  if (visitDates.isEmpty) return 0;
-  final weeks = visitDates.map(_weekKey).toSet().toList()
-    ..sort((a, b) {
-      final yearCmp = a.$1.compareTo(b.$1);
-      return yearCmp != 0 ? yearCmp : a.$2.compareTo(b.$2);
-    });
-  var longest = 0;
-  var current = 0;
-  (int, int)? previous;
-  for (final week in weeks) {
-    if (previous != null && previous == _weekBefore(week)) {
-      current++;
-    } else {
-      current = 1;
-    }
-    longest = current > longest ? current : longest;
-    previous = week;
-  }
-  return longest;
+int longestStreakWeeks(List<DateTime> visitDates) =>
+    longestStreakRun(visitDates)?.weeks ?? 0;
+
+/// A run of consecutive weeks with at least one visit, identified by the
+/// Monday of its first and last week.
+class StreakRun {
+  const StreakRun({
+    required this.weeks,
+    required this.firstMonday,
+    required this.lastMonday,
+  });
+
+  final int weeks;
+  final DateTime firstMonday;
+  final DateTime lastMonday;
 }
+
+/// The longest [StreakRun] ever (the most recent one on a tie), or null
+/// with no visits. Works on real Monday dates, so runs crossing New Year
+/// stay consecutive.
+StreakRun? longestStreakRun(List<DateTime> visitDates) {
+  if (visitDates.isEmpty) return null;
+  final mondays = visitDates.map(mondayOf).toSet().toList()..sort();
+  StreakRun? best;
+  var runStart = mondays.first;
+  var runLength = 0;
+  DateTime? previous;
+  for (final monday in mondays) {
+    if (previous != null && _addDays(previous, 7) == monday) {
+      runLength++;
+    } else {
+      runStart = monday;
+      runLength = 1;
+    }
+    if (best == null || runLength >= best.weeks) {
+      best = StreakRun(
+        weeks: runLength,
+        firstMonday: runStart,
+        lastMonday: monday,
+      );
+    }
+    previous = monday;
+  }
+  return best;
+}
+
+/// Midnight on the Monday of [date]'s week.
+DateTime mondayOf(DateTime date) =>
+    DateTime(date.year, date.month, date.day - (date.weekday - 1));
+
+DateTime _addDays(DateTime date, int days) =>
+    DateTime(date.year, date.month, date.day + days);
 
 /// Percent of weeks since [since] (or the earliest visit, if null) that
 /// have at least one real visit.

@@ -1,55 +1,91 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="@drawable/widget_background"
-    android:orientation="horizontal"
-    android:gravity="center_vertical"
-    android:paddingStart="16dp"
-    android:paddingEnd="16dp"
-    android:paddingTop="8dp"
-    android:paddingBottom="8dp">
+    android:layout_height="match_parent">
+
+    <ImageView
+        android:id="@+id/bg_card"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="fitXY"
+        android:src="@drawable/widget_background"
+        android:tint="@color/widget_background" />
 
     <LinearLayout
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_weight="1"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
         android:orientation="horizontal"
-        android:gravity="center_vertical">
+        android:gravity="center_vertical"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp">
+
+        <FrameLayout
+            android:layout_width="34dp"
+            android:layout_height="34dp">
+
+            <ImageView
+                android:id="@+id/fire_glow"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:src="@drawable/widget_fire_glow" />
+
+            <ImageView
+                android:id="@+id/fire_icon"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:layout_gravity="center"
+                android:src="@drawable/ic_widget_fire_active" />
+        </FrameLayout>
 
         <TextView
             android:id="@+id/streak_text"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
             android:text="0"
-            android:textColor="@color/widget_app_bar"
+            android:textColor="@color/widget_hero"
             android:textSize="22sp"
             android:textStyle="bold" />
 
         <TextView
-            android:layout_width="wrap_content"
+            android:id="@+id/streak_label"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:layout_weight="1"
             android:layout_marginStart="6dp"
-            android:text="wk streak"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:text="week streak"
             android:textColor="@color/widget_text_dark"
-            android:textSize="13sp" />
-    </LinearLayout>
+            android:textSize="14sp" />
 
-    <LinearLayout
-        android:id="@+id/log_button"
-        android:layout_width="wrap_content"
-        android:layout_height="36dp"
-        android:background="@drawable/widget_button_bg"
-        android:gravity="center"
-        android:paddingStart="14dp"
-        android:paddingEnd="14dp">
-
-        <TextView
+        <FrameLayout
+            android:id="@+id/log_button"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Log Workout"
-            android:textColor="@color/widget_text_on_hero"
-            android:textSize="13sp"
-            android:textStyle="bold" />
+            android:layout_height="36dp">
+
+            <ImageView
+                android:id="@+id/log_button_bg"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:scaleType="fitXY"
+                android:src="@drawable/widget_button_bg"
+                android:tint="@color/widget_hero" />
+
+            <TextView
+                android:id="@+id/log_button_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
+                android:text="Log Workout"
+                android:textColor="@color/widget_text_on_hero"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+        </FrameLayout>
     </LinearLayout>
-</LinearLayout>
+</FrameLayout>

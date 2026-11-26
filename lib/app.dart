@@ -5,11 +5,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:home_widget/home_widget.dart';
 
 import 'core/app_page_route.dart';
+import 'core/color_utils.dart';
 import 'providers/auth_providers.dart';
 import 'providers/db_providers.dart';
 import 'providers/local_history_providers.dart';
 import 'providers/settings_providers.dart';
 import 'providers/sheet_data_providers.dart';
+import 'screens/body_weight/body_weight_entry_screen.dart';
 import 'screens/log_workout/log_workout_screen.dart';
 import 'screens/onboarding/sign_in_screen.dart';
 import 'screens/root/main_shell.dart';
@@ -46,7 +48,7 @@ class GymTrackerApp extends ConsumerWidget {
     // read a touch brighter than whatever background the user picks —
     // otherwise some presets end up with boxes barely distinguishable from
     // the page behind them.
-    final boxColor = _lighten(colors.background, 0.08);
+    final boxColor = lightenColor(colors.background, 0.08);
     return MaterialApp(
       title: "Koren's Gym Log",
       debugShowCheckedModeBanner: false,
@@ -98,21 +100,36 @@ class _RootScreenState extends ConsumerState<_RootScreen> {
   // Set by a home-screen-widget tap (cold start via
   // `initiallyLaunchedFromHomeWidget`, or while already running via the
   // `widgetClicked` stream) — consumed the next time `build` reaches
-  // MainShell, pushing straight into Log Workout.
-  bool _pendingWidgetLaunch = false;
+  // MainShell. Host is `home`, `logworkout` or `logbodyweight`.
+  Uri? _pendingWidgetUri;
   StreamSubscription<Uri?>? _widgetClickSub;
 
   @override
   void initState() {
     super.initState();
-    _widgetClickSub = HomeWidget.widgetClicked.listen((_) {
-      if (!mounted) return;
-      setState(() => _pendingWidgetLaunch = true);
+    _widgetClickSub = HomeWidget.widgetClicked.listen((uri) {
+      if (uri == null || !mounted) return;
+      setState(() => _pendingWidgetUri = uri);
     });
     HomeWidget.initiallyLaunchedFromHomeWidget().then((uri) {
       if (uri == null || !mounted) return;
-      setState(() => _pendingWidgetLaunch = true);
+      setState(() => _pendingWidgetUri = uri);
     });
+  }
+
+  void _openFromWidget(Uri uri) {
+    final navigator = Navigator.of(context);
+    switch (uri.host) {
+      case 'logworkout':
+        navigator.push(AppPageRoute(builder: (_) => const LogWorkoutScreen()));
+      case 'logbodyweight':
+        navigator.push(
+          AppPageRoute(builder: (_) => const BodyWeightEntryScreen()),
+        );
+      default:
+        navigator.popUntil((route) => route.isFirst);
+        ref.read(homeTabRequestProvider.notifier).request();
+    }
   }
 
   @override
@@ -257,21 +274,15 @@ class _RootScreenState extends ConsumerState<_RootScreen> {
       });
     }
 
-    if (_pendingWidgetLaunch) {
-      _pendingWidgetLaunch = false;
+    final widgetUri = _pendingWidgetUri;
+    if (widgetUri != null) {
+      _pendingWidgetUri = null;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        Navigator.of(context).push(
-          AppPageRoute(builder: (_) => const LogWorkoutScreen()),
-        );
+        _openFromWidget(widgetUri);
       });
     }
 
     return const MainShell();
   }
-}
-
-Color _lighten(Color color, double amount) {
-  final hsl = HSLColor.fromColor(color);
-  return hsl.withLightness((hsl.lightness + amount).clamp(0.0, 1.0)).toColor();
 }

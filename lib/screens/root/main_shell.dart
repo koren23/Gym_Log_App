@@ -17,6 +17,19 @@ import '../log_workout/log_workout_screen.dart';
 import '../settings/settings_screen.dart';
 import '../stats/stats_screen.dart';
 
+/// Bumped to send [MainShell] back to its Home tab (e.g. a home-screen
+/// widget tap while the app is already open on another tab).
+class HomeTabRequestNotifier extends Notifier<int> {
+  @override
+  int build() => 0;
+
+  void request() => state++;
+}
+
+final homeTabRequestProvider = NotifierProvider<HomeTabRequestNotifier, int>(
+  HomeTabRequestNotifier.new,
+);
+
 /// Persistent app shell: one AppBar + bottom nav across the Home, Graphs
 /// and History tabs, plus a global "Log workout" FAB. Settings stays a
 /// pushed route from the AppBar gear icon (as before) rather than a 4th tab.
@@ -110,6 +123,9 @@ class _MainShellState extends ConsumerState<MainShell> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(homeTabRequestProvider, (_, _) {
+      if (_selectedIndex != 0) setState(() => _selectedIndex = 0);
+    });
     final displayName = ref.watch(appDisplayNameProvider);
     final colors = ref.watch(appColorsProvider);
 

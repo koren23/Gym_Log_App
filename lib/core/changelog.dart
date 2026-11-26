@@ -16,6 +16,20 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '4.4.0',
+    date: '2026-11-26',
+    changes: [
+      'Home-screen widget: a fire next to your streak glows while the '
+          'streak is alive and turns grey once it breaks, and "wk" is now '
+          'written out as "week".',
+      'Widget: the best-streak row now stretches across the full width '
+          'and shows the date that streak ended (or "ongoing").',
+      'Widget: at its tallest size it adds a Log Bodyweight button.',
+      'Widget: tapping anywhere outside the buttons opens the Home page, '
+          'and the widget now follows your app theme\'s colors.',
+    ],
+  ),
+  ChangelogEntry(
     version: '4.3.0',
     date: '2026-11-26',
     changes: [

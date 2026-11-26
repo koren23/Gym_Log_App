@@ -32,5 +32,46 @@ void main() {
     test('no visits is a 0-week streak', () {
       expect(longestStreakWeeks(const []), 0);
     });
+
+    test('a run crossing New Year stays consecutive', () {
+      expect(
+        longestStreakWeeks([
+          DateTime(2025, 12, 22),
+          DateTime(2025, 12, 31),
+          DateTime(2026, 1, 7),
+        ]),
+        3,
+      );
+    });
+  });
+
+  group('longestStreakRun', () {
+    test('reports the first and last Monday of the run', () {
+      final run = longestStreakRun([
+        DateTime(2024, 1, 3), // Wed, week of Mon Jan 1.
+        DateTime(2024, 1, 12), // Fri, week of Mon Jan 8.
+        DateTime(2024, 2, 1),
+      ])!;
+
+      expect(run.weeks, 2);
+      expect(run.firstMonday, DateTime(2024, 1, 1));
+      expect(run.lastMonday, DateTime(2024, 1, 8));
+    });
+
+    test('the most recent run wins a tie', () {
+      final run = longestStreakRun([
+        DateTime(2024, 1, 1),
+        DateTime(2024, 1, 8),
+        DateTime(2024, 3, 4),
+        DateTime(2024, 3, 11),
+      ])!;
+
+      expect(run.weeks, 2);
+      expect(run.lastMonday, DateTime(2024, 3, 11));
+    });
+
+    test('is null with no visits', () {
+      expect(longestStreakRun(const []), isNull);
+    });
   });
 }
