@@ -36,6 +36,7 @@ class AppSettingsService {
   static const _kDismissedSuggestionSignatures =
       'dismissed_suggestion_signatures_v1';
   static const _kRecentSuggestions = 'recent_suggestions_v1';
+  static const _kTemporaryDayIds = 'temporary_day_ids_v1';
   static const _kPendingSuggestions = 'pending_suggestions_v1';
 
   /// How long a shown suggestion stays "recent" for cooldown/variety
@@ -224,6 +225,14 @@ class AppSettingsService {
       current.toList(),
     );
   }
+
+  /// Workout-day ids marked "temporary" in Settings — done once in a while,
+  /// so skipped by the widget's "Next" rotation. Local-only, like sortOrder.
+  Set<String> get temporaryDayIds =>
+      (_prefs.getStringList(_kTemporaryDayIds) ?? const []).toSet();
+
+  Future<void> setTemporaryDayIds(Set<String> ids) =>
+      _prefs.setStringList(_kTemporaryDayIds, ids.toList());
 
   /// Suggestions actually shown to the user recently — drives per-kind
   /// cooldown/variety in [AnalysisEngine.analyze] (`recentlySuggestedKinds`)

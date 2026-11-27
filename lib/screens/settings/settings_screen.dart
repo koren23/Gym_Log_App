@@ -355,6 +355,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final pendingItems = ref.watch(pendingSyncQueueProvider).getAll();
     final currentColors = ref.watch(appColorsProvider);
     final dayDefs = ref.watch(workoutDayDefsProvider);
+    final temporaryDayIds = ref.watch(temporaryDayIdsProvider);
     final workoutDefaults = ref.watch(workoutDefaultsProvider);
     final autoThemeEnabled = ref
         .watch(appSettingsServiceProvider)
@@ -628,7 +629,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 'Backed up to your sheet\'s "WorkoutDays" tab. Push, Pull, '
                 'and Legs start out seeded for you but are ordinary days you '
                 'can rename, edit, or delete like any other — name your own '
-                'anything you like and pick which muscles belong to it.',
+                'anything you like and pick which muscles belong to it. Tap '
+                'the hourglass to mark a day temporary (one you only do once '
+                'in a while) — the widget\'s "Next" workout skips it.',
             children: [
               ReorderableListView(
                 shrinkWrap: true,
@@ -650,13 +653,34 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       ),
                       title: Text(dayDefs[i].label),
                       subtitle: Text(
-                        dayDefs[i].muscleGroups
-                            .map((g) => g.sheetHeader)
-                            .join(', '),
+                        [
+                          if (temporaryDayIds.contains(dayDefs[i].id))
+                            'Temporary · skipped in Next',
+                          dayDefs[i].muscleGroups
+                              .map((g) => g.sheetHeader)
+                              .join(', '),
+                        ].join('\n'),
                       ),
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
+                          IconButton(
+                            tooltip: 'Temporary — skipped in Next',
+                            icon: temporaryDayIds.contains(dayDefs[i].id)
+                                ? Icon(
+                                    Icons.hourglass_bottom,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.primary,
+                                  )
+                                : const Icon(Icons.hourglass_empty),
+                            onPressed: () {
+                              HapticFeedback.lightImpact();
+                              ref
+                                  .read(temporaryDayIdsProvider.notifier)
+                                  .toggle(dayDefs[i].id);
+                            },
+                          ),
                           IconButton(
                             icon: const Icon(Icons.edit_outlined),
                             onPressed: () async {

@@ -47,15 +47,27 @@ class WidgetStatsSnapshot {
 /// first day with no history or an unmatchable last visit.
 WorkoutDayDef? nextWorkoutDay(
   List<HistoryEntry> realEntries,
-  List<WorkoutDayDef> days,
-) {
+  List<WorkoutDayDef> days, {
+  Set<String> temporaryIds = const {},
+}) {
   if (days.isEmpty) return null;
-  if (realEntries.isEmpty) return days.first;
-  final latest = realEntries.reduce((a, b) => b.date.isAfter(a.date) ? b : a);
-  final lastDay = bestMatchingDayForEntry(latest, days);
-  if (lastDay == null) return days.first;
-  final i = days.indexWhere((d) => d.id == lastDay.id);
-  return days[(i + 1) % days.length];
+  // Temporary days (done once in a while) never take a turn, and logging
+  // one doesn't move the rotation — the latest non-temporary visit decides.
+  final rotation = [
+    for (final d in days)
+      if (!temporaryIds.contains(d.id)) d,
+  ];
+  if (rotation.isEmpty) return days.first;
+  final newestFirst = [...realEntries]
+    ..sort((a, b) => b.date.compareTo(a.date));
+  for (final entry in newestFirst) {
+    final day = bestMatchingDayForEntry(entry, days);
+    if (day != null && temporaryIds.contains(day.id)) continue;
+    if (day == null) return rotation.first;
+    final i = rotation.indexWhere((d) => d.id == day.id);
+    return rotation[(i + 1) % rotation.length];
+  }
+  return rotation.first;
 }
 
 WidgetStatsSnapshot computeWidgetStats(
@@ -192,7 +204,11 @@ final nextWorkoutDayProvider = Provider<WorkoutDayDef?>((ref) {
   final realEntries = buildHistoryEntries(
     visits,
   ).where((e) => !e.isSynthetic).toList();
-  return nextWorkoutDay(realEntries, days);
+  return nextWorkoutDay(
+    realEntries,
+    days,
+    temporaryIds: ref.watch(temporaryDayIdsProvider),
+  );
 });
 
 final widgetStatsProvider = Provider<WidgetStatsSnapshot?>((ref) {

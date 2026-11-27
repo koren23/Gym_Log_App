@@ -16,6 +16,15 @@ class ChangelogEntry {
 
 const List<ChangelogEntry> kChangelog = [
   ChangelogEntry(
+    version: '4.8.0',
+    date: '2026-11-27',
+    changes: [
+      'Settings: tap the hourglass on a workout day to mark it temporary '
+          '(one you only do once in a while). The widget\'s "Next" workout '
+          'skips temporary days, and logging one doesn\'t move the rotation.',
+    ],
+  ),
+  ChangelogEntry(
     version: '4.7.0',
     date: '2026-11-27',
     changes: [

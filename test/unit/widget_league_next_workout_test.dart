@@ -39,6 +39,7 @@ HistoryEntry _visit(
 const _push = WorkoutDayDef(id: 'push', label: 'Push', muscleGroups: []);
 const _pull = WorkoutDayDef(id: 'pull', label: 'Pull', muscleGroups: []);
 const _legs = WorkoutDayDef(id: 'legs', label: 'Legs', muscleGroups: []);
+const _arms = WorkoutDayDef(id: 'arms', label: 'Arms', muscleGroups: []);
 
 void main() {
   group('nextWorkoutDay', () {
@@ -78,6 +79,49 @@ void main() {
 
     test('is null with no workout days', () {
       expect(nextWorkoutDay(const [], const []), isNull);
+    });
+
+    test('a logged temporary day does not move the rotation', () {
+      final next = nextWorkoutDay(
+        [
+          _visit(DateTime(2026, 1, 1), 'pull'),
+          _visit(DateTime(2026, 1, 3), 'arms'),
+        ],
+        const [_push, _pull, _arms, _legs],
+        temporaryIds: {'arms'},
+      );
+
+      expect(next?.label, 'Legs');
+    });
+
+    test('a temporary day is never next, even between rotation days', () {
+      final next = nextWorkoutDay(
+        [_visit(DateTime(2026, 1, 3), 'pull')],
+        const [_push, _pull, _arms, _legs],
+        temporaryIds: {'arms'},
+      );
+
+      expect(next?.label, 'Legs');
+    });
+
+    test('only temporary visits falls back to the first rotation day', () {
+      final next = nextWorkoutDay(
+        [_visit(DateTime(2026, 1, 3), 'arms')],
+        const [_arms, _push, _pull],
+        temporaryIds: {'arms'},
+      );
+
+      expect(next?.label, 'Push');
+    });
+
+    test('every day temporary falls back to the first day', () {
+      final next = nextWorkoutDay(
+        [_visit(DateTime(2026, 1, 3), 'push')],
+        const [_push, _pull],
+        temporaryIds: {'push', 'pull'},
+      );
+
+      expect(next?.label, 'Push');
     });
   });
 

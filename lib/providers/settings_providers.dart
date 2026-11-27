@@ -258,6 +258,25 @@ final workoutDayDefsProvider =
       WorkoutDayDefsNotifier.new,
     );
 
+/// Ids of workout days marked temporary (see
+/// `AppSettingsService.temporaryDayIds`).
+class TemporaryDaysNotifier extends Notifier<Set<String>> {
+  @override
+  Set<String> build() => ref.watch(appSettingsServiceProvider).temporaryDayIds;
+
+  Future<void> toggle(String id) async {
+    final updated = {...state};
+    if (!updated.remove(id)) updated.add(id);
+    state = updated;
+    await ref.read(appSettingsServiceProvider).setTemporaryDayIds(updated);
+  }
+}
+
+final temporaryDayIdsProvider =
+    NotifierProvider<TemporaryDaysNotifier, Set<String>>(
+      TemporaryDaysNotifier.new,
+    );
+
 
 /// Suggestions the user has accepted from a [SuggestionCard] but not yet
 /// consumed — see `AppSettingsService.pendingSuggestions`. Local-only
